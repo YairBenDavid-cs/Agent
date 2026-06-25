@@ -4,16 +4,17 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
+/** Mirrors UserRole in the users domain; kept inline so common stays decoupled. */
+export type AuthRole = 'user' | 'admin';
+
 export interface AuthenticatedUser {
   userId: string;
+  role: AuthRole;
 }
 
 /**
  * Injects the authenticated user's identity into a handler.
- * Identity comes from the request (set by the auth guard) — never from query/body.
- *
- * NOTE: AuthModule + JwtAuthGuard are the next milestone. Until then, route
- * protection must be wired before these read endpoints are exposed publicly.
+ * Identity comes from the request (set by JwtAuthGuard) — never from query/body.
  */
 export const CurrentUser = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): AuthenticatedUser => {

@@ -9,13 +9,15 @@ export class User {
   @Prop({ type: String, required: true, unique: true }) user_id!: string;
   @Prop({ type: String, required: true, unique: true }) email!: string;
   @Prop({ type: String, required: true }) name!: string;
-  @Prop({ type: String, required: true }) date_of_birth!: string;
 
-  @Prop({ type: String, required: true, enum: ['male', 'female', 'other'] })
-  sex!: Sex;
+  // Profile fields below are captured during onboarding, not at signup.
+  @Prop({ type: String, default: null }) date_of_birth!: string | null;
 
-  @Prop({ type: String, required: true }) country!: string;
-  @Prop({ type: String, required: true }) timezone!: string;
+  @Prop({ type: String, default: null, enum: ['male', 'female', 'other', null] })
+  sex!: Sex | null;
+
+  @Prop({ type: String, default: null }) country!: string | null;
+  @Prop({ type: String, default: null }) timezone!: string | null;
   @Prop({ type: String, required: true, default: 'en' }) locale!: string;
 
   @Prop({

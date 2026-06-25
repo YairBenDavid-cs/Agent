@@ -1,7 +1,6 @@
 .page {
-  /* Dark palette scoped to the auth page, matching the Assistant page exactly:
-     neutral dark surfaces with a light (#ececec) accent. Overriding the --wa-*
-     tokens re-themes the card, fields and button without per-file edits. */
+  /* Dark palette scoped to the auth/landing page, matching the Assistant page
+     exactly: neutral dark surfaces with a light (#ececec) accent. */
   --wa-header-bg: #212121;
   --wa-panel-bg: #171717;
   --wa-text: #ececec;
@@ -10,42 +9,470 @@
   --wa-brand: #ececec;
   --wa-brand-dark: #ffffff;
 
+  min-height: 100%;
+  color: var(--wa-text);
+  background:
+    radial-gradient(900px 500px at 12% -10%, rgba(255, 255, 255, 0.06), transparent 60%),
+    radial-gradient(700px 600px at 110% 8%, rgba(255, 255, 255, 0.05), transparent 55%),
+    linear-gradient(180deg, #212121 0%, #141414 100%);
+}
+
+/* ---- Nav ---- */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(20, 20, 20, 0.72);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--wa-border);
+}
+
+.navInner {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 100%;
-  padding: var(--wa-space-4);
-  color: var(--wa-text);
-  background: linear-gradient(180deg, #212121 0%, #171717 100%);
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0.9rem var(--wa-space-4);
 }
 
-.card {
-  width: 100%;
-  max-width: 380px;
+.navActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.navLink {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--wa-text);
+  text-decoration: none;
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--wa-radius-md);
+  transition: background-color 0.15s ease;
+}
+
+.navLink:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.navCta {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #171717;
+  text-decoration: none;
+  padding: 0.5rem 1.1rem;
+  border-radius: var(--wa-radius-md);
+  background-color: var(--wa-brand);
+  transition: background-color 0.15s ease;
+}
+
+.navCta:hover {
+  background-color: var(--wa-brand-dark);
+}
+
+/* ---- Brand ---- */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logoMark {
+  flex-shrink: 0;
+  color: var(--wa-text);
+}
+
+.brandName {
+  font-size: 1.1875rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--wa-text);
+}
+
+/* ---- Hero ---- */
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(2rem, 6vw, 5rem);
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(3rem, 8vw, 6rem) var(--wa-space-4) clamp(2.5rem, 6vw, 4rem);
+}
+
+.heroCopy {
+  flex: 1 1 0;
+  max-width: 560px;
+  min-width: 0;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--wa-text-muted);
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--wa-border);
+  border-radius: 999px;
+  margin-bottom: 1.5rem;
+}
+
+.headline {
+  margin: 0 0 1rem;
+  font-size: clamp(2rem, 4.5vw, 3rem);
+  line-height: 1.08;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.accent {
+  color: var(--wa-text);
+  background: linear-gradient(180deg, transparent 62%, rgba(255, 255, 255, 0.16) 62%);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.subhead {
+  margin: 0 0 2.25rem;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--wa-text-muted);
+  max-width: 480px;
+}
+
+/* ---- Aha flow ---- */
+.ahaFlow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  max-width: 420px;
+}
+
+.ahaCard {
   background-color: var(--wa-panel-bg);
   border: 1px solid var(--wa-border);
-  border-radius: var(--wa-radius-lg);
-  padding: var(--wa-space-4);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-3);
 }
 
-.toggle {
-  margin-top: var(--wa-space-4);
-  text-align: center;
-  font-size: 0.875rem;
+.ahaTag {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--wa-text);
+  margin-bottom: 0.75rem;
+}
+
+.ahaMetrics {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.ahaMetric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ahaMetricValue {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ahaMetricLabel {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--wa-text-muted);
 }
 
-.toggleButton {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  color: var(--wa-brand-dark);
-  font-weight: 600;
-  cursor: pointer;
+.ahaArrow {
+  align-self: center;
+  color: var(--wa-text-muted);
+  font-size: 1rem;
+  line-height: 1;
 }
 
-.toggleButton:hover {
-  text-decoration: underline;
+.ahaSwap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.ahaStrike {
+  color: var(--wa-text-muted);
+  text-decoration: line-through;
+}
+
+.ahaTo {
+  color: var(--wa-text);
+  font-weight: 600;
+}
+
+.ahaCardFinal {
+  background-color: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-3);
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--wa-text);
+}
+
+/* ---- Hero CTAs ---- */
+.heroCtas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.ctaPrimary {
+  display: inline-block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #171717;
+  text-decoration: none;
+  padding: 0.7rem 1.5rem;
+  border-radius: var(--wa-radius-md);
+  background-color: var(--wa-brand);
+  transition: background-color 0.15s ease;
+}
+
+.ctaPrimary:hover {
+  background-color: var(--wa-brand-dark);
+}
+
+.ctaSecondary {
+  display: inline-block;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--wa-text);
+  text-decoration: none;
+  padding: 0.7rem 1.5rem;
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.ctaSecondary:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: var(--wa-text-muted);
+}
+
+/* ---- Hero visual ---- */
+.heroVisual {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 420px;
+}
+
+/* ---- Content blocks ---- */
+.block {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vw, 4.5rem) var(--wa-space-4);
+  border-top: 1px solid var(--wa-border);
+}
+
+.blockHead {
+  max-width: 640px;
+  margin: 0 auto clamp(2rem, 4vw, 3rem);
+  text-align: center;
+}
+
+.blockTitle {
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.blockLede {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--wa-text-muted);
+}
+
+/* ---- Agent grid ---- */
+.agentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.agentCard {
+  background-color: var(--wa-panel-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-4);
+}
+
+.agentDot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--wa-brand);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+  margin-bottom: 1rem;
+}
+
+.agentName {
+  margin: 0 0 2px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--wa-text);
+}
+
+.agentRole {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--wa-text-muted);
+}
+
+.agentDetail {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--wa-text-muted);
+}
+
+/* ---- Steps ---- */
+.stepGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.stepCard {
+  background-color: var(--wa-panel-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-4);
+}
+
+.stepNum {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--wa-text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.stepTitle {
+  margin: 0 0 0.5rem;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--wa-text);
+}
+
+.stepDetail {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--wa-text-muted);
+}
+
+/* ---- Pipeline ---- */
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.pipeWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pipeNode {
+  padding: 0.6rem 1.1rem;
+  background-color: var(--wa-panel-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: 999px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--wa-text);
+}
+
+.pipeArrow {
+  color: var(--wa-text-muted);
+}
+
+.pipeNote {
+  margin: 1.75rem 0 0;
+  text-align: center;
+  font-size: 0.9375rem;
+  color: var(--wa-text-muted);
+}
+
+/* ---- Footer ---- */
+.footer {
+  border-top: 1px solid var(--wa-border);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.footerInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 5vw, 3.5rem) var(--wa-space-4);
+  text-align: center;
+}
+
+.footerTag {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.footerCopy {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--wa-text-muted);
+}
+
+/* ---- Responsive: stack hero, auth card on top ---- */
+@media (max-width: 880px) {
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+    max-width: 480px;
+  }
+
+  .heroCopy {
+    max-width: 100%;
+  }
+
+  .heroVisual {
+    max-width: 100%;
+  }
+
+  .ahaFlow {
+    max-width: 100%;
+  }
 }

@@ -48,8 +48,8 @@ export function useLoginForm(): UseLoginForm {
     setSubmitting(true);
     setError(null);
     loginRequest(email, values.password).then(
-      (session) => {
-        auth.login(session);
+      (user) => {
+        auth.login(user);
         navigate('/', { replace: true });
       },
       (err: unknown) => {

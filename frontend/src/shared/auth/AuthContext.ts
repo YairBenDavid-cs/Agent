@@ -1,9 +1,14 @@
 import { createContext } from 'react';
-import type { AuthSession } from './authSession';
+import type { User } from '@/shared/types/user';
 
 export interface AuthContextValue {
-  session: AuthSession | null;
-  login: (session: AuthSession) => void;
+  /** The signed-in user, or null when logged out. */
+  user: User | null;
+  /** True until the initial session check (GET /users/me) resolves. */
+  loading: boolean;
+  /** Record a successful login/signup. */
+  login: (user: User) => void;
+  /** Revoke the server session and clear local state. */
   logout: () => void;
 }
 

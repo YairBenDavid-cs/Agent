@@ -1,23 +1,19 @@
-import type { AuthSession } from '@/shared/auth/authSession';
+import type { User } from '@/shared/types/user';
 
-// Builds a believable local session so the login/signup flow works without a
+// Builds a believable local user so the login/signup flow works without a
 // backend. Swapped out for real API calls once VITE_MOCK_API=false.
 function deriveName(email: string): string {
   const local = email.split('@')[0] ?? 'there';
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-export function mockSession(email: string, name?: string): AuthSession {
-  const displayName = name?.trim() !== undefined && name?.trim() !== '' ? name.trim() : deriveName(email);
-  const initial = displayName.charAt(0).toUpperCase() || 'U';
+export function mockUser(email: string, name?: string): User {
+  const displayName =
+    name?.trim() !== undefined && name?.trim() !== '' ? name.trim() : deriveName(email);
   return {
-    token: `mock.${crypto.randomUUID()}`,
-    user: {
-      id: crypto.randomUUID(),
-      name: displayName,
-      email,
-      avatarUrl: `https://placehold.co/96x96?text=${encodeURIComponent(initial)}`,
-    },
+    id: crypto.randomUUID(),
+    name: displayName,
+    email,
   };
 }
 

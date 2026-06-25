@@ -11,6 +11,9 @@ export enum ErrorCode {
   INTEGRATION_NOT_FOUND = 'INTEGRATIONS.NOT_FOUND',
   GARMIN_AUTH_FAILED = 'INTEGRATIONS.GARMIN_AUTH_FAILED',
   FETCHER_UNAVAILABLE = 'INGESTION.FETCHER_UNAVAILABLE',
+  AUTH_INVALID_CREDENTIALS = 'AUTH.INVALID_CREDENTIALS',
+  AUTH_TOKEN_INVALID = 'AUTH.TOKEN_INVALID',
+  AUTH_EMAIL_TAKEN = 'AUTH.EMAIL_TAKEN',
 }
 
 /** Shape returned to clients for every failure. Backward-compatible contract. */
@@ -43,6 +46,31 @@ export class ApiError extends HttpException {
       ErrorCode.NOT_FOUND,
       message,
       details,
+    );
+  }
+
+  /** Single generic auth failure — never reveals which factor was wrong. */
+  static invalidCredentials(): ApiError {
+    return new ApiError(
+      HttpStatus.UNAUTHORIZED,
+      ErrorCode.AUTH_INVALID_CREDENTIALS,
+      'Invalid email or password.',
+    );
+  }
+
+  static tokenInvalid(message = 'Invalid or expired token.'): ApiError {
+    return new ApiError(
+      HttpStatus.UNAUTHORIZED,
+      ErrorCode.AUTH_TOKEN_INVALID,
+      message,
+    );
+  }
+
+  static emailTaken(): ApiError {
+    return new ApiError(
+      HttpStatus.CONFLICT,
+      ErrorCode.AUTH_EMAIL_TAKEN,
+      'A user with this email already exists.',
     );
   }
 }

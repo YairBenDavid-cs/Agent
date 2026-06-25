@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAuth } from '@/shared/auth/useAuth';
 import { MOCK_API } from '@/shared/config';
 import { mockRecordReply } from '../api/mockAssistant';
 import {
@@ -54,8 +53,6 @@ export function useAssistantStream(
   options: UseAssistantStreamOptions = {},
 ): UseAssistantStream {
   const { onDone, onReplyComplete, onError, onTitle } = options;
-  const { session } = useAuth();
-  const token = session?.token ?? null;
 
   const [phase, setPhase] = useState<StreamPhase>('idle');
   const [streamingText, setStreamingText] = useState('');
@@ -123,16 +120,15 @@ export function useAssistantStream(
       openMock();
       return;
     }
-    if (token === null) {
-      setStreamError('You are signed out. Please sign in again.');
-      setPhase('idle');
-      return;
-    }
     bufferRef.current = '';
     setStreamingText('');
     setPhase('thinking');
 
-    const source = new EventSource(assistantStreamUrl(conversationId, token));
+    // Auth rides in the httpOnly cookie; withCredentials lets the browser
+    // attach it on the cross-fetch EventSource handshake.
+    const source = new EventSource(assistantStreamUrl(conversationId), {
+      withCredentials: true,
+    });
     sourceRef.current = source;
 
     onNamedEvent(source, 'token', (raw) => {
@@ -209,7 +205,7 @@ export function useAssistantStream(
       }
       setStreamError('Connection lost. Please try again.');
     };
-  }, [conversationId, token, closeStream, openMock, onDone, onReplyComplete, onError, onTitle]);
+  }, [conversationId, closeStream, openMock, onDone, onReplyComplete, onError, onTitle]);
 
   const stop = useCallback((): AssistantTurn | null => {
     closeStream();

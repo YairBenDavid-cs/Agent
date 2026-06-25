@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { getActiveSession } from '../../common/transaction/transaction.context';
+import { UserProfilePatch } from '../application/commands/update-user-profile.command';
 import { UserProfile } from '../domain/user.model';
 import { UsersRepositoryPort } from '../domain/users.repository.port';
 import { User } from './user.schema';
@@ -42,7 +44,9 @@ export class UsersRepository implements UsersRepositoryPort {
   constructor(@InjectModel(User.name) private readonly model: Model<User>) {}
 
   async create(profile: UserProfile): Promise<void> {
-    await this.model.create(toPersistence(profile));
+    // Enroll in the ambient transaction if one is active (e.g. registration).
+    const session = getActiveSession();
+    await this.model.create([toPersistence(profile)], { session });
   }
 
   async findById(userId: string): Promise<UserProfile | null> {
@@ -51,7 +55,13 @@ export class UsersRepository implements UsersRepositoryPort {
   }
 
   async findByEmail(email: string): Promise<UserProfile | null> {
-    const doc = await this.model.findOne({ email }).lean<User>().exec();
+    // Read within the active transaction so the register uniqueness check is
+    // consistent with the subsequent insert.
+    const doc = await this.model
+      .findOne({ email })
+      .session(getActiveSession() ?? null)
+      .lean<User>()
+      .exec();
     return doc ? toDomain(doc) : null;
   }
 
@@ -61,5 +71,36 @@ export class UsersRepository implements UsersRepositoryPort {
       .lean<{ user_id: string }[]>()
       .exec();
     return docs.map((d) => d.user_id);
+  }
+
+  async updateProfileFields(
+    userId: string,
+    patch: UserProfilePatch,
+  ): Promise<boolean> {
+    // Map the narrow camelCase patch to snake_case columns, skipping `undefined`
+    // (leave as-is) while honoring explicit `null` (clear an optional field).
+    const set: Record<string, unknown> = {};
+    if (patch.sex !== undefined) set.sex = patch.sex;
+    if (patch.dateOfBirth !== undefined) set.date_of_birth = patch.dateOfBirth;
+    if (patch.heightCm !== undefined) set.height_cm = patch.heightCm;
+    if (patch.weightKg !== undefined) set.weight_kg = patch.weightKg;
+
+    if (Object.keys(set).length === 0) {
+      // Nothing to change — confirm the user exists so callers get a truthful result.
+      const exists = await this.model
+        .exists({ user_id: userId })
+        .session(getActiveSession() ?? null)
+        .exec();
+      return exists != null;
+    }
+
+    const result = await this.model
+      .updateOne(
+        { user_id: userId },
+        { $set: set },
+        { session: getActiveSession() },
+      )
+      .exec();
+    return result.matchedCount > 0;
   }
 }

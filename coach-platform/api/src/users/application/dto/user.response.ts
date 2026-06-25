@@ -4,10 +4,10 @@ export class UserResponse {
   id!: string;
   email!: string;
   name!: string;
-  dateOfBirth!: string;
-  sex!: Sex;
-  country!: string;
-  timezone!: string;
+  dateOfBirth!: string | null;
+  sex!: Sex | null;
+  country!: string | null;
+  timezone!: string | null;
   locale!: string;
   units!: Units;
   heightCm!: number | null;

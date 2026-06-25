@@ -1,26 +1,43 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import type { AuthSession } from './authSession';
+import type { User } from '@/shared/types/user';
 import { AuthContext } from './AuthContext';
 import type { AuthContextValue } from './AuthContext';
-import { clearSession, getSession, setSession } from './tokenStorage';
+import { onLogout } from './authEvents';
+import { fetchCurrentUser, logoutRequest } from './meApi';
 
 export function AuthProvider({ children }: { children: ReactNode }): ReactElement {
-  const [session, setSessionState] = useState<AuthSession | null>(() => getSession());
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = useCallback((next: AuthSession): void => {
-    setSession(next);
-    setSessionState(next);
+  // Restore the session on load. With httpOnly cookies the token isn't visible
+  // to JS, so we ask the server who we are; a rejection means logged out.
+  useEffect(() => {
+    let active = true;
+    fetchCurrentUser()
+      .then((u) => active && setUser(u))
+      .catch(() => active && setUser(null))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // The http client emits this when a token refresh ultimately fails mid-session.
+  useEffect(() => onLogout(() => setUser(null)), []);
+
+  const login = useCallback((next: User): void => {
+    setUser(next);
   }, []);
 
   const logout = useCallback((): void => {
-    clearSession();
-    setSessionState(null);
+    setUser(null); // optimistic: clear UI immediately
+    void logoutRequest().catch(() => undefined); // best-effort revoke
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ session, login, logout }),
-    [session, login, logout],
+    () => ({ user, loading, login, logout }),
+    [user, loading, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

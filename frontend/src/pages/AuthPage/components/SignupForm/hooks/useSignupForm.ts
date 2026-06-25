@@ -59,8 +59,8 @@ export function useSignupForm(): UseSignupForm {
     setSubmitting(true);
     setError(null);
     signupRequest(email, values.password, name).then(
-      (session) => {
-        auth.login(session);
+      (user) => {
+        auth.login(user);
         navigate('/', { replace: true });
       },
       (err: unknown) => {

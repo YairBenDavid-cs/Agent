@@ -1,15 +1,19 @@
 import { request } from '@/shared/api/httpClient';
-import type { AuthSession } from '@/shared/auth/authSession';
+import { fetchCurrentUser } from '@/shared/auth/meApi';
+import type { User } from '@/shared/types/user';
 import { MOCK_API } from '@/shared/config';
-import { mockDelay, mockSession } from './mockAuth';
+import { mockDelay, mockUser } from './mockAuth';
 
-export async function signup(email: string, password: string, name: string): Promise<AuthSession> {
+// POST /auth/register creates the account, sets the auth cookies and returns
+// {userId, role}; the profile is then loaded from GET /users/me.
+export async function signup(email: string, password: string, name: string): Promise<User> {
   if (MOCK_API) {
     await mockDelay();
-    return mockSession(email, name);
+    return mockUser(email, name);
   }
-  return request<AuthSession>('/auth/signup', {
+  await request('/auth/register', {
     method: 'POST',
-    body: { email, password, name },
+    body: { name, email, password },
   });
+  return fetchCurrentUser();
 }

@@ -23,14 +23,12 @@ export interface AssistantErrorEventData {
   message: string;
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
-// EventSource is GET-only and cannot send an Authorization header, so the JWT
-// rides as ?access_token= (verified by the backend's jwt-query strategy). The
-// token-bearing URL is only ever handed to EventSource — never logged.
-export function assistantStreamUrl(conversationId: string, token: string): string {
-  const query = new URLSearchParams({ access_token: token }).toString();
-  return `${BASE_URL}/conversations/${conversationId}/assistant/stream?${query}`;
+// Auth rides in the httpOnly cookie: the EventSource is opened with
+// `withCredentials: true`, so no token appears in the URL.
+export function assistantStreamUrl(conversationId: string): string {
+  return `${BASE_URL}/conversations/${conversationId}/assistant/stream`;
 }
 
 export function parseTokenEvent(raw: string): TokenEventData | null {

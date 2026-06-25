@@ -18,6 +18,23 @@ export const envValidationSchema = Joi.object({
     .length(64)
     .required(),
 
+  // JWT signing. Two DISTINCT secrets so a leaked access secret can't mint
+  // refresh tokens. Min 32 chars; generate with: openssl rand -hex 32.
+  JWT_ACCESS_SECRET: Joi.string().min(32).required(),
+  JWT_REFRESH_SECRET: Joi.string()
+    .min(32)
+    .invalid(Joi.ref('JWT_ACCESS_SECRET'))
+    .required(),
+  JWT_ACCESS_TTL_SEC: Joi.number().integer().min(60).default(900), // 15 min
+  JWT_REFRESH_TTL_SEC: Joi.number()
+    .integer()
+    .min(3600)
+    .default(2592000), // 30 days
+
+  // Comma-separated list of allowed browser origins. Unset => CORS disabled
+  // (dev uses a same-origin Vite proxy, so no CORS is needed locally).
+  CORS_ORIGIN: Joi.string().optional(),
+
   FETCHER_BASE_URL: Joi.string().uri().required(),
   FETCHER_TIMEOUT_MS: Joi.number().integer().min(1000).default(120000),
 
