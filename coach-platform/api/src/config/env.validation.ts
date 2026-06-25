@@ -39,4 +39,11 @@ export const envValidationSchema = Joi.object({
   FETCHER_TIMEOUT_MS: Joi.number().integer().min(1000).default(120000),
 
   INGESTION_BACKFILL_DAYS: Joi.number().integer().min(1).max(30).default(3),
+
+  // Google Calendar per-user OAuth ("Web application" client in Google Cloud).
+  // Optional: unset/empty disables the Connect-Google-Calendar flow, which then
+  // returns 503 GOOGLE_OAUTH_NOT_CONFIGURED instead of crashing at boot.
+  GOOGLE_OAUTH_CLIENT_ID: Joi.string().allow('').optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
+  GOOGLE_OAUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
 });

@@ -1,9 +1,11 @@
 import type { ReactElement } from 'react';
+import { COUNTRIES } from '../../domain/countries';
 import type { Sex } from '../../domain/types';
 import type { ProfileDraft } from '../../state/onboardingDraft';
 import { Field } from '../Field/Field';
 import { OptionGroup, type ChipOption } from '../OptionChips/OptionGroup';
 import section from '../stepSection.module.css';
+import styles from './ProfileStep.module.css';
 
 const SEXES: ChipOption<Sex>[] = [
   { value: 'male', label: 'Male' },
@@ -36,6 +38,31 @@ export function ProfileStep({ value, onChange, disabled }: ProfileStepProps): Re
         onChange={(dateOfBirth) => onChange({ dateOfBirth })}
         disabled={disabled}
       />
+      <label className={styles.field}>
+        <span className={styles.label}>Country</span>
+        <select
+          className={styles.select}
+          value={value.country}
+          onChange={(event) => onChange({ country: event.target.value })}
+          disabled={disabled}
+        >
+          <option value="" disabled>
+            Select your country…
+          </option>
+          {COUNTRIES.map((country) => (
+            <option key={country.code} value={country.code}>
+              {country.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className={styles.field}>
+        <span className={styles.labelRow}>
+          <span className={styles.label}>Time zone</span>
+          <span className={styles.auto}>auto-detected</span>
+        </span>
+        <span className={styles.timezone}>{value.timezone || 'Detecting…'}</span>
+      </div>
       <div className={section.row}>
         <Field
           label="Height (cm)"

@@ -45,6 +45,8 @@ export class CreateTrainingProfileHandler
         new UpdateUserProfileCommand(userId, {
           sex: dto.profile.sex,
           dateOfBirth: dto.profile.dateOfBirth,
+          country: dto.profile.country,
+          timezone: dto.profile.timezone,
           heightCm: dto.profile.heightCm ?? null,
           weightKg: dto.profile.weightKg ?? null,
         }),

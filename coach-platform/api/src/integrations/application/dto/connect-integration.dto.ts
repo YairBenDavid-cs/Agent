@@ -6,9 +6,12 @@ export class ConnectGarminDto {
   @IsString() @MinLength(1) password!: string;
 }
 
-/** Google Calendar OAuth — refresh token only; we never take a password. */
+/**
+ * Google Calendar OAuth — the authorization code returned by Google's consent
+ * screen. The server exchanges it for a refresh token; we never take a password.
+ */
 export class ConnectGoogleCalendarDto {
-  @IsString() @MinLength(1) refreshToken!: string;
+  @IsString() @MinLength(1) code!: string;
 }
 
 export class ConnectTelegramDto {

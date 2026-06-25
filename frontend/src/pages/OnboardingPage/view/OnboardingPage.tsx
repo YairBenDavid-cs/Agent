@@ -8,6 +8,7 @@ import { ProfileStep } from '../components/ProfileStep/ProfileStep';
 import { AvailabilityStep } from '../components/AvailabilityStep/AvailabilityStep';
 import { RunPrefsStep } from '../components/RunPrefsStep/RunPrefsStep';
 import { StrengthPrefsStep } from '../components/StrengthPrefsStep/StrengthPrefsStep';
+import { ConnectStep } from '../components/ConnectStep/ConnectStep';
 import styles from './OnboardingPage.module.css';
 
 export function OnboardingPage(): ReactElement {
@@ -75,6 +76,14 @@ export function OnboardingPage(): ReactElement {
           <RunPrefsStep
             value={draft.run}
             onChange={(patch) => dispatch({ type: 'patchRun', patch })}
+            disabled={submitting}
+          />
+        );
+      case 'connect':
+        return (
+          <ConnectStep
+            value={draft.connections}
+            onChange={(patch) => dispatch({ type: 'setConnections', patch })}
             disabled={submitting}
           />
         );

@@ -1,5 +1,12 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { GoogleOAuthClient } from '../domain/google-oauth';
 import {
   GarminAuth,
   GoogleCalendarAuth,
@@ -34,6 +41,7 @@ export class IntegrationsService {
     @Inject(INTEGRATIONS_REPOSITORY)
     private readonly repository: IntegrationsRepositoryPort,
     private readonly crypto: CryptoService,
+    private readonly googleOAuth: GoogleOAuthClient,
   ) {}
 
   private now(): string {
@@ -53,12 +61,42 @@ export class IntegrationsService {
     });
   }
 
+  /** Build the Google consent URL. Sent to the browser to start the OAuth flow. */
+  getGoogleCalendarAuthUrl(): { url: string } {
+    if (!this.googleOAuth.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: 'GOOGLE_OAUTH_NOT_CONFIGURED',
+        message: 'Google Calendar connection is not configured on the server.',
+      });
+    }
+    return { url: this.googleOAuth.buildAuthUrl() };
+  }
+
+  /**
+   * Exchange the OAuth authorization code for a refresh token, encrypt it, and
+   * persist it. Without a refresh token we cannot mint access tokens later, so
+   * its absence is a hard failure (the user must re-consent).
+   */
   async connectGoogleCalendar(
     userId: string,
     dto: ConnectGoogleCalendarDto,
   ): Promise<void> {
+    if (!this.googleOAuth.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: 'GOOGLE_OAUTH_NOT_CONFIGURED',
+        message: 'Google Calendar connection is not configured on the server.',
+      });
+    }
+    const tokens = await this.googleOAuth.exchangeCode(dto.code);
+    if (!tokens.refreshToken) {
+      throw new BadRequestException({
+        code: 'GOOGLE_NO_REFRESH_TOKEN',
+        message:
+          'Google did not return a refresh token. Disconnect the app from your Google account and try again.',
+      });
+    }
     await this.repository.upsertGoogleCalendar(userId, {
-      refreshTokenEnc: this.crypto.encrypt(dto.refreshToken),
+      refreshTokenEnc: this.crypto.encrypt(tokens.refreshToken),
       updatedAt: this.now(),
     });
   }

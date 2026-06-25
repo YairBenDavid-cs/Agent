@@ -60,6 +60,8 @@ export interface GoalPayload {
 export interface ProfilePayload {
   sex: Sex;
   dateOfBirth: string; // ISO 8601 "YYYY-MM-DD"
+  country: string; // ISO 3166-1 alpha-2, e.g. "GB"
+  timezone: string; // IANA, e.g. "Europe/London"
   heightCm?: number;
   weightKg?: number;
 }

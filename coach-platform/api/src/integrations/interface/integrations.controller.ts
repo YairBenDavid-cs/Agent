@@ -36,6 +36,12 @@ export class IntegrationsController {
     await this.integrations.connectGarmin(user.userId, dto);
   }
 
+  /** Consent URL the browser is redirected to in order to start Google OAuth. */
+  @Get('google-calendar/auth-url')
+  googleCalendarAuthUrl(): { url: string } {
+    return this.integrations.getGoogleCalendarAuthUrl();
+  }
+
   @Put('google-calendar')
   @HttpCode(204)
   async connectGoogleCalendar(

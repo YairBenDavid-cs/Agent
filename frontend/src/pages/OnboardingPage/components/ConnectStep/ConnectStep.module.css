@@ -1,0 +1,83 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-4);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-3);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-panel-bg);
+  padding: var(--wa-space-4);
+}
+
+.cardHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cardTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--wa-text);
+  margin: 0;
+}
+
+.cardHint {
+  font-size: 0.825rem;
+  color: var(--wa-text-muted);
+  margin: 0;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-3);
+}
+
+.button {
+  border: none;
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-brand);
+  color: #171717;
+  font-weight: 600;
+  padding: var(--wa-space-3) var(--wa-space-4);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--wa-brand-dark);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.connected {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wa-space-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #7ee2b8;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7ee2b8;
+  display: inline-block;
+}
+
+.error {
+  color: #ffb4ab;
+  font-size: 0.825rem;
+  margin: 0;
+}

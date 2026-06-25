@@ -82,6 +82,8 @@ export class UsersRepository implements UsersRepositoryPort {
     const set: Record<string, unknown> = {};
     if (patch.sex !== undefined) set.sex = patch.sex;
     if (patch.dateOfBirth !== undefined) set.date_of_birth = patch.dateOfBirth;
+    if (patch.country !== undefined) set.country = patch.country;
+    if (patch.timezone !== undefined) set.timezone = patch.timezone;
     if (patch.heightCm !== undefined) set.height_cm = patch.heightCm;
     if (patch.weightKg !== undefined) set.weight_kg = patch.weightKg;
 

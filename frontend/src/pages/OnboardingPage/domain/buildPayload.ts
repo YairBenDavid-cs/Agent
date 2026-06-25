@@ -83,6 +83,8 @@ export function buildPayload(draft: OnboardingDraft): OnboardingPayload {
     profile: {
       sex: draft.profile.sex,
       dateOfBirth: draft.profile.dateOfBirth,
+      country: draft.profile.country,
+      timezone: draft.profile.timezone,
       ...(heightCm !== undefined && { heightCm }),
       ...(weightKg !== undefined && { weightKg }),
     },

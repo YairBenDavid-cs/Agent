@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '@/shared/api/ApiError';
 import { submitOnboarding } from '../api/submitOnboarding';
 import { buildPayload } from '../domain/buildPayload';
 import {
   isAvailabilityStepValid,
+  isConnectStepValid,
   isDisciplineStepValid,
   isGoalStepValid,
   isPrefsStepValid,
@@ -17,7 +18,19 @@ import {
   type OnboardingDraft,
 } from '../state/onboardingDraft';
 
-export type StepId = 'discipline' | 'goal' | 'profile' | 'availability' | 'prefs';
+export type StepId =
+  | 'discipline'
+  | 'goal'
+  | 'profile'
+  | 'availability'
+  | 'prefs'
+  | 'connect';
+
+// The Google Calendar OAuth flow navigates the whole tab to Google and back, so
+// the in-memory wizard state would be lost. We mirror the draft + current step
+// into sessionStorage and restore them on mount so the round-trip is seamless.
+const DRAFT_KEY = 'agenticoach.onboarding.draft';
+const STEP_KEY = 'agenticoach.onboarding.step';
 
 interface StepMeta {
   id: StepId;
@@ -35,6 +48,11 @@ const STEPS: StepMeta[] = [
     subtitle: 'Add the weekly windows you can commit to.',
   },
   { id: 'prefs', title: 'Your preferences', subtitle: 'Dial in the details of your sessions.' },
+  {
+    id: 'connect',
+    title: 'Connect your data',
+    subtitle: 'Link Garmin and Google Calendar so your coach can plan around you.',
+  },
 ];
 
 const VALIDATORS: Record<StepId, (draft: OnboardingDraft) => boolean> = {
@@ -43,7 +61,40 @@ const VALIDATORS: Record<StepId, (draft: OnboardingDraft) => boolean> = {
   profile: isProfileStepValid,
   availability: isAvailabilityStepValid,
   prefs: isPrefsStepValid,
+  connect: isConnectStepValid,
 };
+
+/** Restore a persisted draft, healing any shape drift against the latest schema. */
+function loadDraft(): OnboardingDraft {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (raw === null) {
+      return initialDraft;
+    }
+    const parsed = JSON.parse(raw) as Partial<OnboardingDraft>;
+    return {
+      ...initialDraft,
+      ...parsed,
+      connections: { ...initialDraft.connections, ...parsed.connections },
+    };
+  } catch {
+    return initialDraft;
+  }
+}
+
+function loadStepIndex(): number {
+  const raw = sessionStorage.getItem(STEP_KEY);
+  const index = raw === null ? 0 : Number(raw);
+  if (!Number.isInteger(index) || index < 0 || index >= STEPS.length) {
+    return 0;
+  }
+  return index;
+}
+
+function clearPersistedDraft(): void {
+  sessionStorage.removeItem(DRAFT_KEY);
+  sessionStorage.removeItem(STEP_KEY);
+}
 
 /** Safe lookup — stepIndex is always in range, but the compiler can't prove it. */
 function stepAt(index: number): StepMeta {
@@ -71,10 +122,18 @@ interface UseOnboarding {
 
 export function useOnboarding(): UseOnboarding {
   const navigate = useNavigate();
-  const [draft, dispatch] = useReducer(onboardingReducer, initialDraft);
-  const [stepIndex, setStepIndex] = useState(0);
+  const [draft, dispatch] = useReducer(onboardingReducer, undefined, loadDraft);
+  const [stepIndex, setStepIndex] = useState(loadStepIndex);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Keep sessionStorage in sync so the Google OAuth redirect can resume here.
+  useEffect(() => {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [draft]);
+  useEffect(() => {
+    sessionStorage.setItem(STEP_KEY, String(stepIndex));
+  }, [stepIndex]);
 
   const step = stepAt(stepIndex);
   const isFirstStep = stepIndex === 0;
@@ -89,7 +148,8 @@ export function useOnboarding(): UseOnboarding {
     setError(null);
     submitOnboarding(buildPayload(draft)).then(
       () => {
-        // Profile created — the assistant dashboard is now the home screen.
+        // Profile created — drop the persisted wizard state and head home.
+        clearPersistedDraft();
         navigate('/', { replace: true });
       },
       (err: unknown) => {

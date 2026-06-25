@@ -14,6 +14,11 @@ export interface AppConfig {
   fetcherBaseUrl: string;
   fetcherTimeoutMs: number;
   ingestionBackfillDays: number;
+  // Google Calendar per-user OAuth ("Web application" client). Empty when the
+  // server operator hasn't configured Google Calendar connections yet.
+  googleOauthClientId: string;
+  googleOauthClientSecret: string;
+  googleOauthRedirectUri: string;
 }
 
 export const loadConfiguration = (): AppConfig => ({
@@ -31,4 +36,7 @@ export const loadConfiguration = (): AppConfig => ({
     process.env.INGESTION_BACKFILL_DAYS as string,
     10,
   ),
+  googleOauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID ?? '',
+  googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '',
+  googleOauthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ?? '',
 });

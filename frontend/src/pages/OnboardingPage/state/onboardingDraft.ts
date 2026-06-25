@@ -1,5 +1,6 @@
 // The wizard's working state. Numeric inputs are held as strings so the user
 // can clear/type freely; they're parsed only when building the API payload.
+import { detectTimeZone } from '../domain/timezone';
 import type {
   AvailabilitySlot,
   Discipline,
@@ -20,6 +21,8 @@ export interface GoalDraft {
 export interface ProfileDraft {
   sex: Sex | null;
   dateOfBirth: string;
+  country: string; // ISO 3166-1 alpha-2; '' until the user picks one
+  timezone: string; // IANA; auto-detected from the browser at draft creation
   heightCm: string;
   weightKg: string;
 }
@@ -52,12 +55,29 @@ export interface OnboardingDraft {
   sessionDurationMin: number;
   run: RunDraft;
   strength: StrengthDraft;
+  connections: ConnectionsDraft;
+}
+
+/** Which external accounts the user has linked. Mirrors the server's
+ * /integrations status; the connect step keeps it in sync so the wizard can
+ * gate "Finish" on both providers being connected. */
+export interface ConnectionsDraft {
+  garminConnected: boolean;
+  googleConnected: boolean;
 }
 
 export const initialDraft: OnboardingDraft = {
   discipline: null,
   goal: { primaryGoal: null, note: '' },
-  profile: { sex: null, dateOfBirth: '', heightCm: '', weightKg: '' },
+  profile: {
+    sex: null,
+    dateOfBirth: '',
+    country: '',
+    // Resolved once from the browser so the field is populated from first render.
+    timezone: detectTimeZone(),
+    heightCm: '',
+    weightKg: '',
+  },
   availability: [{ day: 'mon', startTime: '07:00', endTime: '08:00' }],
   sessionDurationMin: 60,
   run: {
@@ -78,6 +98,7 @@ export const initialDraft: OnboardingDraft = {
     experienceLevel: '',
     splitPreference: '',
   },
+  connections: { garminConnected: false, googleConnected: false },
 };
 
 export type OnboardingAction =
@@ -87,7 +108,8 @@ export type OnboardingAction =
   | { type: 'setAvailability'; value: AvailabilitySlot[] }
   | { type: 'setSessionDuration'; value: number }
   | { type: 'patchRun'; patch: Partial<RunDraft> }
-  | { type: 'patchStrength'; patch: Partial<StrengthDraft> };
+  | { type: 'patchStrength'; patch: Partial<StrengthDraft> }
+  | { type: 'setConnections'; patch: Partial<ConnectionsDraft> };
 
 export function onboardingReducer(
   state: OnboardingDraft,
@@ -108,6 +130,11 @@ export function onboardingReducer(
       return { ...state, run: { ...state.run, ...action.patch } };
     case 'patchStrength':
       return { ...state, strength: { ...state.strength, ...action.patch } };
+    case 'setConnections':
+      return {
+        ...state,
+        connections: { ...state.connections, ...action.patch },
+      };
     default:
       return state;
   }

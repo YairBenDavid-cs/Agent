@@ -8,6 +8,8 @@ import { Sex } from '../../domain/user.model';
 export interface UserProfilePatch {
   sex?: Sex;
   dateOfBirth?: string;
+  country?: string;
+  timezone?: string;
   heightCm?: number | null;
   weightKg?: number | null;
 }

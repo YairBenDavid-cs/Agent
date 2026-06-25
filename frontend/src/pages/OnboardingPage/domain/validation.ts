@@ -51,10 +51,14 @@ export function isGoalStepValid(draft: OnboardingDraft): boolean {
   return draft.goal.primaryGoal !== null && draft.goal.note.length <= 500;
 }
 
+const ISO_ALPHA2 = /^[A-Z]{2}$/;
+
 export function isProfileStepValid(draft: OnboardingDraft): boolean {
   return (
     draft.profile.sex !== null &&
     isValidDateOfBirth(draft.profile.dateOfBirth) &&
+    ISO_ALPHA2.test(draft.profile.country) &&
+    draft.profile.timezone.trim() !== '' &&
     isOptionalPositiveInt(draft.profile.heightCm) &&
     isOptionalPositiveInt(draft.profile.weightKg)
   );
@@ -68,6 +72,11 @@ export function isAvailabilityStepValid(draft: OnboardingDraft): boolean {
     draft.sessionDurationMin >= 10 &&
     draft.sessionDurationMin <= 300
   );
+}
+
+/** Both external accounts must be linked before onboarding can finish. */
+export function isConnectStepValid(draft: OnboardingDraft): boolean {
+  return draft.connections.garminConnected && draft.connections.googleConnected;
 }
 
 export function isPrefsStepValid(draft: OnboardingDraft): boolean {
