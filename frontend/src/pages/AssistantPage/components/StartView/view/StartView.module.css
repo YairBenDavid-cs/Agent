@@ -1,0 +1,33 @@
+.start {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--wa-space-4);
+  background: var(--wa-chat-bg);
+}
+
+.inner {
+  width: 100%;
+  max-width: 640px;
+  text-align: center;
+}
+
+.heading {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--wa-text);
+  margin: 0 0 var(--wa-space-2);
+}
+
+.subheading {
+  font-size: 15px;
+  color: var(--wa-text-muted);
+  margin: 0 0 var(--wa-space-4);
+}
+
+.error {
+  color: #ffb4ab;
+  font-size: 14px;
+  margin: 0 0 var(--wa-space-3);
+}

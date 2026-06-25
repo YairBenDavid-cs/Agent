@@ -1,0 +1,177 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--wa-panel-bg);
+  border-right: 1px solid var(--wa-border);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--wa-footer-height);
+  padding: 0 var(--wa-space-3);
+  border-bottom: 1px solid var(--wa-border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--wa-space-2);
+  padding: var(--wa-space-3);
+  color: var(--wa-text);
+}
+
+.brandName {
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.logo {
+  flex-shrink: 0;
+}
+
+/* When collapsed, center the logo in the icon rail. */
+.collapsed .brand {
+  justify-content: center;
+  padding: var(--wa-space-3) 0;
+}
+
+.iconButton {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: var(--wa-radius-md);
+  background: transparent;
+  color: var(--wa-text);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--wa-row-hover);
+}
+
+/* Tooltip shown on hover, positioned to the right of the icon button. */
+.iconButton[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%) scale(0.96);
+  transform-origin: left center;
+  padding: 4px 8px;
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-text);
+  color: var(--wa-panel-bg);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 10;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.iconButton[data-tooltip]:hover::after,
+.iconButton[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+/* Collapsed icon rail: stack the toggle + new-chat buttons vertically. */
+.collapsed .header {
+  flex-direction: column;
+  height: auto;
+  padding: var(--wa-space-3) 0;
+  gap: var(--wa-space-2);
+  justify-content: center;
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--wa-space-2);
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--wa-space-4);
+  color: var(--wa-text-muted);
+}
+
+.empty {
+  text-align: center;
+  color: var(--wa-text-muted);
+  font-size: 14px;
+  padding: var(--wa-space-4);
+}
+
+.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: var(--wa-space-3);
+  border-radius: var(--wa-radius-md);
+  color: var(--wa-text);
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item:hover {
+  background: var(--wa-row-hover);
+}
+
+.active {
+  background: var(--wa-row-selected);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--wa-space-2);
+  margin-top: auto;
+  padding: var(--wa-space-3) var(--wa-space-4);
+  border-top: 1px solid var(--wa-border);
+}
+
+.collapsedFooter {
+  justify-content: center;
+  padding: var(--wa-space-3) 0;
+}
+
+.messengerLink {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--wa-space-3);
+  border-radius: var(--wa-radius-lg);
+  background: var(--wa-row-hover);
+  color: var(--wa-text);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.messengerLink:hover {
+  background: var(--wa-row-selected);
+}
+
+.messengerLink:active {
+  transform: scale(0.98);
+}

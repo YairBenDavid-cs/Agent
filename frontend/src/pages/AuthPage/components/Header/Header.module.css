@@ -1,0 +1,7 @@
+.header {
+  margin-bottom: var(--wa-space-4);
+  color: var(--wa-text);
+  font-size: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+}

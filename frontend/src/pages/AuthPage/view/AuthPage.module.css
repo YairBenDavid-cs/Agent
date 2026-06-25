@@ -1,0 +1,51 @@
+.page {
+  /* Dark palette scoped to the auth page, matching the Assistant page exactly:
+     neutral dark surfaces with a light (#ececec) accent. Overriding the --wa-*
+     tokens re-themes the card, fields and button without per-file edits. */
+  --wa-header-bg: #212121;
+  --wa-panel-bg: #171717;
+  --wa-text: #ececec;
+  --wa-text-muted: #9a9a9a;
+  --wa-border: #3a3a3a;
+  --wa-brand: #ececec;
+  --wa-brand-dark: #ffffff;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: var(--wa-space-4);
+  color: var(--wa-text);
+  background: linear-gradient(180deg, #212121 0%, #171717 100%);
+}
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  background-color: var(--wa-panel-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-lg);
+  padding: var(--wa-space-4);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.toggle {
+  margin-top: var(--wa-space-4);
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--wa-text-muted);
+}
+
+.toggleButton {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--wa-brand-dark);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggleButton:hover {
+  text-decoration: underline;
+}

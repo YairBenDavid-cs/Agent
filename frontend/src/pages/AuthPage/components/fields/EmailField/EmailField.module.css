@@ -1,0 +1,27 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-1);
+}
+
+.label {
+  font-size: 0.8125rem;
+  color: var(--wa-text-muted);
+}
+
+.input {
+  border: none;
+  border-bottom: 2px solid var(--wa-border);
+  padding: var(--wa-space-2) 0;
+  outline: none;
+  background: transparent;
+  color: var(--wa-text);
+}
+
+.input:focus {
+  border-bottom-color: var(--wa-brand);
+}
+
+.input:disabled {
+  opacity: 0.6;
+}

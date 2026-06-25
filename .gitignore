@@ -1,4 +1,86 @@
+# ---------------------------------------------------------------------------
+# Secrets & local environment
+# ---------------------------------------------------------------------------
 .env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 .garmin_tokens/
-garmin_data/
+**/.garmin_tokens/
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# Node / TypeScript (api, frontend)
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Vite
+.vite/
+vite.config.*.timestamp-*.mjs
+vite.config.*.timestamp-*.js
+
+# Logs & debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Caches
+.eslintcache
+.cache/
+
+# ---------------------------------------------------------------------------
+# Python (root scripts, fetch-service)
+# ---------------------------------------------------------------------------
 __pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# App data
+garmin_data/
+
+# ---------------------------------------------------------------------------
+# OS files
+# ---------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Editor / IDE
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~

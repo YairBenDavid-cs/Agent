@@ -1,0 +1,43 @@
+:root {
+  /* Brand */
+  --wa-brand: #00a884;
+  --wa-brand-dark: #008069;
+
+  /* Surfaces */
+  --wa-header-bg: #f0f2f5;
+  --wa-panel-bg: #ffffff;
+  --wa-chat-bg: #efeae2;
+
+  /* Message bubbles */
+  --wa-bubble-out: #d9fdd3;
+  --wa-bubble-in: #ffffff;
+
+  /* Accents */
+  --wa-unread-badge: #25d366;
+
+  /* Text */
+  --wa-text: #111b21;
+  --wa-text-muted: #667781;
+
+  /* Lines & rows */
+  --wa-border: #e9edef;
+  --wa-row-hover: #f5f6f6;
+  --wa-row-selected: #f0f2f5;
+
+  /* Spacing */
+  --wa-space-1: 4px;
+  --wa-space-2: 8px;
+  --wa-space-3: 12px;
+  --wa-space-4: 16px;
+
+  /* Radii */
+  --wa-radius-sm: 6px;
+  --wa-radius-md: 8px;
+  --wa-radius-lg: 12px;
+
+  /* Layout */
+  --wa-sidebar-width: 30%;
+  --wa-sidebar-min-width: 320px;
+  --wa-sidebar-max-width: 420px;
+  --wa-footer-height: 60px;
+}

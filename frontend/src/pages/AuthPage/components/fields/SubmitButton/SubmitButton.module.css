@@ -1,0 +1,19 @@
+.button {
+  margin-top: var(--wa-space-2);
+  border: none;
+  border-radius: var(--wa-radius-md);
+  background-color: var(--wa-brand);
+  color: #171717;
+  padding: var(--wa-space-3);
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+
+.button:hover:not(:disabled) {
+  background-color: var(--wa-brand-dark);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

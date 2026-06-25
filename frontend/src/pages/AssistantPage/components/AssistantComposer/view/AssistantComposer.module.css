@@ -1,0 +1,60 @@
+.composer {
+  display: flex;
+  align-items: center;
+  gap: var(--wa-space-2);
+  width: 100%;
+  padding: 6px 6px 6px 20px;
+  background: var(--wa-row-hover);
+  border: 1px solid var(--wa-border);
+  border-radius: 28px;
+  transition: border-color 0.15s ease;
+}
+
+.composer:focus-within {
+  border-color: var(--wa-text-muted);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 10px 0;
+  font-size: 16px;
+  color: var(--wa-text);
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--wa-text-muted);
+}
+
+.input:disabled {
+  color: var(--wa-text-muted);
+}
+
+.send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--wa-text);
+  color: var(--wa-chat-bg);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.send:hover {
+  opacity: 0.85;
+}
+
+.send:disabled {
+  background: var(--wa-border);
+  color: var(--wa-text-muted);
+  cursor: default;
+  opacity: 1;
+}

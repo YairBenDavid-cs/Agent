@@ -1,0 +1,45 @@
+.layout {
+  /* ChatGPT-style dark palette, scoped to the assistant page only.
+     These override the global --wa-* tokens for every descendant, so the
+     existing components re-theme without touching the shared light theme. */
+  --wa-header-bg: #212121;
+  --wa-panel-bg: #171717;
+  --wa-chat-bg: #212121;
+  --wa-bubble-out: #303030;
+  --wa-bubble-in: #2f2f2f;
+  --wa-text: #ececec;
+  --wa-text-muted: #9a9a9a;
+  --wa-border: #3a3a3a;
+  --wa-row-hover: #2a2a2a;
+  --wa-row-selected: #2f2f2f;
+  --wa-brand: #ececec;
+  --wa-brand-dark: #ececec;
+
+  display: flex;
+  height: 100%;
+  background-color: var(--wa-chat-bg);
+  color: var(--wa-text);
+}
+
+.sidebar {
+  width: var(--wa-sidebar-width);
+  min-width: var(--wa-sidebar-min-width);
+  max-width: var(--wa-sidebar-max-width);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.18s ease, min-width 0.18s ease, max-width 0.18s ease;
+}
+
+.collapsed {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--wa-chat-bg);
+}

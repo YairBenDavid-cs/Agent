@@ -1,0 +1,62 @@
+.container {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: var(--wa-radius-md);
+  background: transparent;
+  color: var(--wa-text);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.2s ease;
+}
+
+.trigger:hover {
+  background: var(--wa-row-hover);
+  color: var(--wa-text);
+}
+
+.trigger[aria-expanded='true'] .icon {
+  transform: rotate(45deg);
+}
+
+.icon {
+  transition: transform 0.2s ease;
+}
+
+.menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 160px;
+  padding: var(--wa-space-1);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-panel-bg);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  z-index: 20;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: var(--wa-space-2) var(--wa-space-3);
+  border-radius: var(--wa-radius-sm);
+  color: var(--wa-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--wa-row-hover);
+}
