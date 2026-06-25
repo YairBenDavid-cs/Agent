@@ -1,0 +1,85 @@
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-2);
+}
+
+.slotRow {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr auto;
+  gap: var(--wa-space-2);
+  align-items: end;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-1);
+}
+
+.controlLabel {
+  font-size: 0.75rem;
+  color: var(--wa-text-muted);
+}
+
+.select,
+.time {
+  border: none;
+  border-bottom: 2px solid var(--wa-border);
+  padding: var(--wa-space-2) 0;
+  outline: none;
+  background: transparent;
+  color: var(--wa-text);
+  font: inherit;
+}
+
+.select:focus,
+.time:focus {
+  border-bottom-color: var(--wa-brand);
+}
+
+.remove {
+  border: none;
+  background: transparent;
+  color: var(--wa-text-muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: var(--wa-space-2);
+  cursor: pointer;
+  border-radius: var(--wa-radius-sm);
+}
+
+.remove:hover:not(:disabled) {
+  color: #ffb4ab;
+  background: var(--wa-row-hover);
+}
+
+.remove:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.addButton {
+  align-self: flex-start;
+  border: 2px dashed var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  background: transparent;
+  color: var(--wa-brand-dark);
+  padding: var(--wa-space-2) var(--wa-space-3);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addButton:hover:not(:disabled) {
+  border-color: var(--wa-brand);
+}
+
+.addButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.warning {
+  color: #ffb4ab;
+  font-size: 0.8125rem;
+}

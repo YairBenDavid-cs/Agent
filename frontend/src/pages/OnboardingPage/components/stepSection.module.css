@@ -1,0 +1,25 @@
+/* Shared layout primitives for the wizard step bodies. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-4);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-2);
+}
+
+.sectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--wa-text);
+  margin: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--wa-space-3);
+}

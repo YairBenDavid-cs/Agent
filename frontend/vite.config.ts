@@ -19,6 +19,7 @@ export default defineConfig({
       '/auth': { target: 'http://localhost:3000', changeOrigin: true },
       '/users': { target: 'http://localhost:3000', changeOrigin: true },
       '/conversations': { target: 'http://localhost:3000', changeOrigin: true },
+      '/training-profile': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
 });

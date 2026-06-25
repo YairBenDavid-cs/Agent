@@ -6,6 +6,7 @@ import { AuthPage } from '@/pages/AuthPage/view/AuthPage';
 import { LoginPage } from '@/pages/AuthPage/view/LoginPage';
 import { SignupPage } from '@/pages/AuthPage/view/SignupPage';
 import { AssistantPage } from '@/pages/AssistantPage/view/AssistantPage';
+import { OnboardingPage } from '@/pages/OnboardingPage/view/OnboardingPage';
 
 export function App(): ReactElement {
   return (
@@ -15,6 +16,8 @@ export function App(): ReactElement {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route element={<ProtectedRoute />}>
+          {/* New accounts land here after signup to build their training profile. */}
+          <Route path="/onboarding" element={<OnboardingPage />} />
           {/* The assistant dashboard is the landing page after login. */}
           <Route path="/" element={<AssistantPage />} />
           <Route path="/assistant" element={<AssistantPage />} />

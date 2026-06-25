@@ -61,7 +61,9 @@ export function useSignupForm(): UseSignupForm {
     signupRequest(email, values.password, name).then(
       (user) => {
         auth.login(user);
-        navigate('/', { replace: true });
+        // New accounts go through onboarding first; the assistant dashboard is
+        // the destination only after the wizard is submitted.
+        navigate('/onboarding', { replace: true });
       },
       (err: unknown) => {
         setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
