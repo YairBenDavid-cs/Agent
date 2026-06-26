@@ -7,6 +7,7 @@ import {
   connectGarmin,
   fetchIntegrationStatuses,
   startGoogleConnect,
+  verifyGarminMfa,
 } from '../../api/connections';
 import { Field } from '../Field/Field';
 import section from '../stepSection.module.css';
@@ -40,6 +41,11 @@ export function ConnectStep({
   const [password, setPassword] = useState('');
   const [garminBusy, setGarminBusy] = useState(false);
   const [garminError, setGarminError] = useState<string | null>(null);
+  // When Garmin issues a 2FA challenge we hold the pending loginId and switch the
+  // card to a code-entry view. email/password stay in state so we can resend them
+  // with the verify call (the server persists them only once login fully succeeds).
+  const [mfaLoginId, setMfaLoginId] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
 
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
@@ -55,10 +61,13 @@ export function ConnectStep({
         if (!active) return;
         const connected = (p: string): boolean =>
           statuses.some((s) => s.provider === p && s.connected);
-        onChange({
-          garminConnected: connected('garmin'),
-          googleConnected: connected('google_calendar'),
-        });
+        // Upgrade-only: never flip a flag back to false. This avoids racing the
+        // OAuth code exchange on the redirect return, where the server may not
+        // have stored the Google token yet when this status read resolves.
+        const patch: Partial<ConnectionsDraft> = {};
+        if (connected('garmin')) patch.garminConnected = true;
+        if (connected('google_calendar')) patch.googleConnected = true;
+        if (Object.keys(patch).length > 0) onChange(patch);
       })
       .catch(() => {
         /* Status read is best-effort; the user can still connect. */
@@ -92,17 +101,51 @@ export function ConnectStep({
       });
   }, [params, onChange, setParams]);
 
+  const markGarminConnected = (): void => {
+    onChange({ garminConnected: true });
+    setPassword('');
+    setMfaLoginId(null);
+    setMfaCode('');
+  };
+
   const handleConnectGarmin = (): void => {
     if (!email.trim() || !password.trim()) return;
     setGarminBusy(true);
     setGarminError(null);
     connectGarmin({ email: email.trim(), password })
-      .then(() => {
-        onChange({ garminConnected: true });
-        setPassword('');
+      .then((result) => {
+        if (result.status === 'mfa_required') {
+          setMfaLoginId(result.loginId);
+          return;
+        }
+        markGarminConnected();
       })
       .catch((err: unknown) =>
         setGarminError(messageOf(err, 'Could not connect Garmin. Check your credentials.')),
+      )
+      .finally(() => setGarminBusy(false));
+  };
+
+  const handleVerifyMfa = (): void => {
+    if (!mfaLoginId || !mfaCode.trim()) return;
+    setGarminBusy(true);
+    setGarminError(null);
+    verifyGarminMfa({
+      loginId: mfaLoginId,
+      code: mfaCode.trim(),
+      email: email.trim(),
+      password,
+    })
+      .then((result) => {
+        if (result.status === 'mfa_required') {
+          // Shouldn't normally happen; ask for the code again.
+          setMfaLoginId(result.loginId);
+          return;
+        }
+        markGarminConnected();
+      })
+      .catch((err: unknown) =>
+        setGarminError(messageOf(err, 'Could not verify the code. Please try again.')),
       )
       .finally(() => setGarminBusy(false));
   };
@@ -130,6 +173,29 @@ export function ConnectStep({
           <span className={styles.connected}>
             <span className={styles.dot} /> Connected
           </span>
+        ) : mfaLoginId !== null ? (
+          <div className={styles.form}>
+            <p className={styles.cardHint}>
+              Garmin sent a verification code to your email. Enter it below to
+              finish connecting.
+            </p>
+            <Field
+              label="Verification code"
+              value={mfaCode}
+              onChange={setMfaCode}
+              placeholder="123456"
+              disabled={disabled || garminBusy}
+            />
+            {garminError !== null && <p className={styles.error}>{garminError}</p>}
+            <button
+              type="button"
+              className={styles.button}
+              onClick={handleVerifyMfa}
+              disabled={disabled || garminBusy || !mfaCode.trim()}
+            >
+              {garminBusy ? 'Verifying…' : 'Verify code'}
+            </button>
+          </div>
         ) : (
           <div className={styles.form}>
             <Field

@@ -6,7 +6,7 @@ export type PerformanceDailyDocument = HydratedDocument<PerformanceDaily>;
 
 @Schema({ _id: false })
 export class PerformanceRunningDailyClass {
-  @Prop({ type: String, default: null }) running_tolerance!: string | null;
+  @Prop({ type: Number, default: null }) running_tolerance!: number | null;
   @Prop({ type: Number, default: null }) weekly_distance_km!: number | null;
   @Prop({ type: Number, default: null }) weekly_intensity_moderate!:
     | number

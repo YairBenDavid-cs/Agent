@@ -9,7 +9,7 @@ import {
  * they go to the performance profile change-log.
  */
 export interface PerformanceRunningDaily {
-  running_tolerance: string | null;
+  running_tolerance: number | null;
   weekly_distance_km: number | null;
   weekly_intensity_moderate: number | null;
   weekly_intensity_vigorous: number | null;

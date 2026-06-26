@@ -15,6 +15,22 @@ export interface GarminCredentials {
   password: string;
 }
 
+/**
+ * Outcome of a Garmin connect/verify attempt. `connected` means we're done;
+ * `mfa_required` means Garmin sent a 2FA code and the caller must submit it with
+ * the returned `loginId`.
+ */
+export type GarminConnectResult =
+  | { status: 'connected' }
+  | { status: 'mfa_required'; loginId: string };
+
+export interface GarminMfaInput {
+  loginId: string;
+  code: string;
+  email: string;
+  password: string;
+}
+
 /** Read every provider's connection status for the current user. */
 export async function fetchIntegrationStatuses(): Promise<IntegrationStatus[]> {
   if (MOCK_API) {
@@ -27,13 +43,36 @@ export async function fetchIntegrationStatuses(): Promise<IntegrationStatus[]> {
   return request<IntegrationStatus[]>('/integrations');
 }
 
-/** Store Garmin credentials (encrypted server-side). Resolves on success. */
-export async function connectGarmin(input: GarminCredentials): Promise<void> {
+/**
+ * Attempt a Garmin login. Resolves with `connected` on success, or
+ * `mfa_required` (plus a `loginId`) when Garmin issues a 2FA challenge. Rejects
+ * with an {@link ApiError} on invalid credentials so the caller can show it.
+ */
+export async function connectGarmin(
+  input: GarminCredentials,
+): Promise<GarminConnectResult> {
   if (MOCK_API) {
     await new Promise((resolve) => setTimeout(resolve, 300));
-    return;
+    return { status: 'connected' };
   }
-  await request<void>('/integrations/garmin', { method: 'PUT', body: input });
+  return request<GarminConnectResult>('/integrations/garmin', {
+    method: 'PUT',
+    body: input,
+  });
+}
+
+/** Submit a 2FA code to finish a pending Garmin login. */
+export async function verifyGarminMfa(
+  input: GarminMfaInput,
+): Promise<GarminConnectResult> {
+  if (MOCK_API) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return { status: 'connected' };
+  }
+  return request<GarminConnectResult>('/integrations/garmin/mfa', {
+    method: 'PUT',
+    body: input,
+  });
 }
 
 /**

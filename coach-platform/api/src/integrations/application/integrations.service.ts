@@ -1,12 +1,24 @@
 import {
   BadRequestException,
+  GoneException,
   Inject,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import {
+  GARMIN_AUTH_CLIENT,
+  GarminAuthClientPort,
+} from '../domain/garmin-auth.port';
 import { GoogleOAuthClient } from '../domain/google-oauth';
+import {
+  GARMIN_CONNECTED,
+  GarminConnectedEvent,
+} from './events/garmin-connected.event';
+import { GarminConnectResponse } from './dto/garmin-connect.response';
 import {
   GarminAuth,
   GoogleCalendarAuth,
@@ -23,6 +35,7 @@ import {
   ConnectGarminDto,
   ConnectGoogleCalendarDto,
   ConnectTelegramDto,
+  VerifyGarminMfaDto,
 } from './dto/connect-integration.dto';
 
 /**
@@ -42,6 +55,9 @@ export class IntegrationsService {
     private readonly repository: IntegrationsRepositoryPort,
     private readonly crypto: CryptoService,
     private readonly googleOAuth: GoogleOAuthClient,
+    private readonly events: EventEmitter2,
+    @Inject(GARMIN_AUTH_CLIENT)
+    private readonly garminAuth: GarminAuthClientPort,
   ) {}
 
   private now(): string {
@@ -50,15 +66,83 @@ export class IntegrationsService {
 
   // --- write side (called by controller) ------------------------------------
 
-  async connectGarmin(userId: string, dto: ConnectGarminDto): Promise<void> {
+  /**
+   * Authenticate to Garmin synchronously so the user gets real feedback:
+   *  - bad credentials -> 401 (re-enter and retry);
+   *  - 2FA challenge -> return the loginId so the caller can submit the code;
+   *  - success -> persist credentials + the minted session and kick off the
+   *    background backfill.
+   *
+   * On a 2FA challenge we deliberately store NOTHING yet, so the user's
+   * connection status stays truthfully "disconnected" until the code is verified.
+   */
+  async connectGarmin(
+    userId: string,
+    dto: ConnectGarminDto,
+  ): Promise<GarminConnectResponse> {
+    const result = await this.garminAuth.authenticate(dto.email, dto.password);
+    if (result.status === 'invalid_credentials') {
+      throw new UnauthorizedException({
+        code: 'GARMIN_INVALID_CREDENTIALS',
+        message: 'Invalid Garmin email or password. Please try again.',
+      });
+    }
+    if (result.status === 'mfa_required') {
+      return { status: 'mfa_required', loginId: result.loginId };
+    }
+    await this.persistGarmin(userId, dto.email, dto.password, result.session);
+    return { status: 'connected' };
+  }
+
+  /**
+   * Complete a 2FA login with the code the user received, then persist
+   * credentials + session and kick off the background backfill.
+   */
+  async verifyGarminMfa(
+    userId: string,
+    dto: VerifyGarminMfaDto,
+  ): Promise<GarminConnectResponse> {
+    const result = await this.garminAuth.completeMfa(dto.loginId, dto.code);
+    if (result.status === 'expired') {
+      throw new GoneException({
+        code: 'GARMIN_MFA_EXPIRED',
+        message: 'Your verification window expired. Please connect again.',
+      });
+    }
+    if (result.status === 'invalid_code') {
+      throw new UnauthorizedException({
+        code: 'GARMIN_INVALID_MFA_CODE',
+        message: 'That verification code was not accepted. Please try again.',
+      });
+    }
+    await this.persistGarmin(userId, dto.email, dto.password, result.session);
+    return { status: 'connected' };
+  }
+
+  /**
+   * Store the (encrypted) credentials together with the freshly minted session,
+   * then fire-and-forget the first backfill. The ingestion listener isolates and
+   * logs its own failures, so a slow backfill never blocks the connect response.
+   */
+  private async persistGarmin(
+    userId: string,
+    email: string,
+    password: string,
+    session: GarminSession | null,
+  ): Promise<void> {
+    if (!session?.token) {
+      throw new ServiceUnavailableException(
+        'Connected to Garmin, but could not establish a session. Please try again in a moment.',
+      );
+    }
     await this.repository.upsertGarmin(userId, {
-      email: dto.email,
-      passwordEnc: this.crypto.encrypt(dto.password),
-      // Re-connecting resets any cached session; it will be re-minted on next fetch.
-      sessionEnc: null,
-      sessionExpiresAt: null,
+      email,
+      passwordEnc: this.crypto.encrypt(password),
+      sessionEnc: this.crypto.encrypt(session.token),
+      sessionExpiresAt: session.expiresAt,
       updatedAt: this.now(),
     });
+    this.events.emit(GARMIN_CONNECTED, new GarminConnectedEvent(userId));
   }
 
   /** Build the Google consent URL. Sent to the browser to start the OAuth flow. */

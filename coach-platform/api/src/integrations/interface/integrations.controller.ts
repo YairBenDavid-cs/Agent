@@ -7,7 +7,9 @@ import {
   ConnectGarminDto,
   ConnectGoogleCalendarDto,
   ConnectTelegramDto,
+  VerifyGarminMfaDto,
 } from '../application/dto/connect-integration.dto';
+import { GarminConnectResponse } from '../application/dto/garmin-connect.response';
 import { IntegrationStatusResponse } from '../application/dto/integration-status.response';
 import { IntegrationsService } from '../application/integrations.service';
 
@@ -27,13 +29,25 @@ export class IntegrationsController {
     return this.integrations.getStatuses(user.userId);
   }
 
+  /**
+   * Attempt a Garmin login. Returns `connected` on success, or `mfa_required`
+   * with a `loginId` the client uses to submit the 2FA code.
+   */
   @Put('garmin')
-  @HttpCode(204)
   async connectGarmin(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ConnectGarminDto,
-  ): Promise<void> {
-    await this.integrations.connectGarmin(user.userId, dto);
+  ): Promise<GarminConnectResponse> {
+    return this.integrations.connectGarmin(user.userId, dto);
+  }
+
+  /** Complete a pending 2FA Garmin login with the user-supplied code. */
+  @Put('garmin/mfa')
+  async verifyGarminMfa(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: VerifyGarminMfaDto,
+  ): Promise<GarminConnectResponse> {
+    return this.integrations.verifyGarminMfa(user.userId, dto);
   }
 
   /** Consent URL the browser is redirected to in order to start Google OAuth. */

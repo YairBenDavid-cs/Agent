@@ -17,10 +17,17 @@ from __future__ import annotations
 import datetime as dt
 import os
 import sys
+import time
+import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from garminconnect import Garmin
+from garminconnect import (
+    Garmin,
+    GarminConnectAuthenticationError,
+    GarminConnectConnectionError,
+    GarminConnectTooManyRequestsError,
+)
 from pydantic import BaseModel, Field
 
 # --- import the existing extractor as the single source of truth -------------
@@ -50,6 +57,57 @@ class FetchIn(BaseModel):
     auth: AuthIn
 
     model_config = {"populate_by_name": True}
+
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+
+class MfaRequest(BaseModel):
+    loginId: str
+    code: str
+
+
+# --- pending MFA logins ------------------------------------------------------
+# A Garmin login that hits a 2FA challenge returns a `client_state` dict holding
+# LIVE garth objects (not JSON-serializable), which `resume_login` needs. We keep
+# it — plus the partially-built Garmin client — in memory between the /auth and
+# /auth/mfa calls, keyed by an opaque loginId.
+#
+# Limitation: this is process-local and lost on restart, and assumes a single
+# service instance. That is acceptable for the current single-instance,
+# localhost deployment; a horizontally-scaled deployment would need shared state.
+PENDING: dict[str, dict[str, Any]] = {}
+PENDING_TTL_SECONDS = 5 * 60
+
+
+def _sweep_pending() -> None:
+    cutoff = time.monotonic() - PENDING_TTL_SECONDS
+    for key in [k for k, v in PENDING.items() if v["ts"] < cutoff]:
+        PENDING.pop(key, None)
+
+
+# garminconnect logs in via a cascade of strategies. The mobile AND portal
+# strategies report a wrong password and a 2FA challenge DETERMINISTICALLY from
+# JSON (responseStatus = INVALID_USERNAME_PASSWORD / MFA_REQUIRED). The "widget"
+# strategy is the odd one out: it GUESSES 2FA from the page <title> — and
+# Garmin's own sign-in page is titled "GARMIN Authentication Application", so a
+# rejected-password re-render gets misread as a 2FA challenge. That is exactly
+# why a wrong password was prompting for a verification code. We skip ONLY the
+# widget strategy, so the wrong-password vs. 2FA decision is always made from a
+# deterministic JSON signal.
+#
+# The portal strategies are kept: they bypass the mobile clientId rate limits
+# (Cloudflare + TLS-fingerprint rotation), so login still works when the mobile
+# endpoints return 429 — without the widget flow's ambiguity.
+SKIP_TITLE_HEURISTIC_STRATEGIES = {"widget+cffi"}
+
+
+def _new_login_client(email: str, password: str, return_on_mfa: bool) -> Garmin:
+    api = Garmin(email=email, password=password, return_on_mfa=return_on_mfa)
+    api.client.skip_strategies = set(SKIP_TITLE_HEURISTIC_STRATEGIES)
+    return api
 
 
 # Profile candidate metric names must match the NestJS regex.
@@ -122,8 +180,9 @@ def build_client(auth: AuthIn) -> Garmin:
     if auth.session:
         try:
             api = Garmin()
-            api.garth.loads(auth.session)
-            api.garth.refresh_oauth2()
+            api.client.loads(auth.session)
+            if api.client.di_refresh_token and api.client._token_expires_soon():
+                api.client._refresh_session()
             return api
         except Exception:
             pass  # fall through to a full login
@@ -131,7 +190,7 @@ def build_client(auth: AuthIn) -> Garmin:
     if not auth.email or not auth.password:
         raise HTTPException(status_code=401, detail="No valid session or credentials.")
     try:
-        api = Garmin(email=auth.email, password=auth.password)
+        api = _new_login_client(auth.email, auth.password, return_on_mfa=False)
         api.login()
         return api
     except Exception as exc:  # noqa: BLE001
@@ -140,7 +199,9 @@ def build_client(auth: AuthIn) -> Garmin:
 
 def dump_session(api: Garmin) -> dict | None:
     try:
-        token = api.garth.dumps()
+        if not api.client.is_authenticated:
+            return None
+        token = api.client.dumps()
     except Exception:
         return None
     expires = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=350)).isoformat()
@@ -242,6 +303,50 @@ def build_day(api: Garmin, day: str, day_acts: list[dict]) -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/auth")
+def auth(req: AuthRequest) -> dict:
+    """Authenticate to Garmin. Distinguishes the three outcomes the onboarding
+    flow cares about: ok (with a session to cache), 2FA required (a code is owed),
+    and bad credentials. Real connection problems surface as 5xx so the caller's
+    transient-retry applies."""
+    _sweep_pending()
+    if not req.email or not req.password:
+        return {"status": "invalid_credentials"}
+    try:
+        api = _new_login_client(req.email, req.password, return_on_mfa=True)
+        result1, result2 = api.login()
+    except GarminConnectAuthenticationError:
+        # Rejected credentials: a clean "try again", not a retryable failure.
+        return {"status": "invalid_credentials"}
+    except (GarminConnectConnectionError, GarminConnectTooManyRequestsError) as exc:
+        # Real connection/throttling problem: 5xx so the caller's transient-retry
+        # kicks in instead of telling the user their password is wrong.
+        raise HTTPException(status_code=503, detail=f"Garmin unreachable: {exc}")
+
+    if result1 == "needs_mfa":
+        login_id = uuid.uuid4().hex
+        PENDING[login_id] = {"api": api, "state": result2, "ts": time.monotonic()}
+        return {"status": "mfa_required", "loginId": login_id}
+
+    return {"status": "ok", "session": dump_session(api)}
+
+
+@app.post("/auth/mfa")
+def auth_mfa(req: MfaRequest) -> dict:
+    """Complete a pending 2FA login with the code the user received."""
+    _sweep_pending()
+    entry = PENDING.get(req.loginId)
+    if entry is None:
+        return {"status": "expired"}
+    api: Garmin = entry["api"]
+    try:
+        api.resume_login(entry["state"], req.code)
+    except Exception:  # noqa: BLE001 — a wrong/expired code; let the user retry
+        return {"status": "invalid_code"}
+    PENDING.pop(req.loginId, None)
+    return {"status": "ok", "session": dump_session(api)}
 
 
 @app.post("/fetch")
