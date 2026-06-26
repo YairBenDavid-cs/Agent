@@ -1,0 +1,184 @@
+.page {
+  /* Same ChatGPT-style dark palette as onboarding/assistant. */
+  --wa-header-bg: #212121;
+  --wa-panel-bg: #171717;
+  --wa-chat-bg: #212121;
+  --wa-bubble-out: #303030;
+  --wa-bubble-in: #1e1e1e;
+  --wa-text: #ececec;
+  --wa-text-muted: #9a9a9a;
+  --wa-border: #3a3a3a;
+  --wa-row-hover: #2a2a2a;
+  --wa-row-selected: #2f2f2f;
+  --wa-brand: #ececec;
+  --wa-brand-dark: #ececec;
+
+  color-scheme: dark;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: var(--wa-chat-bg);
+  color: var(--wa-text);
+  padding: var(--wa-space-4);
+}
+
+.container {
+  width: 100%;
+  max-width: 720px;
+  margin: var(--wa-space-4) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-4);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--wa-space-2);
+}
+
+.brandName {
+  font-weight: 700;
+  color: var(--wa-text);
+}
+
+.muted {
+  color: var(--wa-text-muted);
+  margin: 0;
+}
+
+.error {
+  color: #ffb4ab;
+  margin: 0;
+}
+
+.goal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-2);
+  background: var(--wa-panel-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-lg);
+  padding: var(--wa-space-4);
+}
+
+.goalEyebrow {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--wa-text-muted);
+}
+
+.goalTitle {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--wa-text);
+}
+
+.goalNote {
+  margin: 0;
+  color: var(--wa-text-muted);
+}
+
+.adaptNote {
+  margin: var(--wa-space-1) 0 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--wa-text-muted);
+  border-top: 1px solid var(--wa-border);
+  padding-top: var(--wa-space-3);
+}
+
+.weekNav {
+  display: flex;
+  align-items: center;
+  gap: var(--wa-space-3);
+}
+
+.navBtn {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid var(--wa-border);
+  background: var(--wa-panel-bg);
+  color: var(--wa-text);
+  border-radius: var(--wa-radius-md);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.navBtn:hover:not(:disabled) {
+  background: var(--wa-row-hover);
+}
+
+.navBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.weekLabel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.weekTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--wa-text);
+}
+
+.weekTheme {
+  color: var(--wa-text-muted);
+  font-weight: 400;
+}
+
+.weekDates {
+  font-size: 0.8rem;
+  color: var(--wa-text-muted);
+}
+
+.previewBadge {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #f0a44a;
+  background: rgba(240, 164, 74, 0.12);
+  border: 1px solid rgba(240, 164, 74, 0.3);
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-2) var(--wa-space-3);
+}
+
+.days {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-4);
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-2);
+}
+
+.dayLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--wa-text-muted);
+  margin: 0;
+}
+
+.dayCards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-3);
+}

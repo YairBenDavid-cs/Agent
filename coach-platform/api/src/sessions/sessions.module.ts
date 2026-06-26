@@ -27,5 +27,6 @@ const QueryHandlers = [FindSessionsHandler];
     ...CommandHandlers,
     ...QueryHandlers,
   ],
+  exports: [SESSIONS_REPOSITORY],
 })
 export class SessionsModule {}
