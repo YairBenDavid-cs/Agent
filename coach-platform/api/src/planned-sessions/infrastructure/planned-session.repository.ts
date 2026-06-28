@@ -3,12 +3,17 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { BaseTenantRepository } from '../../common/infrastructure/base-tenant.repository';
 import {
+  CalendarSync,
   PlannedOutcome,
   PlannedSession,
   PlannedSessionType,
 } from '../domain/planned-session.model';
-import { PlannedSessionRepositoryPort } from '../domain/planned-session.repository.port';
 import {
+  PlannedSessionRepositoryPort,
+  SessionSchedule,
+} from '../domain/planned-session.repository.port';
+import {
+  calendarToPersistence,
   outcomeToPersistence,
   PlannedSessionLean,
   toDomain,
@@ -118,6 +123,41 @@ export class PlannedSessionRepository
     return doc ? toDomain(doc) : null;
   }
 
+  async commitWeek(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+  ): Promise<number> {
+    const res = await this.model
+      .updateMany(
+        this.scoped(userId, {
+          program_id: programId,
+          week_index: weekIndex,
+          plan_state: 'tentative',
+        }),
+        { $set: { plan_state: 'committed' } },
+      )
+      .exec();
+    return res.modifiedCount ?? 0;
+  }
+
+  async discardTentativeWeek(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+  ): Promise<number> {
+    const res = await this.model
+      .deleteMany(
+        this.scoped(userId, {
+          program_id: programId,
+          week_index: weekIndex,
+          plan_state: 'tentative',
+        }),
+      )
+      .exec();
+    return res.deletedCount ?? 0;
+  }
+
   async updateOutcome(
     userId: string,
     plannedSessionId: string,
@@ -126,6 +166,36 @@ export class PlannedSessionRepository
     await this.model
       .updateOne(this.scoped(userId, { _id: plannedSessionId }), {
         $set: { outcome: outcomeToPersistence(outcome) },
+      })
+      .exec();
+  }
+
+  async updateSchedule(
+    userId: string,
+    plannedSessionId: string,
+    schedule: SessionSchedule,
+  ): Promise<void> {
+    await this.model
+      .updateOne(this.scoped(userId, { _id: plannedSessionId }), {
+        $set: {
+          scheduled_date: schedule.scheduledDate,
+          start_time: schedule.startTime,
+          end_time: schedule.endTime,
+          timezone: schedule.timezone,
+          scheduled_start_utc: schedule.scheduledStartUtc,
+        },
+      })
+      .exec();
+  }
+
+  async updateCalendarSync(
+    userId: string,
+    plannedSessionId: string,
+    calendarSync: CalendarSync,
+  ): Promise<void> {
+    await this.model
+      .updateOne(this.scoped(userId, { _id: plannedSessionId }), {
+        $set: { calendar_sync: calendarToPersistence(calendarSync) },
       })
       .exec();
   }

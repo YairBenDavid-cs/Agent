@@ -42,6 +42,7 @@ const strengthToPersistence = (
   reps_per_exercise: s.repsPerExercise,
   equipment: s.equipment,
   preferred_exercises: s.preferredExercises,
+  training_modalities: s.trainingModalities,
   experience_level: s.experienceLevel,
   split_preference: s.splitPreference,
 });
@@ -55,6 +56,7 @@ const strengthToDomain = (
   repsPerExercise: s.reps_per_exercise,
   equipment: s.equipment ?? [],
   preferredExercises: s.preferred_exercises ?? [],
+  trainingModalities: s.training_modalities ?? [],
   experienceLevel: s.experience_level ?? null,
   splitPreference: s.split_preference ?? null,
 });

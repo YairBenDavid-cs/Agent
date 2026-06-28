@@ -57,6 +57,20 @@ export type SplitPreference =
   | 'push_pull_legs'
   | 'bro_split';
 
+/**
+ * Training style/modality — orthogonal to `discipline`. Multi-select: a user can
+ * mix styles (e.g. gym + hiit). Captured at strength onboarding and later learned
+ * into the personalization projection.
+ */
+export type TrainingModality =
+  | 'gym'
+  | 'crossfit'
+  | 'hyrox'
+  | 'hiit'
+  | 'calisthenics'
+  | 'powerlifting'
+  | 'bodybuilding';
+
 /** A recurring weekly availability window, local to the user's timezone. */
 export interface AvailabilitySlot {
   day: WeekDay;
@@ -89,6 +103,7 @@ export interface StrengthPrefs {
   repsPerExercise: number;
   equipment: Equipment[];
   preferredExercises: string[];
+  trainingModalities: TrainingModality[]; // multi-select; defaults to [] for legacy profiles
   experienceLevel: ExperienceLevel | null;
   splitPreference: SplitPreference | null;
 }

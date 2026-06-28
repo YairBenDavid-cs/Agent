@@ -11,6 +11,7 @@ import {
   ExperienceLevel,
   MuscleGroup,
   SplitPreference,
+  TrainingModality,
 } from '../../domain/training-profile.model';
 
 /** Strength-branch preferences. Required when discipline === 'strength'. */
@@ -62,6 +63,22 @@ export class StrengthPrefsDto {
   @IsOptional()
   @IsString({ each: true })
   preferredExercises?: string[];
+
+  @IsOptional()
+  @IsIn(
+    [
+      'gym',
+      'crossfit',
+      'hyrox',
+      'hiit',
+      'calisthenics',
+      'powerlifting',
+      'bodybuilding',
+    ],
+    { each: true },
+  )
+  @ArrayUnique()
+  trainingModalities?: TrainingModality[];
 
   @IsOptional()
   @IsIn(['beginner', 'intermediate', 'advanced'])

@@ -131,7 +131,7 @@ const outcomeToDomain = (o: PlannedOutcomeClass): PlannedOutcome => ({
   recordedAt: o.recorded_at ?? null,
 });
 
-const calendarToPersistence = (c: CalendarSync): CalendarSyncClass => ({
+export const calendarToPersistence = (c: CalendarSync): CalendarSyncClass => ({
   provider: c.provider,
   event_id: c.eventId,
   synced_at: c.syncedAt,

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
+import { PersonalizationModule } from '../personalization/personalization.module';
 import { UsersModule } from '../users/users.module';
 import { CreateTrainingProfileHandler } from './application/commands/create-training-profile.handler';
 import { GetTrainingProfileHandler } from './application/queries/get-training-profile.handler';
@@ -21,6 +22,9 @@ const QueryHandlers = [GetTrainingProfileHandler];
     // UsersModule registers UpdateUserProfileHandler on the command bus, which
     // the onboarding submit dispatches to patch the `users` record.
     UsersModule,
+    // PersonalizationModule exports PreferenceIngestionService — the onboarding
+    // submit projects its baseline into the semantic log (Approach A).
+    PersonalizationModule,
     MongooseModule.forFeature([
       { name: TrainingProfile.name, schema: TrainingProfileSchema },
     ]),

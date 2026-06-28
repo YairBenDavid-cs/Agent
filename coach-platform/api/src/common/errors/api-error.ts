@@ -49,6 +49,16 @@ export class ApiError extends HttpException {
     );
   }
 
+  /** A request the caller may not make in the current state (400). */
+  static badRequest(message: string, details?: unknown): ApiError {
+    return new ApiError(
+      HttpStatus.BAD_REQUEST,
+      ErrorCode.VALIDATION_FAILED,
+      message,
+      details,
+    );
+  }
+
   /** Single generic auth failure — never reveals which factor was wrong. */
   static invalidCredentials(): ApiError {
     return new ApiError(

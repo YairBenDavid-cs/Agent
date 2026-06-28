@@ -1,7 +1,20 @@
-import { PlannedOutcome, PlannedSession } from './planned-session.model';
+import {
+  CalendarSync,
+  PlannedOutcome,
+  PlannedSession,
+} from './planned-session.model';
 
 /** DI token for the planned-session repository port (DIP). */
 export const PLANNED_SESSION_REPOSITORY = Symbol('PLANNED_SESSION_REPOSITORY');
+
+/** The Planner-owned schedule fields written onto a tentative train. */
+export interface SessionSchedule {
+  scheduledDate: string;
+  startTime: string;
+  endTime: string;
+  timezone: string;
+  scheduledStartUtc: string;
+}
 
 export interface PlannedSessionRepositoryPort {
   /**
@@ -49,5 +62,43 @@ export interface PlannedSessionRepositoryPort {
     userId: string,
     plannedSessionId: string,
     outcome: PlannedOutcome,
+  ): Promise<void>;
+
+  /**
+   * Approval commit: flip every still-`tentative` train of one program week to
+   * `committed`. Idempotent — re-running once the week is committed flips nothing
+   * (already-committed and outcome-bearing trains are untouched). Returns the
+   * number actually flipped this call.
+   */
+  commitWeek(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+  ): Promise<number>;
+
+  /**
+   * Reject / draft-expiry: drop every still-`tentative` train of one program
+   * week. Committed and outcome-bearing trains are untouched. Returns the number
+   * deleted. Used when the user rejects a regenerated week (a committed fallback
+   * exists) or when a user-initiated draft lapses past its TTL.
+   */
+  discardTentativeWeek(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+  ): Promise<number>;
+
+  /** Write the Planner-owned schedule fields onto a single train. */
+  updateSchedule(
+    userId: string,
+    plannedSessionId: string,
+    schedule: SessionSchedule,
+  ): Promise<void>;
+
+  /** Set the calendar-sync projection state (used at commit-time sync). */
+  updateCalendarSync(
+    userId: string,
+    plannedSessionId: string,
+    calendarSync: CalendarSync,
   ): Promise<void>;
 }

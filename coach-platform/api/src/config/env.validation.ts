@@ -46,4 +46,14 @@ export const envValidationSchema = Joi.object({
   GOOGLE_OAUTH_CLIENT_ID: Joi.string().allow('').optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: Joi.string().allow('').optional(),
   GOOGLE_OAUTH_REDIRECT_URI: Joi.string().uri().allow('').optional(),
+
+  // Agent layer (LLM specialists + orchestrator). OPENAI_API_KEY is optional so
+  // the API still boots without it; agent endpoints return a clear error instead
+  // of crashing at startup. REDIS_URL backs the BullMQ single-flight queue and
+  // idempotency store; defaults to localhost for dev.
+  OPENAI_API_KEY: Joi.string().allow('').optional(),
+  OPENAI_MODEL: Joi.string().default('gpt-4o'),
+  REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .default('redis://localhost:6379'),
 });

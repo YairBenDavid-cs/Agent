@@ -9,6 +9,7 @@ import {
   ProfileStatus,
   RunType,
   SplitPreference,
+  TrainingModality,
   WeekDay,
 } from '../domain/training-profile.model';
 
@@ -50,6 +51,15 @@ const SPLIT_PREFERENCES = [
   'upper_lower',
   'push_pull_legs',
   'bro_split',
+];
+const TRAINING_MODALITIES = [
+  'gym',
+  'crossfit',
+  'hyrox',
+  'hiit',
+  'calisthenics',
+  'powerlifting',
+  'bodybuilding',
 ];
 
 /* ── shared sub-blocks ─────────────────────────────────────────── */
@@ -104,6 +114,8 @@ export class StrengthPrefsSchemaClass {
   @Prop({ type: [String], default: [], enum: EQUIPMENT })
   equipment!: Equipment[];
   @Prop({ type: [String], default: [] }) preferred_exercises!: string[];
+  @Prop({ type: [String], default: [], enum: TRAINING_MODALITIES })
+  training_modalities!: TrainingModality[];
   @Prop({ type: String, default: null, enum: [...EXPERIENCE_LEVELS, null] })
   experience_level!: ExperienceLevel | null;
   @Prop({ type: String, default: null, enum: [...SPLIT_PREFERENCES, null] })

@@ -19,6 +19,10 @@ export interface AppConfig {
   googleOauthClientId: string;
   googleOauthClientSecret: string;
   googleOauthRedirectUri: string;
+  // Agent layer.
+  openaiApiKey: string;
+  openaiModel: string;
+  redisUrl: string;
 }
 
 export const loadConfiguration = (): AppConfig => ({
@@ -39,4 +43,7 @@ export const loadConfiguration = (): AppConfig => ({
   googleOauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID ?? '',
   googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '',
   googleOauthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ?? '',
+  openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+  openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o',
+  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
 });

@@ -19,4 +19,17 @@ export abstract class GoogleOAuthClient {
   abstract buildAuthUrl(): string;
   /** Exchange an authorization code for a refresh token (+ the account email). */
   abstract exchangeCode(code: string): Promise<GoogleOAuthTokens>;
+  /**
+   * Exchange a stored refresh token for a short-lived access token (refresh
+   * grant). Used by the Calendar client on every batch of API calls; access
+   * tokens are never persisted.
+   */
+  abstract refreshAccessToken(refreshToken: string): Promise<GoogleAccessToken>;
+}
+
+/** A short-lived bearer token minted from a refresh token. */
+export interface GoogleAccessToken {
+  accessToken: string;
+  /** Seconds until expiry as reported by Google. */
+  expiresInSec: number;
 }

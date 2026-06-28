@@ -7,6 +7,7 @@ export const toPlannedSessionResponse = (
   id: s.id ?? '',
   programId: s.programId,
   weekIndex: s.weekIndex,
+  slotKey: s.slotKey,
   type: s.type,
   scheduledDate: s.scheduledDate,
   startTime: s.startTime,

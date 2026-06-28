@@ -3,15 +3,18 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AgentsModule } from './agents/agents.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/interface/jwt-auth.guard';
 import { TransactionModule } from './common/transaction/transaction.module';
 import { loadConfiguration } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
+import { ExercisesModule } from './exercises/exercises.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { PerformanceModule } from './performance/performance.module';
+import { PersonalizationModule } from './personalization/personalization.module';
 import { PlannedSessionsModule } from './planned-sessions/planned-sessions.module';
 import { ProgramModule } from './program/program.module';
 import { ProgramMatchingModule } from './program-matching/program-matching.module';
@@ -47,6 +50,9 @@ import { UsersModule } from './users/users.module';
     ProgramModule,
     PlannedSessionsModule,
     ProgramMatchingModule,
+    ExercisesModule,
+    PersonalizationModule,
+    AgentsModule,
   ],
   providers: [
     // Secure-by-default: every route needs a valid access token unless @Public().

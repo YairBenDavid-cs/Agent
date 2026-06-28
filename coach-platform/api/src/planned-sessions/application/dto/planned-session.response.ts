@@ -12,6 +12,7 @@ export class PlannedSessionResponse {
   id!: string;
   programId!: string;
   weekIndex!: number;
+  slotKey!: string;
   type!: PlannedSessionType;
   scheduledDate!: string;
   startTime!: string;
