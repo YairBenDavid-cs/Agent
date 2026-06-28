@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { CaptureAssistantPreferenceCommand } from '../../personalization/application/commands/capture-assistant-preference.command';
 import { EventDiscipline } from '../../personalization/domain/preference-event.model';
+import { AppendMessageCommand } from '../conversation/application/commands/append-message.command';
+import { ConversationContextService } from '../conversation/application/conversation-context.service';
 import { AnyAgentTool, defineTool } from '../shared/llm/agent-tool';
 import { AgenticLoopRuntime } from '../shared/llm/agentic-loop.runtime';
 import { ReadToolRegistry } from '../shared/read-tools/read-tool-registry.service';
@@ -18,6 +20,8 @@ import { ASSISTANT_SYSTEM_PROMPT } from './assistant.prompt';
 import { DelegationService } from './delegation';
 
 export interface AssistantTurnOptions {
+  /** Active program — keys any pending card batch a fired re-plan produces. */
+  programId: string;
   discipline: EventDiscipline;
   /** The current (committed) training week — the firing-boundary reference. */
   weekWindow: { from: string; to: string };
@@ -39,6 +43,10 @@ export interface AssistantTurnOutcome {
   awaitingConfirmation: boolean;
   /** The pipeline result if the turn fired a re-plan now, else null. */
   pipelineRun: PipelineRunResult | null;
+  /** The conversation this turn belongs to. */
+  conversationId: string;
+  /** The persisted assistant-reply message id (for the client to render/link). */
+  assistantMessageId: string;
 }
 
 /**
@@ -63,15 +71,33 @@ export class AssistantService {
     private readonly delegation: DelegationService,
     private readonly commandBus: CommandBus,
     private readonly queue: PipelineQueue,
+    private readonly conversationContext: ConversationContextService,
   ) {}
 
   async handleTurn(
     userId: string,
+    conversationId: string,
     runId: string,
     message: string,
     opts: AssistantTurnOptions,
   ): Promise<AssistantTurnOutcome> {
+    // 1. Persist the user's message verbatim (tier 2) before anything else, so
+    //    the transcript is durable even if reasoning fails downstream.
+    await this.commandBus.execute(
+      new AppendMessageCommand(userId, conversationId, 'user', message),
+    );
+
     const seed = await this.seeds.buildCoachSeed(userId, opts.discipline);
+
+    // 2. Assemble the tier-3 working memory (rolling summary + recent verbatim),
+    //    compacting first if the projected prompt is near the token budget.
+    const history = await this.conversationContext.buildHistory({
+      userId,
+      conversationId,
+      systemPrompt: ASSISTANT_SYSTEM_PROMPT,
+      seed: seed.seedMessage,
+      nextUserMessage: message,
+    });
 
     const tools: AnyAgentTool[] = [
       ...this.readTools.all(),
@@ -85,6 +111,7 @@ export class AssistantService {
     const loopRes = await this.loop.run<AssistantTurn>({
       agentName: 'assistant',
       systemPrompt: ASSISTANT_SYSTEM_PROMPT,
+      history,
       seedMessage: `${seed.seedMessage}\n\n== USER MESSAGE ==\n${message}\n\nClassify and respond by calling assistant_turn exactly once.`,
       tools,
       ctx: { userId, runId },
@@ -94,16 +121,25 @@ export class AssistantService {
     const turn = loopRes.terminalResult;
     if (!turn) {
       // The model answered in free text or the loop exhausted — degrade to a
-      // plain reply, write nothing.
+      // plain reply, write no preference, but DO persist the reply.
+      const reply =
+        loopRes.finalText ??
+        "Sorry, I couldn't process that — could you rephrase?";
+      const assistantMessageId = await this.persistReply(
+        userId,
+        conversationId,
+        reply,
+        { lane: 'white' },
+      );
       return {
         lane: 'white',
-        reply:
-          loopRes.finalText ??
-          "Sorry, I couldn't process that — could you rephrase?",
+        reply,
         capturedCount: 0,
         inferred: false,
         awaitingConfirmation: false,
         pipelineRun: null,
+        conversationId,
+        assistantMessageId,
       };
     }
 
@@ -128,9 +164,24 @@ export class AssistantService {
           timezone: opts.timezone,
           weekWindow: opts.weekWindow,
           weekIndex: seed.currentWeekIndex ?? undefined,
+          programId: opts.programId,
+          conversationId,
         },
       });
     }
+
+    // 3. Persist the assistant reply with its structured action metadata so the
+    //    timeline replays (lane, whether a pipeline fired, pending confirmation).
+    const assistantMessageId = await this.persistReply(
+      userId,
+      conversationId,
+      actions.reply,
+      {
+        lane: actions.lane,
+        awaitingConfirmation: actions.awaitingConfirmation,
+        ...(pipelineRun ? { pipelineRunId: runId } : {}),
+      },
+    );
 
     this.logger.log(
       `Assistant turn ${runId}: lane=${actions.lane} writes=${actions.writes.length} fired=${actions.pipeline ?? 'none'}`,
@@ -143,7 +194,22 @@ export class AssistantService {
       inferred: actions.inferred,
       awaitingConfirmation: actions.awaitingConfirmation,
       pipelineRun,
+      conversationId,
+      assistantMessageId,
     };
+  }
+
+  /** Persist the assistant reply (tier 2) and return the new message id. */
+  private async persistReply(
+    userId: string,
+    conversationId: string,
+    reply: string,
+    meta: import('../conversation/domain/conversation.model').MessageMeta,
+  ): Promise<string> {
+    const { message } = await this.commandBus.execute(
+      new AppendMessageCommand(userId, conversationId, 'assistant', reply, meta),
+    );
+    return message.id;
   }
 
   /**

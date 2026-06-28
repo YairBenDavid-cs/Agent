@@ -34,6 +34,18 @@ export interface PipelineRunContext {
   weekWindow: { from: string; to: string };
   /** Target skeleton week; defaults to the program's currentWeekIndex. */
   weekIndex?: number;
+  /**
+   * Active program the run targets. Carried so the post-run step can persist a
+   * pending-card-batch keyed on (userId, programId, weekIndex). Optional because
+   * the WRITE_ONLY pipeline touches no week.
+   */
+  programId?: string;
+  /**
+   * The chat conversation that fired this run, if any. Links the resulting
+   * approval card back to the thread so the UI can surface it inline. Null for
+   * code-scheduled runs (the `fetch` cron has no conversation).
+   */
+  conversationId?: string | null;
 }
 
 export interface PipelineRunResult {

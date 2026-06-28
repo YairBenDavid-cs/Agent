@@ -65,6 +65,7 @@ export class OutcomeTrigger {
             timezone: ctx.timezone,
             weekWindow: ctx.weekWindow,
             weekIndex: ctx.weekIndex,
+            programId: ctx.programId,
           },
         });
         this.logger.log(

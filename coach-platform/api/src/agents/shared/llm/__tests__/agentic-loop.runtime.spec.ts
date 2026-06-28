@@ -78,6 +78,46 @@ describe('AgenticLoopRuntime workflow telemetry', () => {
     ]);
   });
 
+  it('threads history between the system prompt and the seed message', async () => {
+    const { runtime, llm } = makeRuntime([
+      {
+        message: { role: 'assistant', content: 'ok' },
+        usage,
+        finishReason: 'stop',
+      },
+    ]);
+
+    await runtime.run({
+      agentName: 'assistant',
+      systemPrompt: 'sys',
+      seedMessage: 'seed',
+      history: [
+        { role: 'system', content: 'summary' },
+        { role: 'user', content: 'earlier question' },
+        { role: 'assistant', content: 'earlier answer' },
+      ],
+      tools: [terminalTool()],
+      ctx: { userId: 'user-h', runId: 'run-h' },
+    });
+
+    const firstCall = llm.complete.mock.calls[0] as unknown as Array<{
+      messages: { role: string; content: string }[];
+    }>;
+    // The loop mutates this same array (appends the response), so assert on the
+    // prefix it was seeded with.
+    const sentMessages = firstCall[0].messages.slice(0, 5);
+    expect(sentMessages.map((m: { role: string }) => m.role)).toEqual([
+      'system',
+      'system',
+      'user',
+      'assistant',
+      'user',
+    ]);
+    expect(sentMessages[0].content).toBe('sys');
+    expect(sentMessages[1].content).toBe('summary');
+    expect(sentMessages[4].content).toBe('seed');
+  });
+
   it('emits started then exhausted when the iteration cap is hit', async () => {
     const loopingCompletion: LlmCompletion = {
       message: {

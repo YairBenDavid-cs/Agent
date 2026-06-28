@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PendingCardBatchService } from '../../approval/pending-card-batch.service';
 import { OrchestratorSaga } from '../../orchestrator/orchestrator.saga';
 import {
   Pipeline,
@@ -49,6 +50,7 @@ export class PipelineQueue {
   constructor(
     private readonly saga: OrchestratorSaga,
     private readonly idempotency: IdempotencyStore,
+    private readonly batches: PendingCardBatchService,
   ) {}
 
   /**
@@ -109,11 +111,54 @@ export class PipelineQueue {
       if (this.latestRun.get(supKey) !== job.ctx.runId) {
         result.superseded = true;
       }
+      await this.maybeRecordBatch(job, result);
       return result;
     } finally {
       if (locked) {
         await this.idempotency.releaseLock(lockKey);
       }
+    }
+  }
+
+  /**
+   * Persist a pending approval card batch for a run that successfully produced a
+   * tentative week. Skipped for WRITE_ONLY (no week), aborted runs (nothing to
+   * approve), superseded runs (a newer batch already exists), and runs without
+   * the program/week identity needed to key the batch.
+   */
+  private async maybeRecordBatch(
+    job: PipelineJob,
+    result: PipelineRunResult,
+  ): Promise<void> {
+    if (
+      result.status !== 'completed' ||
+      result.superseded ||
+      job.pipeline === Pipeline.WRITE_ONLY ||
+      !job.ctx.programId ||
+      job.ctx.weekIndex === undefined
+    ) {
+      return;
+    }
+    try {
+      await this.batches.record({
+        userId: job.ctx.userId,
+        programId: job.ctx.programId,
+        weekIndex: job.ctx.weekIndex,
+        kind:
+          job.pipeline === Pipeline.FULL_SESSION_DAY
+            ? 'session_day'
+            : 'user_initiated',
+        runId: job.ctx.runId,
+        conversationId: job.ctx.conversationId ?? null,
+      });
+    } catch (err) {
+      // A bookkeeping failure must never fail the run — the tentative week is
+      // already persisted and can still be approved by (program, week).
+      this.logger.warn(
+        `Run ${job.ctx.runId} completed but recording its card batch failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
   }
 }

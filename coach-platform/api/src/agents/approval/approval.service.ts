@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiError } from '../../common/errors/api-error';
+import { SubmitWeeklyRevisionsCommand } from '../../personalization/application/commands/submit-weekly-revisions.command';
+import { PreferenceItemDto } from '../../personalization/application/dto/preference-item.dto';
+import { IngestResult } from '../../personalization/application/services/preference-ingestion.service';
 import {
   CommitWeekCommand,
   CommitWeekResult,
@@ -30,12 +33,30 @@ import {
   CardSessionLike,
 } from './approval-card.builder';
 import { CalendarSyncService, CalendarSyncSummary } from './calendar-sync.service';
+import { PendingCardBatch } from './domain/pending-card-batch.model';
+import { PendingCardBatchService } from './pending-card-batch.service';
 
 export interface ApprovalCardBatch {
   programId: string;
   weekIndex: number;
   cards: ApprovalCard[];
   allowedActions: ApprovalAction[];
+}
+
+/** The card batch plus its persisted lifecycle record (controller view). */
+export interface ApprovalBatchView extends ApprovalCardBatch {
+  batchId: string;
+  status: PendingCardBatch['status'];
+  kind: PendingCardBatch['kind'];
+  conversationId: string | null;
+}
+
+/** One per-card free-text revision the user submitted from the card UI. */
+export interface CardRevisionEdit {
+  /** The planned session the comment is about (the card's session id). */
+  plannedSessionId: string;
+  /** The user's verbatim instruction; the Coach interprets it at regeneration. */
+  freeText: string;
 }
 
 export interface ApproveResult {
@@ -63,6 +84,7 @@ export class ApprovalService {
     private readonly commandBus: CommandBus,
     private readonly calendarSync: CalendarSyncService,
     private readonly revision: RevisionTrigger,
+    private readonly batches: PendingCardBatchService,
   ) {}
 
   /** Build the card batch for a week, diffed against an optional committed baseline. */
@@ -152,6 +174,140 @@ export class ApprovalService {
       DiscardTentativeWeekCommand,
       DiscardTentativeWeekResult
     >(new DiscardTentativeWeekCommand(userId, programId, weekIndex));
+  }
+
+  // ── batch-addressed flow (controller surface) ─────────────────────────────
+
+  /**
+   * The controller view for a pending batch: rebuild the cards live from the
+   * tentative week (committed rows are the diff baseline) and stamp the batch's
+   * lifecycle. Card content is never stored — `planned_sessions` is the truth.
+   */
+  async getBatchView(
+    userId: string,
+    batchId: string,
+  ): Promise<ApprovalBatchView> {
+    const batch = await this.requireBatch(userId, batchId);
+    const week = await this.fetchWeek(userId, batch.programId, batch.weekIndex);
+    // PlannedSessionResponse is structurally a CardSessionLike.
+    const baseline = week.filter((s) => s.planState === 'committed');
+    const draft = week.filter((s) => s.planState === 'tentative');
+    const cards = buildApprovalCards({ draft, baseline });
+    return {
+      programId: batch.programId,
+      weekIndex: batch.weekIndex,
+      cards,
+      allowedActions: allowedApprovalActions({
+        hasCommittedFallback: baseline.length > 0,
+      }),
+      batchId: batch.id,
+      status: batch.status,
+      kind: batch.kind,
+      conversationId: batch.conversationId,
+    };
+  }
+
+  /** Approve the batch's week, then mark the batch approved. */
+  async approveByBatch(
+    userId: string,
+    batchId: string,
+  ): Promise<ApproveResult> {
+    const batch = await this.requirePendingBatch(userId, batchId);
+    const result = await this.approveWeek(
+      userId,
+      batch.programId,
+      batch.weekIndex,
+    );
+    await this.batches.setStatus(userId, batchId, 'approved');
+    return result;
+  }
+
+  /**
+   * Revise: capture each per-card comment as an explicit one-off preference
+   * event (raw text preserved verbatim — the Coach interprets it at
+   * regeneration), mark the batch revised, then fire a fresh CONTENT_REPLAN.
+   * The new run records its own pending batch (supersession handles the rest).
+   */
+  async reviseByBatch(
+    userId: string,
+    batchId: string,
+    edits: CardRevisionEdit[],
+  ): Promise<{ revisionBatchId: string | null }> {
+    const batch = await this.requirePendingBatch(userId, batchId);
+    const eventDate = new Date().toISOString().slice(0, 10);
+    const revisions: PreferenceItemDto[] = edits.map((e) => ({
+      eventDate,
+      discipline: null,
+      scope: 'session',
+      durability: 'one_off',
+      target: { plannedSessionId: e.plannedSessionId },
+      tag: {
+        type: 'other',
+        value: null,
+        polarity: 'neutral',
+        confidence: 'explicit',
+      },
+      rawText: e.freeText,
+    }));
+
+    const ingest = await this.commandBus.execute<
+      SubmitWeeklyRevisionsCommand,
+      IngestResult
+    >(new SubmitWeeklyRevisionsCommand(userId, { revisions }));
+
+    await this.batches.setStatus(userId, batchId, 'revised');
+
+    const replan = await this.revision.run(
+      userId,
+      ingest.batchId ?? batch.id,
+    );
+    this.logger.log(
+      `Revised batch ${batchId} for ${userId}: ${edits.length} edit(s) → ${replan?.pipeline ?? 'no'} re-plan.`,
+    );
+    return { revisionBatchId: ingest.batchId };
+  }
+
+  /** Reject: discard the draft (only if a committed fallback exists), mark it. */
+  async rejectByBatch(
+    userId: string,
+    batchId: string,
+  ): Promise<DiscardTentativeWeekResult> {
+    const batch = await this.requirePendingBatch(userId, batchId);
+    const week = await this.fetchWeek(userId, batch.programId, batch.weekIndex);
+    const hasCommittedFallback = week.some((s) => s.planState === 'committed');
+    const result = await this.rejectWeek(
+      userId,
+      batch.programId,
+      batch.weekIndex,
+      hasCommittedFallback,
+    );
+    await this.batches.setStatus(userId, batchId, 'rejected');
+    return result;
+  }
+
+  private async requireBatch(
+    userId: string,
+    batchId: string,
+  ): Promise<PendingCardBatch> {
+    const batch = await this.batches.get(userId, batchId);
+    if (!batch) {
+      throw ApiError.notFound(`Approval batch ${batchId} not found.`);
+    }
+    return batch;
+  }
+
+  /** Like requireBatch, but refuses an already-actioned (terminal) batch. */
+  private async requirePendingBatch(
+    userId: string,
+    batchId: string,
+  ): Promise<PendingCardBatch> {
+    const batch = await this.requireBatch(userId, batchId);
+    if (batch.status !== 'pending') {
+      throw ApiError.badRequest(
+        `Approval batch ${batchId} is already ${batch.status}.`,
+      );
+    }
+    return batch;
   }
 
   private async fetchWeek(

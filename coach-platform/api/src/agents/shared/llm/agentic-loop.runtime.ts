@@ -13,6 +13,12 @@ export interface AgenticLoopParams {
   seedMessage: string;
   tools: AnyAgentTool[];
   ctx: AgentToolContext;
+  /**
+   * Prior conversation turns (rolling summary + recent verbatim messages),
+   * threaded between the stable system prompt and the curated seed+message so a
+   * multi-turn chat stays coherent. Empty for one-shot specialist runs.
+   */
+  history?: LlmMessage[];
   /** Hard cap on model turns (autonomy bound). Defaults to 8. */
   maxIterations?: number;
   model?: string;
@@ -67,6 +73,7 @@ export class AgenticLoopRuntime {
 
     const messages: LlmMessage[] = [
       { role: 'system', content: params.systemPrompt },
+      ...(params.history ?? []),
       { role: 'user', content: params.seedMessage },
     ];
 

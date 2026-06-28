@@ -47,6 +47,7 @@ export class FetchTrigger {
         timezone: ctx.timezone,
         weekWindow: ctx.weekWindow,
         weekIndex: ctx.weekIndex,
+        programId: ctx.programId,
       },
     });
   }

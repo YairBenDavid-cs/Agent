@@ -39,6 +39,7 @@ export class RevisionTrigger {
         timezone: ctx.timezone,
         weekWindow: ctx.weekWindow,
         weekIndex: ctx.weekIndex,
+        programId: ctx.programId,
       },
     });
   }

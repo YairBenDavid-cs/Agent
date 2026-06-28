@@ -5,8 +5,25 @@ import {
   PipelineRunContext,
   PipelineRunResult,
 } from '../../../orchestrator/pipeline.types';
+import { PendingCardBatchService } from '../../../approval/pending-card-batch.service';
 import { IdempotencyStore } from '../idempotency.store';
 import { PipelineJob, PipelineQueue } from '../pipeline-queue.service';
+
+// Batch bookkeeping is exercised in the approval tests; here it is a no-op stub
+// so the queue's serialization/idempotency/supersession logic stays in focus.
+const batchesStub = () =>
+  ({ record: jest.fn().mockResolvedValue(undefined) }) as unknown as PendingCardBatchService;
+
+function makeQueue(
+  saga: { run: jest.Mock },
+  store: IdempotencyStore,
+): PipelineQueue {
+  return new PipelineQueue(
+    saga as unknown as OrchestratorSaga,
+    store,
+    batchesStub(),
+  );
+}
 
 // A ConfigService with no redisUrl forces the in-process fallback path, which
 // is the deterministic, single-process behaviour we assert here.
@@ -51,10 +68,7 @@ describe('PipelineQueue', () => {
 
   it('runs a fresh job through the saga and returns its result', async () => {
     const saga = { run: jest.fn().mockResolvedValue(result()) };
-    const queue = new PipelineQueue(
-      saga as unknown as OrchestratorSaga,
-      store,
-    );
+    const queue = makeQueue(saga, store);
 
     const out = await queue.enqueue(job());
 
@@ -64,10 +78,7 @@ describe('PipelineQueue', () => {
 
   it('skips a duplicate runId (idempotency) without re-running the saga', async () => {
     const saga = { run: jest.fn().mockResolvedValue(result()) };
-    const queue = new PipelineQueue(
-      saga as unknown as OrchestratorSaga,
-      store,
-    );
+    const queue = makeQueue(saga, store);
 
     const first = await queue.enqueue(job());
     const second = await queue.enqueue(job()); // same runId
@@ -97,10 +108,7 @@ describe('PipelineQueue', () => {
           return result();
         }),
     };
-    const queue = new PipelineQueue(
-      saga as unknown as OrchestratorSaga,
-      store,
-    );
+    const queue = makeQueue(saga, store);
 
     const a = queue.enqueue(job({ runId: 'a' }));
     const b = queue.enqueue(job({ runId: 'b' }));
@@ -132,10 +140,7 @@ describe('PipelineQueue', () => {
           return result();
         }),
     };
-    const queue = new PipelineQueue(
-      saga as unknown as OrchestratorSaga,
-      store,
-    );
+    const queue = makeQueue(saga, store);
 
     const p1 = queue.enqueue(job({ userId: 'u1', runId: 'a' }));
     const p2 = queue.enqueue(job({ userId: 'u2', runId: 'b' }));
@@ -160,10 +165,7 @@ describe('PipelineQueue', () => {
         })
         .mockImplementationOnce(async () => result()),
     };
-    const queue = new PipelineQueue(
-      saga as unknown as OrchestratorSaga,
-      store,
-    );
+    const queue = makeQueue(saga, store);
 
     const a = queue.enqueue(job({ runId: 'a' })); // same user+week
     const b = queue.enqueue(job({ runId: 'b' })); // supersedes a
@@ -177,10 +179,7 @@ describe('PipelineQueue', () => {
 
   it('isLatest reflects the most recently enqueued run for a user+week', async () => {
     const saga = { run: jest.fn().mockResolvedValue(result()) };
-    const queue = new PipelineQueue(
-      saga as unknown as OrchestratorSaga,
-      store,
-    );
+    const queue = makeQueue(saga, store);
 
     await queue.enqueue(job({ runId: 'a' }));
     await queue.enqueue(job({ runId: 'b' }));
