@@ -19,8 +19,8 @@
 }
 
 .trigger:hover {
-  background: var(--wa-row-hover);
-  color: var(--wa-text);
+  background: var(--wa-accent-soft, var(--wa-row-hover));
+  color: var(--wa-accent, var(--wa-text));
 }
 
 .trigger[aria-expanded='true'] .icon {

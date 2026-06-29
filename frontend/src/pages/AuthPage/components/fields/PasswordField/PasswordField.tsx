@@ -22,7 +22,7 @@ export function PasswordField({
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
         autoComplete={autoComplete}
-        placeholder="Enter your password"
+        placeholder="At least 8 characters"
       />
     </label>
   );

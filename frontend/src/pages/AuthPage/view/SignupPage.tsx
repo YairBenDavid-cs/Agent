@@ -14,6 +14,7 @@ export function SignupPage(): ReactElement {
   return (
     <AuthLayout
       title="Create your account"
+      subtitle="Set up Popvich to learn your training and run your week."
       prompt="Already have an account?"
       actionLabel="Log in"
       actionTo="/login"

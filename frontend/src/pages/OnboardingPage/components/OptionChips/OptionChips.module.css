@@ -43,3 +43,81 @@
   font-size: 0.8125rem;
   color: var(--wa-text-muted);
 }
+
+/* Icon tile cards — a richer single-select used for the goal step. Two columns
+   on wider panels, collapsing to one on narrow screens. */
+.tileGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--wa-space-2);
+}
+
+@media (max-width: 460px) {
+  .tileGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tile {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--wa-space-3);
+  text-align: left;
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-panel-bg);
+  padding: var(--wa-space-3);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.tile:hover:not(:disabled) {
+  border-color: var(--accent, var(--wa-brand));
+}
+
+.tile:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tileSelected {
+  border-color: var(--accent, var(--wa-brand));
+  background: var(--wa-bubble-out);
+}
+
+.tileIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--wa-radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--wa-text-muted);
+}
+
+.tileSelected .tileIcon {
+  background: var(--accent-soft, var(--wa-bubble-out));
+  color: var(--accent, var(--wa-text));
+}
+
+.tileText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tileLabel {
+  font-weight: 600;
+  color: var(--wa-text);
+  font-size: 0.9375rem;
+}
+
+.tileDesc {
+  font-size: 0.8125rem;
+  color: var(--wa-text-muted);
+}

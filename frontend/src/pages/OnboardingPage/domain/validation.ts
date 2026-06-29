@@ -5,8 +5,25 @@ import type { OnboardingDraft } from '../state/onboardingDraft';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** "m:ss" / "mm:ss" / "h:mm:ss" — mirrors the server's RunPrefsDto regex. */
+const RACE_TIME = /^(\d{1,2}:)?[0-5]?\d:[0-5]\d$/;
+
 export function isValidTime(value: string): boolean {
   return HHMM.test(value);
+}
+
+/** Optional 5k time: empty is allowed, otherwise must be a plausible mm:ss. */
+export function isOptional5kTime(value: string): boolean {
+  return value.trim() === '' || RACE_TIME.test(value.trim());
+}
+
+/** Optional non-negative number with an inclusive upper bound. Empty allowed. */
+export function isOptionalNumberInRange(value: string, max: number): boolean {
+  if (value.trim() === '') {
+    return true;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 && n <= max;
 }
 
 /** Slot is well-formed and the window is non-empty (start strictly before end). */
@@ -41,6 +58,18 @@ export function isOptionalPositiveInt(value: string): boolean {
 export function isIntInRange(value: string, min: number, max: number): boolean {
   const n = Number(value);
   return value.trim() !== '' && Number.isInteger(n) && n >= min && n <= max;
+}
+
+/**
+ * Comma-separated favourite exercises, mirroring the server's StrengthPrefsDto:
+ * at most 50 entries, each at most 80 chars. Empty is allowed (optional field).
+ */
+export function preferredExercisesValid(raw: string): boolean {
+  const items = raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+  return items.length <= 50 && items.every((item) => item.length <= 80);
 }
 
 export function isDisciplineStepValid(draft: OnboardingDraft): boolean {
@@ -86,8 +115,11 @@ export function isPrefsStepValid(draft: OnboardingDraft): boolean {
       draft.run.weeklyKm.trim() !== '' &&
       Number.isFinite(n) &&
       n >= 0 &&
+      n <= 300 &&
       draft.run.likedRunTypes.length >= 1 &&
-      isOptionalPositiveInt(draft.run.longestRecentKm)
+      isOptionalNumberInRange(draft.run.longestRecentKm, 500) &&
+      draft.run.targetRace.length <= 120 &&
+      isOptional5kTime(draft.run.recent5kTime)
     );
   }
   if (draft.discipline === 'strength') {
@@ -96,7 +128,8 @@ export function isPrefsStepValid(draft: OnboardingDraft): boolean {
       draft.strength.equipment.length >= 1 &&
       isIntInRange(draft.strength.exercisesPerSession, 1, 50) &&
       isIntInRange(draft.strength.setsPerExercise, 1, 20) &&
-      isIntInRange(draft.strength.repsPerExercise, 1, 100)
+      isIntInRange(draft.strength.repsPerExercise, 1, 100) &&
+      preferredExercisesValid(draft.strength.preferredExercises)
     );
   }
   return false;

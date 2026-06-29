@@ -14,6 +14,16 @@ export class GarminCreds {
   @Prop({ type: String, default: null }) session_enc!: string | null;
   @Prop({ type: String, default: null }) session_expires_at!: string | null;
   @Prop({ type: String, required: true }) updated_at!: string;
+  // Latest ingestion run state. Defaults to 'syncing' because connecting Garmin
+  // immediately kicks off the first backfill.
+  @Prop({
+    type: String,
+    enum: ['syncing', 'synced', 'auth_failed', 'sync_failed'],
+    default: 'syncing',
+  })
+  sync_status!: string;
+  @Prop({ type: String, default: null }) last_sync_error!: string | null;
+  @Prop({ type: String, default: null }) last_synced_at!: string | null;
 }
 export const GarminCredsSchema = SchemaFactory.createForClass(GarminCreds);
 

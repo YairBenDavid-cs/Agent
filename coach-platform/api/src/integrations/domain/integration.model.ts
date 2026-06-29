@@ -25,6 +25,21 @@ export interface GarminSession {
   expiresAt: string; // ISO8601
 }
 
+/**
+ * Outcome of the most recent Garmin ingestion run. Drives the connect-step UX:
+ *  - `syncing`      — a run is in flight (the connect step waits on this);
+ *  - `synced`       — a run finished without error (even zero rows — a brand-new
+ *                     account with no history is a legitimate success);
+ *  - `auth_failed`  — the fetch was rejected for auth (re-enter credentials);
+ *  - `sync_failed`  — transient/fetch/persist failure (retry with the stored
+ *                     token — no re-login needed).
+ */
+export type GarminSyncStatus =
+  | 'syncing'
+  | 'synced'
+  | 'auth_failed'
+  | 'sync_failed';
+
 export interface GarminAuth {
   credentials: GarminCredentials;
   session: GarminSession | null;
@@ -46,4 +61,10 @@ export interface IntegrationStatus {
   connected: boolean;
   /** When this provider's credentials were last written/updated. */
   updatedAt: string | null;
+  /** Garmin only — the latest ingestion run's status. `null` for other providers. */
+  syncStatus?: GarminSyncStatus | null;
+  /** Garmin only — when the last successful run completed. */
+  lastSyncedAt?: string | null;
+  /** Garmin only — failure detail from the last run, when it failed. */
+  lastError?: string | null;
 }

@@ -8,6 +8,12 @@ import type {
 
 export function formatDayLabel(isoDate: string): string {
   const d = new Date(`${isoDate}T00:00:00`);
+  // A malformed/empty date makes toLocaleDateString throw on WebKit
+  // ("The string did not match the expected pattern"). Fall back to the raw
+  // value so one bad field never crashes the whole page render.
+  if (Number.isNaN(d.getTime())) {
+    return isoDate;
+  }
   return d.toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'short',

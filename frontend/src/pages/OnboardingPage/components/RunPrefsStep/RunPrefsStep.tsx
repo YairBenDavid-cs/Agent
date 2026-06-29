@@ -37,6 +37,7 @@ export function RunPrefsStep({ value, onChange, disabled }: RunPrefsStepProps): 
         value={value.weeklyKm}
         onChange={(weeklyKm) => onChange({ weeklyKm })}
         min={0}
+        max={300}
         disabled={disabled}
       />
       <div className={section.section}>
@@ -65,6 +66,7 @@ export function RunPrefsStep({ value, onChange, disabled }: RunPrefsStepProps): 
           onChange={(longestRecentKm) => onChange({ longestRecentKm })}
           optional
           min={0}
+          max={500}
           disabled={disabled}
         />
         <Field
@@ -73,6 +75,7 @@ export function RunPrefsStep({ value, onChange, disabled }: RunPrefsStepProps): 
           onChange={(targetRace) => onChange({ targetRace })}
           placeholder="e.g. 10k, half, marathon"
           optional
+          maxLength={120}
           disabled={disabled}
         />
       </div>
@@ -80,8 +83,9 @@ export function RunPrefsStep({ value, onChange, disabled }: RunPrefsStepProps): 
         label="Recent 5k time"
         value={value.recent5kTime}
         onChange={(recent5kTime) => onChange({ recent5kTime })}
-        placeholder="HH:mm:ss"
+        placeholder="mm:ss (e.g. 24:30)"
         optional
+        maxLength={8}
         disabled={disabled}
       />
     </div>

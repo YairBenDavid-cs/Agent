@@ -87,6 +87,7 @@ export function StrengthPrefsStep({
           value={value.exercisesPerSession}
           onChange={(exercisesPerSession) => onChange({ exercisesPerSession })}
           min={1}
+          max={50}
           disabled={disabled}
         />
         <Field
@@ -95,6 +96,7 @@ export function StrengthPrefsStep({
           value={value.setsPerExercise}
           onChange={(setsPerExercise) => onChange({ setsPerExercise })}
           min={1}
+          max={20}
           disabled={disabled}
         />
         <Field
@@ -103,6 +105,7 @@ export function StrengthPrefsStep({
           value={value.repsPerExercise}
           onChange={(repsPerExercise) => onChange({ repsPerExercise })}
           min={1}
+          max={100}
           disabled={disabled}
         />
       </div>
@@ -130,6 +133,7 @@ export function StrengthPrefsStep({
         onChange={(preferredExercises) => onChange({ preferredExercises })}
         placeholder="e.g. squat, bench press, deadlift"
         optional
+        maxLength={800}
         disabled={disabled}
       />
     </div>

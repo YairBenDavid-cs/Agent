@@ -1,0 +1,137 @@
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.row:hover {
+  background: var(--wa-row-hover);
+}
+
+.active,
+.active:hover {
+  background: var(--wa-row-selected);
+}
+
+/* Glowing accent bar on the active conversation. */
+.active::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 9999px;
+  background: var(--wa-accent);
+  box-shadow: 0 0 10px var(--wa-accent-glow);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 10px 4px 10px 14px;
+  color: #b4b4b0;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s ease;
+}
+
+.row:hover .title,
+.active .title {
+  color: #f4f3f0;
+}
+
+.kebab {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 6px;
+  border: none;
+  border-radius: var(--wa-radius-md);
+  background: transparent;
+  color: var(--wa-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.15s ease, color 0.15s ease;
+}
+
+/* Reveal the kebab on row hover, while focused, or when its menu is open. */
+.row:hover .kebab,
+.kebab:focus-visible,
+.kebabOpen {
+  opacity: 1;
+}
+
+.kebab:hover,
+.kebabOpen {
+  background: var(--wa-accent-soft);
+  color: var(--wa-accent);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 6px;
+  min-width: 150px;
+  padding: var(--wa-space-1);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-panel-bg);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  z-index: 30;
+  animation: pop 0.12s ease;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: var(--wa-space-2) var(--wa-space-3);
+  border-radius: var(--wa-radius-sm);
+  color: var(--wa-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--wa-row-hover);
+  color: var(--wa-accent);
+}
+
+.delete:hover {
+  color: #ff6b6b;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--wa-accent);
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-chat-bg, #181816);
+  color: var(--wa-text);
+  font-size: 15px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--wa-accent-soft);
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

@@ -5,12 +5,17 @@
  * persistence layer can never accidentally store or log a plaintext secret.
  */
 
+import { GarminSyncStatus } from './integration.model';
+
 export interface StoredGarmin {
   email: string; // not a secret; an identifier
   passwordEnc: string;
   sessionEnc: string | null;
   sessionExpiresAt: string | null;
   updatedAt: string;
+  syncStatus: GarminSyncStatus;
+  lastSyncError: string | null;
+  lastSyncedAt: string | null;
 }
 
 export interface StoredGoogleCalendar {

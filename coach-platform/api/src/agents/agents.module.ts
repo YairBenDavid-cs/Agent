@@ -34,6 +34,7 @@ import { OutcomeClarifyListener } from './triggers/outcome-clarify.listener';
 import { RevisionTrigger } from './triggers/revision.trigger';
 import { SessionFlushTrigger } from './triggers/session-flush.trigger';
 import { SessionFlushListener } from './triggers/session-flush.listener';
+import { OnboardingGenerationListener } from './triggers/onboarding-generation.listener';
 import { AgentsTriggerController } from './triggers/interface/agents-trigger.controller';
 import { CalendarSyncService } from './approval/calendar-sync.service';
 import { ApprovalService } from './approval/approval.service';
@@ -89,6 +90,7 @@ import { ApprovalTtlService } from './approval/approval-ttl.service';
     RevisionTrigger,
     SessionFlushTrigger,
     SessionFlushListener,
+    OnboardingGenerationListener,
     CalendarSyncService,
     ApprovalService,
     ApprovalTtlService,

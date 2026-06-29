@@ -1,7 +1,14 @@
 .row {
   display: flex;
+  align-items: center;
   justify-content: flex-start;
+  gap: var(--wa-space-2);
   margin-bottom: var(--wa-space-4);
+}
+
+.label {
+  color: var(--wa-text-muted);
+  font-size: 0.85em;
 }
 
 .bubble {

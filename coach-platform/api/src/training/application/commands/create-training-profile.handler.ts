@@ -1,5 +1,6 @@
 import { Inject, Logger } from '@nestjs/common';
 import { CommandBus, CommandHandler, ICommandHandler } from '@nestjs/cqrs';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TransactionManager } from '../../../common/transaction/transaction.manager';
 import { PreferenceIngestionService } from '../../../personalization/application/services/preference-ingestion.service';
 import { UpdateUserProfileCommand } from '../../../users/application/commands/update-user-profile.command';
@@ -10,6 +11,10 @@ import {
 } from '../../domain/training-profile.repository.port';
 import { CreateTrainingProfileDto } from '../dto/create-training-profile.dto';
 import { profileToPreferenceItems } from '../services/profile-to-preference-items';
+import {
+  TRAINING_PROFILE_CREATED,
+  TrainingProfileCreatedEvent,
+} from '../events/training-profile-created.event';
 import { CreateTrainingProfileCommand } from './create-training-profile.command';
 
 /** Derives the 3-month goal horizon as a YYYY-MM-DD string from "now". */
@@ -37,6 +42,7 @@ export class CreateTrainingProfileHandler
     @Inject(TRAINING_PROFILE_REPOSITORY)
     private readonly repository: TrainingProfileRepositoryPort,
     private readonly ingestion: PreferenceIngestionService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async execute(
@@ -75,6 +81,14 @@ export class CreateTrainingProfileHandler
         err instanceof Error ? err.stack : String(err),
       );
     }
+
+    // Signal the agents layer to auto-generate a first program. Fire-and-forget
+    // after commit: a closed tab or a generation failure must never undo a saved
+    // profile, and the listener itself gates on "no active program yet".
+    this.events.emit(
+      TRAINING_PROFILE_CREATED,
+      new TrainingProfileCreatedEvent({ userId }),
+    );
 
     return { onboarded: true };
   }

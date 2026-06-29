@@ -14,6 +14,7 @@ export function LoginPage(): ReactElement {
   return (
     <AuthLayout
       title="Welcome back"
+      subtitle="Sign in to pick up where Popvich left off."
       prompt="New to AgentiCoach?"
       actionLabel="Create account"
       actionTo="/signup"

@@ -23,6 +23,7 @@ import {
   GarminAuth,
   GoogleCalendarAuth,
   GarminSession,
+  GarminSyncStatus,
   IntegrationStatus,
   TelegramAuth,
 } from '../domain/integration.model';
@@ -141,6 +142,10 @@ export class IntegrationsService {
       sessionEnc: this.crypto.encrypt(session.token),
       sessionExpiresAt: session.expiresAt,
       updatedAt: this.now(),
+      // Auth just succeeded; the backfill the event kicks off is now in flight.
+      syncStatus: 'syncing',
+      lastSyncError: null,
+      lastSyncedAt: null,
     });
     this.events.emit(GARMIN_CONNECTED, new GarminConnectedEvent(userId));
   }
@@ -206,12 +211,31 @@ export class IntegrationsService {
     );
   }
 
+  /** Record the latest ingestion-run outcome for the user's Garmin connection.
+   * Called by the ingestion orchestrator around each run so the connect step can
+   * watch the run reach `synced` (or surface a retryable failure). */
+  async setGarminSyncStatus(
+    userId: string,
+    status: GarminSyncStatus,
+    opts?: { error?: string | null; syncedAt?: string | null },
+  ): Promise<void> {
+    await this.repository.setGarminSyncStatus(userId, status, opts);
+  }
+
   // --- read side: safe status (exposed via API) -----------------------------
 
   async getStatuses(userId: string): Promise<IntegrationStatus[]> {
     const record = await this.repository.find(userId);
+    const g = record?.garmin ?? null;
     return [
-      this.status('garmin', record?.garmin?.updatedAt ?? null),
+      {
+        provider: 'garmin',
+        connected: g !== null,
+        updatedAt: g?.updatedAt ?? null,
+        syncStatus: g?.syncStatus ?? null,
+        lastSyncedAt: g?.lastSyncedAt ?? null,
+        lastError: g?.lastSyncError ?? null,
+      },
       this.status(
         'google_calendar',
         record?.googleCalendar?.updatedAt ?? null,

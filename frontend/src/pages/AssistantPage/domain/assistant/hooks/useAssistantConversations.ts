@@ -12,6 +12,7 @@ interface UseAssistantConversations {
   upsert: (conversation: AssistantConversation) => void;
   touch: (id: string, lastMessageAt: string) => void;
   rename: (id: string, title: string) => void;
+  remove: (id: string) => void;
 }
 
 function sortByLastMessage(list: AssistantConversation[]): AssistantConversation[] {
@@ -76,5 +77,9 @@ export function useAssistantConversations(): UseAssistantConversations {
     );
   }, []);
 
-  return { conversations, status, error, upsert, touch, rename };
+  const remove = useCallback((id: string): void => {
+    setConversations((prev) => prev.filter((conversation) => conversation.id !== id));
+  }, []);
+
+  return { conversations, status, error, upsert, touch, rename, remove };
 }

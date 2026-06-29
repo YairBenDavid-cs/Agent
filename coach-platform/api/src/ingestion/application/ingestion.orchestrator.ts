@@ -19,6 +19,7 @@ import {
   INGESTION_COMPLETED,
 } from './events/ingestion-completed.event';
 import { FetcherPort, GARMIN_FETCHER } from './fetcher.port';
+import { GarminAuthError } from './ingestion.errors';
 import { IngestionSummary } from './ingestion.summary';
 
 /** Provenance stamped on every row this pipeline writes. */
@@ -50,38 +51,55 @@ export class IngestionOrchestrator {
   ): Promise<IngestionSummary> {
     const { from, to } = range ?? this.defaultRange();
 
-    const auth = await this.integrations.getDecryptedGarminAuth(userId);
-    const result = await this.fetcher.fetch({ userId, auth, from, to });
+    await this.integrations.setGarminSyncStatus(userId, 'syncing');
+    try {
+      const auth = await this.integrations.getDecryptedGarminAuth(userId);
+      const result = await this.fetcher.fetch({ userId, auth, from, to });
 
-    // Cache a refreshed session so we are not re-authenticating every run.
-    if (result.session) {
-      await this.integrations.saveGarminSession(userId, result.session);
+      // Cache a refreshed session so we are not re-authenticating every run.
+      if (result.session) {
+        await this.integrations.saveGarminSession(userId, result.session);
+      }
+
+      const summary: IngestionSummary = {
+        userId,
+        from,
+        to,
+        daysProcessed: 0,
+        recoveryWritten: 0,
+        performanceWritten: 0,
+        sessionsWritten: 0,
+        profileChangesAppended: 0,
+        daysWithIssues: 0,
+      };
+
+      for (const day of result.days) {
+        await this.ingestDay(userId, day, summary);
+      }
+
+      // A run that finished without throwing is a success — even with zero rows
+      // (a brand-new account with no history is legitimately empty).
+      await this.integrations.setGarminSyncStatus(userId, 'synced', {
+        error: null,
+        syncedAt: new Date().toISOString(),
+      });
+      this.events.emit(
+        INGESTION_COMPLETED,
+        new IngestionCompletedEvent(summary),
+      );
+      this.logger.log(
+        `Ingestion for ${userId} [${from}..${to}]: ${JSON.stringify(summary)}`,
+      );
+      return summary;
+    } catch (err) {
+      // Auth rejection → user must re-enter credentials; anything else is
+      // transient/persist failure → retryable with the stored token.
+      const status = err instanceof GarminAuthError ? 'auth_failed' : 'sync_failed';
+      await this.integrations.setGarminSyncStatus(userId, status, {
+        error: String(err),
+      });
+      throw err;
     }
-
-    const summary: IngestionSummary = {
-      userId,
-      from,
-      to,
-      daysProcessed: 0,
-      recoveryWritten: 0,
-      performanceWritten: 0,
-      sessionsWritten: 0,
-      profileChangesAppended: 0,
-      daysWithIssues: 0,
-    };
-
-    for (const day of result.days) {
-      await this.ingestDay(userId, day, summary);
-    }
-
-    this.events.emit(
-      INGESTION_COMPLETED,
-      new IngestionCompletedEvent(summary),
-    );
-    this.logger.log(
-      `Ingestion for ${userId} [${from}..${to}]: ${JSON.stringify(summary)}`,
-    );
-    return summary;
   }
 
   private async ingestDay(

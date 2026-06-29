@@ -1,0 +1,35 @@
+.viewport {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-2);
+  align-items: center;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  max-width: 360px;
+  padding: 12px 16px;
+  border: 1px solid var(--wa-accent, #e8590c);
+  border-left-width: 3px;
+  border-radius: var(--wa-radius-md);
+  background: var(--wa-panel-bg, #0c0c0c);
+  color: var(--wa-text, #ececec);
+  font-size: 14px;
+  text-align: left;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 12px var(--wa-accent-soft);
+  cursor: pointer;
+  animation: slide-up 0.16s ease;
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}

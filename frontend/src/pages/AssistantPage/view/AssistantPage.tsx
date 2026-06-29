@@ -1,7 +1,14 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { createAssistantConversation } from '../domain/assistant/api/assistantApi';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog/ConfirmDialog';
+import { ToastViewport } from '@/shared/ui/Toast/ToastViewport';
+import { useToasts } from '@/shared/ui/Toast/useToasts';
+import {
+  createAssistantConversation,
+  deleteAssistantConversation,
+  renameAssistantConversation,
+} from '../domain/assistant/api/assistantApi';
 import { useAssistantConversations } from '../domain/assistant/hooks/useAssistantConversations';
 import type { PendingPrompt } from '../domain/assistant/types/assistant';
 import { AssistantSidebar } from '../components/AssistantSidebar/view/AssistantSidebar';
@@ -12,9 +19,17 @@ import styles from './AssistantPage.module.css';
 export function AssistantPage(): ReactElement {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { conversations, status, error, upsert, touch, rename } = useAssistantConversations();
+  const { conversations, status, error, upsert, touch, rename, remove } =
+    useAssistantConversations();
+  const { toasts, showToast, dismiss } = useToasts();
   const pendingPromptRef = useRef<PendingPrompt | null>(null);
   const [collapsed, setCollapsed] = useState(true);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const pendingDelete = useMemo(
+    () => conversations.find((c) => c.id === pendingDeleteId) ?? null,
+    [conversations, pendingDeleteId],
+  );
 
   const onToggle = useCallback((): void => {
     setCollapsed((prev) => !prev);
@@ -48,6 +63,36 @@ export function AssistantPage(): ReactElement {
     [touch],
   );
 
+  const onRename = useCallback(
+    (conversationId: string, title: string): void => {
+      const previous = conversations.find((c) => c.id === conversationId)?.title;
+      rename(conversationId, title);
+      renameAssistantConversation(conversationId, title).catch(() => {
+        if (previous !== undefined) {
+          rename(conversationId, previous);
+        }
+        showToast('Could not rename the conversation.');
+      });
+    },
+    [conversations, rename, showToast],
+  );
+
+  const onConfirmDelete = useCallback((): void => {
+    const target = pendingDelete;
+    setPendingDeleteId(null);
+    if (!target) {
+      return;
+    }
+    remove(target.id);
+    if (target.id === id) {
+      navigate('/assistant');
+    }
+    deleteAssistantConversation(target.id).catch(() => {
+      upsert(target);
+      showToast('Could not delete the conversation.');
+    });
+  }, [pendingDelete, remove, id, navigate, upsert, showToast]);
+
   return (
     <div className={styles.layout}>
       <aside className={collapsed ? `${styles.sidebar} ${styles.collapsed}` : styles.sidebar}>
@@ -60,6 +105,8 @@ export function AssistantPage(): ReactElement {
           onToggle={onToggle}
           onNew={onNew}
           onSelect={onSelect}
+          onRename={onRename}
+          onDelete={setPendingDeleteId}
         />
       </aside>
       <main className={styles.main}>
@@ -71,10 +118,22 @@ export function AssistantPage(): ReactElement {
             conversationId={id}
             pendingPromptRef={pendingPromptRef}
             onReplyComplete={() => onReplyComplete(id)}
-            onTitle={(title) => rename(id, title)}
           />
         )}
       </main>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete conversation?"
+        message={
+          pendingDelete
+            ? `"${pendingDelete.title}" and its messages will be permanently removed. This can't be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        onConfirm={onConfirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
+      <ToastViewport toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

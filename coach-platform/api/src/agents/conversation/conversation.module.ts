@@ -5,9 +5,11 @@ import { AgentTelemetryService } from '../shared/llm/agent-telemetry.service';
 import { OpenAiClient } from '../shared/llm/openai.client';
 import { AppendMessageHandler } from './application/commands/append-message.handler';
 import { CloseConversationHandler } from './application/commands/close-conversation.handler';
+import { DeleteConversationHandler } from './application/commands/delete-conversation.handler';
 import { SetPendingCardBatchHandler } from './application/commands/set-pending-card-batch.handler';
 import { StartConversationHandler } from './application/commands/start-conversation.handler';
 import { UpdateConversationSummaryHandler } from './application/commands/update-summary.handler';
+import { UpdateConversationTitleHandler } from './application/commands/update-title.handler';
 import { ConversationContextAssembler } from './application/conversation-context.assembler';
 import { ConversationContextService } from './application/conversation-context.service';
 import { ConversationCompactor } from './application/conversation-compactor.service';
@@ -28,6 +30,8 @@ const CommandHandlers = [
   UpdateConversationSummaryHandler,
   SetPendingCardBatchHandler,
   CloseConversationHandler,
+  DeleteConversationHandler,
+  UpdateConversationTitleHandler,
 ];
 const QueryHandlers = [
   GetConversationHandler,

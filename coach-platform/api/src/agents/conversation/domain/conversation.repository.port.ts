@@ -64,6 +64,21 @@ export interface ConversationRepositoryPort {
 
   closeConversation(userId: string, conversationId: string): Promise<void>;
 
+  /**
+   * Hard-delete the conversation and cascade-delete its messages. Returns false
+   * when no conversation matched (already gone / wrong tenant). Preference
+   * events are intentionally NOT touched — they are the durable signal and have
+   * no back-link to the transcript.
+   */
+  deleteConversation(userId: string, conversationId: string): Promise<boolean>;
+
+  /** Rename a conversation. Returns the updated record, or null when not found. */
+  updateTitle(
+    userId: string,
+    conversationId: string,
+    title: string,
+  ): Promise<Conversation | null>;
+
   /** Active conversations whose last activity is on or before `idleBeforeIso`. */
   findIdleActive(idleBeforeIso: string, limit: number): Promise<Conversation[]>;
 }

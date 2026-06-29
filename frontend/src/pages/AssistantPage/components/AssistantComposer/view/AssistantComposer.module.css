@@ -3,15 +3,19 @@
   align-items: center;
   gap: var(--wa-space-2);
   width: 100%;
-  padding: 6px 6px 6px 20px;
-  background: var(--wa-row-hover);
-  border: 1px solid var(--wa-border);
-  border-radius: 28px;
-  transition: border-color 0.15s ease;
+  height: 64px;
+  padding: 0 8px 0 22px;
+  background: var(--wa-bubble-out);
+  border: 1px solid #33332f;
+  border-radius: 9999px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .composer:focus-within {
-  border-color: var(--wa-text-muted);
+  border-color: var(--wa-accent);
+  box-shadow:
+    0 0 0 4px var(--wa-accent-soft),
+    0 0 40px rgba(232, 89, 12, 0.12);
 }
 
 .input {
@@ -38,23 +42,25 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border: none;
   border-radius: 50%;
-  background: var(--wa-text);
-  color: var(--wa-chat-bg);
+  background: var(--wa-accent);
+  color: #ffffff;
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  box-shadow: 0 0 26px var(--wa-accent-glow);
+  transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .send:hover {
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .send:disabled {
-  background: var(--wa-border);
-  color: var(--wa-text-muted);
+  background: #2e2e2c;
+  color: #6f6f6c;
   cursor: default;
+  box-shadow: none;
   opacity: 1;
 }

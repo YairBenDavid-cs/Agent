@@ -13,6 +13,10 @@ export class GoalDto {
     'get_stronger',
     'race_prep',
     'general_fitness',
+    'improve_speed',
+    'run_longer',
+    'build_power',
+    'body_recomp',
   ])
   primaryGoal!: PrimaryGoal;
 

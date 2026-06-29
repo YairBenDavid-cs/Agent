@@ -4,10 +4,21 @@ import { MOCK_API } from '@/shared/config';
 /** Providers the connect step manages. Matches the server's IntegrationProvider. */
 export type IntegrationProvider = 'garmin' | 'google_calendar' | 'telegram';
 
+/** Garmin ingestion run state (mirrors the server's GarminSyncStatus). */
+export type GarminSyncStatus =
+  | 'syncing'
+  | 'synced'
+  | 'auth_failed'
+  | 'sync_failed';
+
 export interface IntegrationStatus {
   provider: IntegrationProvider;
   connected: boolean;
   updatedAt: string | null;
+  /** Garmin only — the latest ingestion run's status. */
+  syncStatus?: GarminSyncStatus | null;
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
 }
 
 export interface GarminCredentials {
@@ -35,12 +46,25 @@ export interface GarminMfaInput {
 export async function fetchIntegrationStatuses(): Promise<IntegrationStatus[]> {
   if (MOCK_API) {
     return [
-      { provider: 'garmin', connected: false, updatedAt: null },
+      { provider: 'garmin', connected: false, updatedAt: null, syncStatus: null },
       { provider: 'google_calendar', connected: false, updatedAt: null },
       { provider: 'telegram', connected: false, updatedAt: null },
     ];
   }
   return request<IntegrationStatus[]>('/integrations');
+}
+
+/**
+ * Re-run the Garmin ingestion for the current user using the stored session
+ * token — no re-login. Used as the "Retry sync" action when the initial backfill
+ * fails to land data. Rejects with an {@link ApiError} on failure.
+ */
+export async function runGarminSync(): Promise<void> {
+  if (MOCK_API) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return;
+  }
+  await request<unknown>('/ingestion/run', { method: 'POST', body: {} });
 }
 
 /**

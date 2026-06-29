@@ -13,7 +13,7 @@ export function EmailField({ value, onChange, disabled }: AuthFieldProps): React
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
         autoComplete="email"
-        placeholder="Enter your email"
+        placeholder="you@example.com"
       />
     </label>
   );

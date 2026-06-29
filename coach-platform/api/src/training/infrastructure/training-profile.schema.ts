@@ -23,6 +23,10 @@ const PRIMARY_GOALS = [
   'get_stronger',
   'race_prep',
   'general_fitness',
+  'improve_speed',
+  'run_longer',
+  'build_power',
+  'body_recomp',
 ];
 const EXPERIENCE_LEVELS = ['beginner', 'intermediate', 'advanced'];
 const RUN_TYPES = ['easy', 'tempo', 'fartlek', 'intervals', 'long', 'recovery'];

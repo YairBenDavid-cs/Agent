@@ -6,6 +6,7 @@ import { SidebarToggleIcon } from '@/shared/ui/icons/SidebarToggleIcon';
 import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { SettingsMenu } from '@/shared/ui/SettingsMenu/SettingsMenu';
 import type { AssistantConversation } from '@/pages/AssistantPage/domain/assistant/types/assistant';
+import { ConversationRow } from '../components/ConversationRow/ConversationRow';
 import styles from './AssistantSidebar.module.css';
 
 interface AssistantSidebarProps {
@@ -17,6 +18,8 @@ interface AssistantSidebarProps {
   onToggle: () => void;
   onNew: () => void;
   onSelect: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
 }
 
 export function AssistantSidebar({
@@ -28,6 +31,8 @@ export function AssistantSidebar({
   onToggle,
   onNew,
   onSelect,
+  onRename,
+  onDelete,
 }: AssistantSidebarProps): ReactElement {
   return (
     <div className={collapsed ? `${styles.sidebar} ${styles.collapsed}` : styles.sidebar}>
@@ -70,26 +75,22 @@ export function AssistantSidebar({
             <p className={styles.empty}>No conversations yet.</p>
           )}
           {status === 'ready' &&
-            conversations.map((conversation) => {
-              const itemClass =
-                conversation.id === activeId ? `${styles.item} ${styles.active}` : styles.item;
-              return (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  className={itemClass}
-                  onClick={() => onSelect(conversation.id)}
-                >
-                  {conversation.title}
-                </button>
-              );
-            })}
+            conversations.map((conversation) => (
+              <ConversationRow
+                key={conversation.id}
+                conversation={conversation}
+                active={conversation.id === activeId}
+                onSelect={onSelect}
+                onRename={onRename}
+                onRequestDelete={onDelete}
+              />
+            ))}
         </div>
       )}
 
       <footer className={collapsed ? `${styles.footer} ${styles.collapsedFooter}` : styles.footer}>
         {!collapsed && (
-          <Link to="/" className={styles.messengerLink}>
+          <Link to="/program" className={styles.messengerLink}>
             Program
           </Link>
         )}

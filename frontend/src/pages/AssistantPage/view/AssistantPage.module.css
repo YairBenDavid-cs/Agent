@@ -1,17 +1,22 @@
 .layout {
-  /* ChatGPT-style dark palette, scoped to the assistant page only.
+  /* Popvich dark + orange palette, scoped to the assistant page only.
      These override the global --wa-* tokens for every descendant, so the
-     existing components re-theme without touching the shared light theme. */
-  --wa-header-bg: #212121;
-  --wa-panel-bg: #171717;
-  --wa-chat-bg: #212121;
-  --wa-bubble-out: #303030;
-  --wa-bubble-in: #2f2f2f;
+     existing components re-theme without touching the shared light theme.
+     --wa-accent* are new tokens introduced for the orange highlights. */
+  --wa-accent: #e8590c;
+  --wa-accent-soft: rgba(232, 89, 12, 0.14);
+  --wa-accent-glow: rgba(232, 89, 12, 0.55);
+
+  --wa-header-bg: #181816;
+  --wa-panel-bg: #0c0c0c;
+  --wa-chat-bg: #181816;
+  --wa-bubble-out: #242422;
+  --wa-bubble-in: #1c1c1a;
   --wa-text: #ececec;
-  --wa-text-muted: #9a9a9a;
-  --wa-border: #3a3a3a;
-  --wa-row-hover: #2a2a2a;
-  --wa-row-selected: #2f2f2f;
+  --wa-text-muted: #8d8d89;
+  --wa-border: #232321;
+  --wa-row-hover: #1a1a18;
+  --wa-row-selected: var(--wa-accent-soft);
   --wa-brand: #ececec;
   --wa-brand-dark: #ececec;
 
@@ -19,12 +24,13 @@
   height: 100%;
   background-color: var(--wa-chat-bg);
   color: var(--wa-text);
+  font-family: 'Wix Madefor Text', ui-sans-serif, system-ui, sans-serif;
 }
 
 .sidebar {
-  width: var(--wa-sidebar-width);
-  min-width: var(--wa-sidebar-min-width);
-  max-width: var(--wa-sidebar-max-width);
+  width: 290px;
+  min-width: 290px;
+  max-width: 290px;
   display: flex;
   flex-direction: column;
   transition: width 0.18s ease, min-width 0.18s ease, max-width 0.18s ease;

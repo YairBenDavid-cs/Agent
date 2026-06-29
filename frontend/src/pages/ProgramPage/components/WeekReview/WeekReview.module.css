@@ -1,0 +1,141 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-3);
+  background: var(--wa-panel-bg);
+  border: 1px solid rgba(240, 164, 74, 0.3);
+  border-radius: var(--wa-radius-lg);
+  padding: var(--wa-space-4);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-1);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--wa-text);
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--wa-text-muted);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-3);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-2);
+  background: var(--wa-bubble-in);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-3);
+}
+
+.cardHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--wa-space-2);
+}
+
+.cardTitle {
+  font-weight: 600;
+  color: var(--wa-text);
+}
+
+.cardMeta {
+  font-size: 0.78rem;
+  color: var(--wa-text-muted);
+}
+
+.coachNotes {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--wa-text-muted);
+}
+
+.input {
+  width: 100%;
+  resize: vertical;
+  box-sizing: border-box;
+  background: var(--wa-chat-bg);
+  color: var(--wa-text);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-2);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--wa-text-muted);
+}
+
+.error {
+  margin: 0;
+  color: #ffb4ab;
+  font-size: 0.85rem;
+}
+
+.actions {
+  display: flex;
+  gap: var(--wa-space-2);
+  flex-wrap: wrap;
+}
+
+.actions button {
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-2) var(--wa-space-4);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--wa-border);
+  transition:
+    opacity 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.revise {
+  background: #f0a44a;
+  color: #1a1205;
+  border-color: #f0a44a !important;
+}
+
+.approve {
+  background: var(--wa-bubble-out);
+  color: var(--wa-text);
+}
+
+.approve:hover:not(:disabled) {
+  background: var(--wa-row-hover);
+}
+
+.reject {
+  background: transparent;
+  color: var(--wa-text-muted);
+}
+
+.reject:hover:not(:disabled) {
+  color: #ffb4ab;
+  border-color: #ffb4ab;
+}

@@ -1,5 +1,6 @@
 // The wizard's working state. Numeric inputs are held as strings so the user
 // can clear/type freely; they're parsed only when building the API payload.
+import { isGoalInDiscipline } from '../domain/goals';
 import { detectTimeZone } from '../domain/timezone';
 import type {
   AvailabilitySlot,
@@ -116,8 +117,17 @@ export function onboardingReducer(
   action: OnboardingAction,
 ): OnboardingDraft {
   switch (action.type) {
-    case 'setDiscipline':
-      return { ...state, discipline: action.value };
+    case 'setDiscipline': {
+      // Goals are branched by discipline, so a goal picked under the old
+      // discipline may not exist in the new branch — clear it if so. The
+      // free-text note is discipline-agnostic and kept.
+      const goal =
+        state.goal.primaryGoal !== null &&
+        !isGoalInDiscipline(state.goal.primaryGoal, action.value)
+          ? { ...state.goal, primaryGoal: null }
+          : state.goal;
+      return { ...state, discipline: action.value, goal };
+    }
     case 'patchGoal':
       return { ...state, goal: { ...state.goal, ...action.patch } };
     case 'patchProfile':

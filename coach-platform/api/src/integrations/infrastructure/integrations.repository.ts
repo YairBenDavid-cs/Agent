@@ -7,6 +7,7 @@ import {
   StoredTelegram,
   UserIntegrationsRecord,
 } from '../domain/integrations.record';
+import { GarminSyncStatus } from '../domain/integration.model';
 import { IntegrationsRepositoryPort } from '../domain/integrations.repository.port';
 import {
   GarminCreds,
@@ -21,6 +22,9 @@ const garminToDomain = (g: GarminCreds): StoredGarmin => ({
   sessionEnc: g.session_enc,
   sessionExpiresAt: g.session_expires_at,
   updatedAt: g.updated_at,
+  syncStatus: (g.sync_status ?? 'syncing') as StoredGarmin['syncStatus'],
+  lastSyncError: g.last_sync_error ?? null,
+  lastSyncedAt: g.last_synced_at ?? null,
 });
 
 const gcalToDomain = (g: GoogleCalendarCreds): StoredGoogleCalendar => ({
@@ -71,6 +75,9 @@ export class IntegrationsRepository implements IntegrationsRepositoryPort {
               session_enc: garmin.sessionEnc,
               session_expires_at: garmin.sessionExpiresAt,
               updated_at: garmin.updatedAt,
+              sync_status: garmin.syncStatus,
+              last_sync_error: garmin.lastSyncError,
+              last_synced_at: garmin.lastSyncedAt,
             },
           },
         },
@@ -134,6 +141,23 @@ export class IntegrationsRepository implements IntegrationsRepositoryPort {
           },
         },
       )
+      .exec();
+  }
+
+  async setGarminSyncStatus(
+    userId: string,
+    status: GarminSyncStatus,
+    opts?: { error?: string | null; syncedAt?: string | null },
+  ): Promise<void> {
+    const set: Record<string, unknown> = { 'garmin.sync_status': status };
+    if (opts && 'error' in opts) {
+      set['garmin.last_sync_error'] = opts.error ?? null;
+    }
+    if (opts && 'syncedAt' in opts) {
+      set['garmin.last_synced_at'] = opts.syncedAt ?? null;
+    }
+    await this.model
+      .updateOne({ user_id: userId, garmin: { $ne: null } }, { $set: set })
       .exec();
   }
 }

@@ -11,14 +11,12 @@ interface ConversationViewProps {
   conversationId: string;
   pendingPromptRef: MutableRefObject<PendingPrompt | null>;
   onReplyComplete: () => void;
-  onTitle: (title: string) => void;
 }
 
 export function ConversationView({
   conversationId,
   pendingPromptRef,
   onReplyComplete,
-  onTitle,
 }: ConversationViewProps): ReactElement {
 
   const [initialPrompt] = useState<string | undefined>(() => {
@@ -38,13 +36,13 @@ export function ConversationView({
     loadError,
     turns,
     phase,
-    streamingText,
-    streamError,
+    progressDetail,
+    sendError,
     isBusy,
     send,
     stop,
     retry,
-  } = useAssistantThread(conversationId, { initialPrompt, onReplyComplete, onTitle });
+  } = useAssistantThread(conversationId, { initialPrompt, onReplyComplete });
 
   if (status === 'loading') {
     return (
@@ -60,11 +58,11 @@ export function ConversationView({
 
   return (
     <div className={styles.conversation}>
-      <TurnList turns={turns} phase={phase} streamingText={streamingText} />
+      <TurnList turns={turns} phase={phase} progressDetail={progressDetail} />
 
-      {streamError !== null && (
+      {sendError !== null && (
         <div className={styles.error}>
-          <span>{streamError}</span>
+          <span>{sendError}</span>
           <button type="button" className={styles.retry} onClick={retry}>
             Retry
           </button>

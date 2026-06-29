@@ -1,6 +1,5 @@
 import type { ReactElement } from 'react';
 import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
-import { BackArrowIcon } from '../components/BackArrowIcon/BackArrowIcon';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { DisciplineStep } from '../components/DisciplineStep/DisciplineStep';
 import { GoalStep } from '../components/GoalStep/GoalStep';
@@ -9,12 +8,23 @@ import { AvailabilityStep } from '../components/AvailabilityStep/AvailabilitySte
 import { RunPrefsStep } from '../components/RunPrefsStep/RunPrefsStep';
 import { StrengthPrefsStep } from '../components/StrengthPrefsStep/StrengthPrefsStep';
 import { ConnectStep } from '../components/ConnectStep/ConnectStep';
+import { Stepper } from '../components/Stepper/Stepper';
 import styles from './OnboardingPage.module.css';
+
+function Brand(): ReactElement {
+  return (
+    <div className={styles.brand}>
+      <BasketballIcon size={28} />
+      <span className={styles.brandName}>AgentiCoach</span>
+    </div>
+  );
+}
 
 export function OnboardingPage(): ReactElement {
   const {
     draft,
     dispatch,
+    steps,
     step,
     stepIndex,
     stepCount,
@@ -25,9 +35,8 @@ export function OnboardingPage(): ReactElement {
     error,
     next,
     back,
+    goTo,
   } = useOnboarding();
-
-  const progress = Math.round(((stepIndex + 1) / stepCount) * 100);
 
   function renderStep(): ReactElement {
     switch (step.id) {
@@ -43,6 +52,7 @@ export function OnboardingPage(): ReactElement {
         return (
           <GoalStep
             value={draft.goal}
+            discipline={draft.discipline ?? 'running'}
             onChange={(patch) => dispatch({ type: 'patchGoal', patch })}
             disabled={submitting}
           />
@@ -92,57 +102,61 @@ export function OnboardingPage(): ReactElement {
     }
   }
 
-  const nextLabel = isLastStep ? (submitting ? 'Saving…' : 'Finish') : 'Continue';
+  const nextLabel = isLastStep ? (submitting ? 'Saving…' : 'Finish setup') : 'Continue';
 
   return (
     <div className={styles.page}>
-      <div className={styles.card}>
-        <div className={styles.topBar}>
-          <button
-            type="button"
-            className={styles.backArrow}
-            onClick={back}
-            disabled={isFirstStep || submitting}
-            aria-label="Go back to the previous step"
-            title="Back"
-          >
-            <BackArrowIcon />
-          </button>
-          <div className={styles.brand}>
-            <BasketballIcon size={28} />
-            <span className={styles.brandName}>AgentiCoach</span>
-          </div>
-        </div>
+      <aside className={styles.rail}>
+        <Brand />
+        <Stepper steps={steps} currentIndex={stepIndex} onSelect={goTo} disabled={submitting} />
+      </aside>
 
-        <div className={styles.progress}>
-          <div className={styles.progressTrack}>
-            <div className={styles.progressFill} style={{ width: `${progress}%` }} />
-          </div>
-          <span className={styles.progressLabel}>
-            Step {stepIndex + 1} of {stepCount}
+      <main className={styles.panel}>
+        <header className={styles.topBar}>
+          <Brand />
+          <span className={styles.counter}>
+            {String(stepIndex + 1).padStart(2, '0')} / {String(stepCount).padStart(2, '0')}
           </span>
-        </div>
-
-        <header className={styles.heading}>
-          <h1 className={styles.title}>{step.title}</h1>
-          <p className={styles.subtitle}>{step.subtitle}</p>
         </header>
-
-        <div className={styles.body}>{renderStep()}</div>
-
-        {error !== null && <p className={styles.error}>{error}</p>}
-
-        <div className={styles.footer}>
-          <button
-            type="button"
-            className={styles.next}
-            onClick={next}
-            disabled={!canAdvance || submitting}
-          >
-            {nextLabel}
-          </button>
+        <div className={styles.segments} aria-hidden="true">
+          {steps.map((s, i) => (
+            <span key={s.id} className={`${styles.segment} ${i <= stepIndex ? styles.segmentOn : ''}`} />
+          ))}
         </div>
-      </div>
+
+        <div className={styles.content}>
+          <header className={styles.heading}>
+            <span className={styles.eyebrow}>{step.eyebrow}</span>
+            <h1 className={styles.title}>{step.title}</h1>
+            <p className={styles.subtitle}>{step.subtitle}</p>
+          </header>
+
+          <div className={styles.body}>{renderStep()}</div>
+
+          {error !== null && <p className={styles.error}>{error}</p>}
+
+          <div className={styles.footer}>
+            {!isFirstStep && (
+              <button
+                type="button"
+                className={styles.back}
+                onClick={back}
+                disabled={submitting}
+              >
+                Back
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.next}
+              onClick={next}
+              disabled={!canAdvance || submitting}
+            >
+              {nextLabel}
+            </button>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

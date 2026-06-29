@@ -6,6 +6,7 @@ import styles from './AuthLayout.module.css';
 
 interface AuthLayoutProps {
   title: string;
+  subtitle: string;
   prompt: string;
   actionLabel: string;
   actionTo: string;
@@ -14,6 +15,7 @@ interface AuthLayoutProps {
 
 export function AuthLayout({
   title,
+  subtitle,
   prompt,
   actionLabel,
   actionTo,
@@ -23,11 +25,14 @@ export function AuthLayout({
     <div className={styles.page}>
       <div className={styles.card}>
         <Link to="/auth" className={styles.brand}>
-          <BasketballIcon className={styles.logoMark} size={32} />
+          <span className={styles.logoWrap}>
+            <span className={styles.logoShadow} aria-hidden="true" />
+            <BasketballIcon className={styles.logoMark} size={32} />
+          </span>
           <span className={styles.brandName}>AgentiCoach</span>
         </Link>
 
-        <Header title={title} />
+        <Header title={title} subtitle={subtitle} />
         {children}
 
         <p className={styles.toggle}>

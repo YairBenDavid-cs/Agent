@@ -1,76 +1,35 @@
-// The SSE wire contract, mirrored from the backend's Zod schema in
-// sse-event.ts. Named events: `token`, `done`, `error`, `tool`.
-export interface TokenEventData {
-  delta: string;
-}
-
-export interface ToolEventData {
-  name: string;
-  phase: 'start' | 'end';
-}
-
-export interface TitleEventData {
-  title: string;
-}
-
-export interface DoneEventData {
-  messageId: string;
-  finishReason: string;
-}
-
-export interface AssistantErrorEventData {
-  code: string;
-  message: string;
+// The SSE wire contract for the live agent-progress feed, mirrored from the
+// backend's WorkflowStreamController. A single user-wide stream emits `workflow`
+// events ("Coach is evaluating your week…") while a turn runs; the assistant
+// reply itself comes back synchronously from POST .../messages, not over SSE.
+export interface WorkflowEventData {
+  agentName: string;
+  phase: string;
+  detail?: string;
+  at: string;
 }
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 // Auth rides in the httpOnly cookie: the EventSource is opened with
-// `withCredentials: true`, so no token appears in the URL.
-export function assistantStreamUrl(conversationId: string): string {
-  return `${BASE_URL}/conversations/${conversationId}/assistant/stream`;
+// `withCredentials: true`, so no token appears in the URL. The stream is scoped
+// to the authenticated user server-side, so no conversation id is needed.
+export function assistantStreamUrl(): string {
+  return `${BASE_URL}/assistant/stream`;
 }
 
-export function parseTokenEvent(raw: string): TokenEventData | null {
+export function parseWorkflowEvent(raw: string): WorkflowEventData | null {
   const data: unknown = safeParse(raw);
-  if (isRecord(data) && typeof data.delta === 'string') {
-    return { delta: data.delta };
-  }
-  return null;
-}
-
-export function parseDoneEvent(raw: string): DoneEventData | null {
-  const data: unknown = safeParse(raw);
-  if (isRecord(data) && typeof data.messageId === 'string' && typeof data.finishReason === 'string') {
-    return { messageId: data.messageId, finishReason: data.finishReason };
-  }
-  return null;
-}
-
-export function parseErrorEvent(raw: string): AssistantErrorEventData | null {
-  const data: unknown = safeParse(raw);
-  if (isRecord(data) && typeof data.code === 'string' && typeof data.message === 'string') {
-    return { code: data.code, message: data.message };
-  }
-  return null;
-}
-
-export function parseToolEvent(raw: string): ToolEventData | null {
-  const data: unknown = safeParse(raw);
-  if (
-    isRecord(data) &&
-    typeof data.name === 'string' &&
-    (data.phase === 'start' || data.phase === 'end')
-  ) {
-    return { name: data.name, phase: data.phase };
-  }
-  return null;
-}
-
-export function parseTitleEvent(raw: string): TitleEventData | null {
-  const data: unknown = safeParse(raw);
-  if (isRecord(data) && typeof data.title === 'string') {
-    return { title: data.title };
+  if (isRecord(data) && typeof data.agentName === 'string' && typeof data.phase === 'string') {
+    const event: WorkflowEventData = {
+      agentName: data.agentName,
+      phase: data.phase,
+      at: typeof data.at === 'string' ? data.at : '',
+    };
+    if (typeof data.detail === 'string') {
+      event.detail = data.detail;
+    }
+    return event;
   }
   return null;
 }

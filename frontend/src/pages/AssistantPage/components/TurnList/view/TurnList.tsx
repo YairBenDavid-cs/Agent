@@ -9,16 +9,16 @@ import styles from './TurnList.module.css';
 interface TurnListProps {
   turns: AssistantTurn[];
   phase: StreamPhase;
-  streamingText: string;
+  progressDetail: string;
 }
 
-export function TurnList({ turns, phase, streamingText }: TurnListProps): ReactElement {
+export function TurnList({ turns, phase, progressDetail }: TurnListProps): ReactElement {
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  // Keep the latest content in view as turns arrive and tokens stream in.
+  // Keep the latest content in view as turns arrive and progress beats update.
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
-  }, [turns, phase, streamingText]);
+  }, [turns, phase, progressDetail]);
 
   return (
     <div className={styles.list}>
@@ -26,16 +26,7 @@ export function TurnList({ turns, phase, streamingText }: TurnListProps): ReactE
         <TurnItem key={turn.id} turn={turn} />
       ))}
 
-      {phase === 'thinking' && <ThinkingPulse />}
-
-      {phase === 'streaming' && (
-        <div className={styles.rowTheirs}>
-          <div className={styles.streamingBubble}>
-            <span className={styles.text}>{streamingText}</span>
-            <span className={styles.caret} />
-          </div>
-        </div>
-      )}
+      {phase === 'thinking' && <ThinkingPulse label={progressDetail} />}
 
       <div ref={endRef} />
     </div>

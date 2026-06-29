@@ -1,9 +1,11 @@
 import type { ReactElement, ReactNode } from 'react';
 import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
-import type { PlannedSession } from '../domain/types';
+import { Spinner } from '@/shared/ui/Spinner/Spinner';
+import type { PlannedSession, Program } from '../domain/types';
 import { formatDayLabel, themeLabel } from '../domain/format';
 import { useProgram } from '../hooks/useProgram';
 import { TrainCard } from '../components/TrainCard/TrainCard';
+import { WeekReview } from '../components/WeekReview/WeekReview';
 import styles from './ProgramPage.module.css';
 
 export function ProgramPage(): ReactElement {
@@ -17,6 +19,16 @@ export function ProgramPage(): ReactElement {
     sessions,
     sessionsLoading,
     selectWeek,
+    generating,
+    progressText,
+    genError,
+    retry,
+    pendingBatch,
+    actionPending,
+    actionError,
+    approve,
+    revise,
+    reject,
   } = useProgram();
 
   if (loading) {
@@ -46,6 +58,30 @@ export function ProgramPage(): ReactElement {
     );
   }
 
+  if (generating) {
+    return (
+      <Shell>
+        <GoalHeader program={program} />
+        <div className={styles.generating}>
+          <Spinner />
+          <p className={styles.muted}>{progressText || 'Your coach is building your program…'}</p>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (genError !== null) {
+    return (
+      <Shell>
+        <GoalHeader program={program} />
+        <p className={styles.error}>{genError}</p>
+        <button type="button" className={styles.retry} onClick={retry}>
+          Try again
+        </button>
+      </Shell>
+    );
+  }
+
   const lastWeekIndex = program.weeks[program.weeks.length - 1]?.weekIndex ?? 0;
   const firstWeekIndex = program.weeks[0]?.weekIndex ?? 0;
   const isTentative = week?.planState === 'tentative';
@@ -53,17 +89,7 @@ export function ProgramPage(): ReactElement {
 
   return (
     <Shell>
-      <header className={styles.goal}>
-        <span className={styles.goalEyebrow}>Your goal</span>
-        <h1 className={styles.goalTitle}>{program.goalSnapshot.primaryGoal}</h1>
-        {program.goalSnapshot.note !== null && (
-          <p className={styles.goalNote}>{program.goalSnapshot.note}</p>
-        )}
-        <p className={styles.adaptNote}>
-          Your plan adapts each week to your performance and readiness, always aiming at this goal.
-          The next two weeks are shown — later weeks are sketched and may change.
-        </p>
-      </header>
+      <GoalHeader program={program} />
 
       <nav className={styles.weekNav}>
         <button
@@ -99,29 +125,62 @@ export function ProgramPage(): ReactElement {
         </button>
       </nav>
 
-      {isTentative && (
-        <p className={styles.previewBadge}>Preview — this week may adapt before it’s locked in.</p>
-      )}
-
-      {sessionsLoading ? (
-        <p className={styles.muted}>Loading trains…</p>
-      ) : byDay.length === 0 ? (
-        <p className={styles.muted}>No trains scheduled this week.</p>
+      {pendingBatch ? (
+        <WeekReview
+          batch={pendingBatch}
+          pending={actionPending}
+          error={actionError}
+          onApprove={approve}
+          onRevise={revise}
+          onReject={reject}
+        />
       ) : (
-        <div className={styles.days}>
-          {byDay.map(([date, daySessions]) => (
-            <section key={date} className={styles.day}>
-              <h2 className={styles.dayLabel}>{formatDayLabel(date)}</h2>
-              <div className={styles.dayCards}>
-                {daySessions.map((s) => (
-                  <TrainCard key={s.id} session={s} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <>
+          {isTentative && (
+            <p className={styles.previewBadge}>
+              Preview — this week may adapt before it’s locked in.
+            </p>
+          )}
+
+          {sessionsLoading ? (
+            <p className={styles.muted}>Loading trains…</p>
+          ) : byDay.length === 0 ? (
+            <p className={styles.muted}>No trains scheduled this week.</p>
+          ) : (
+            <div className={styles.days}>
+              {byDay.map(([date, daySessions]) => (
+                <section key={date} className={styles.day}>
+                  <h2 className={styles.dayLabel}>{formatDayLabel(date)}</h2>
+                  <div className={styles.dayCards}>
+                    {daySessions.map((s) => (
+                      <TrainCard key={s.id} session={s} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </Shell>
+  );
+}
+
+// The goal banner — shown across the loading, generating, and ready states so
+// the user always sees what their program is aiming at.
+function GoalHeader({ program }: { program: Program }): ReactElement {
+  return (
+    <header className={styles.goal}>
+      <span className={styles.goalEyebrow}>Your goal</span>
+      <h1 className={styles.goalTitle}>{program.goalSnapshot.primaryGoal}</h1>
+      {program.goalSnapshot.note !== null && (
+        <p className={styles.goalNote}>{program.goalSnapshot.note}</p>
+      )}
+      <p className={styles.adaptNote}>
+        Your plan adapts each week to your performance and readiness, always aiming at this goal.
+        The next two weeks are shown — later weeks are sketched and may change.
+      </p>
+    </header>
   );
 }
 

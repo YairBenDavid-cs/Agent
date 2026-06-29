@@ -8,6 +8,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
 import { FetchResultDto } from '../application/dto/fetch-result.dto';
 import { FetchInput, FetcherPort } from '../application/fetcher.port';
+import { GarminAuthError } from '../application/ingestion.errors';
 
 /**
  * HTTP adapter for the stateless Python fetch service (Option B: NestJS is the
@@ -77,6 +78,13 @@ export class GarminFetcherClient implements FetcherPort {
         // 4xx (except 429) is a clean rejection — auth/validation. Don't retry.
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           const detail = await res.text().catch(() => '');
+          // 401/403 means the Garmin credentials/session were rejected — the user
+          // must re-authenticate, so signal it distinctly from a transient fault.
+          if (res.status === 401 || res.status === 403) {
+            throw new GarminAuthError(
+              `Garmin auth rejected (${res.status}): ${detail}`,
+            );
+          }
           throw new ServiceUnavailableException(
             `Fetch service rejected the request (${res.status}): ${detail}`,
           );
@@ -86,7 +94,12 @@ export class GarminFetcherClient implements FetcherPort {
         lastError = new Error(`Fetch service responded ${res.status}`);
       } catch (err) {
         // A deliberate 4xx rejection above must propagate, not be retried.
-        if (err instanceof ServiceUnavailableException) throw err;
+        if (
+          err instanceof ServiceUnavailableException ||
+          err instanceof GarminAuthError
+        ) {
+          throw err;
+        }
         lastError = err; // network error / abort -> transient
       } finally {
         clearTimeout(timer);

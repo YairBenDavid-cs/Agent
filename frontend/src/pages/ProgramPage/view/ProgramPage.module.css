@@ -156,6 +156,34 @@
   padding: var(--wa-space-2) var(--wa-space-3);
 }
 
+.generating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--wa-space-3);
+  background: var(--wa-panel-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-lg);
+  padding: var(--wa-space-4);
+  text-align: center;
+}
+
+.retry {
+  align-self: flex-start;
+  border-radius: var(--wa-radius-md);
+  padding: var(--wa-space-2) var(--wa-space-4);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--wa-text);
+  background: var(--wa-bubble-out);
+  border: 1px solid var(--wa-border);
+}
+
+.retry:hover {
+  background: var(--wa-row-hover);
+}
+
 .days {
   display: flex;
   flex-direction: column;

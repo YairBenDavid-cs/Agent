@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { randomUUID } from 'crypto';
 import {
@@ -9,6 +18,8 @@ import { ApiError } from '../../../common/errors/api-error';
 import {
   CloseConversationCommand,
 } from '../../conversation/application/commands/close-conversation.command';
+import { DeleteConversationCommand } from '../../conversation/application/commands/delete-conversation.command';
+import { UpdateConversationTitleCommand } from '../../conversation/application/commands/update-title.command';
 import {
   StartConversationCommand,
   StartConversationResult,
@@ -25,6 +36,7 @@ import { TriggerContextResolver } from '../../triggers/trigger-context.resolver'
 import { AssistantService, AssistantTurnOutcome } from '../assistant.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { StartConversationDto } from './dto/start-conversation.dto';
+import { UpdateConversationDto } from './dto/update-conversation.dto';
 
 /** Today's local date (YYYY-MM-DD) in the given IANA timezone. */
 function localToday(timezone: string): string {
@@ -154,6 +166,33 @@ export class AssistantController {
         today: localToday(ctx.timezone),
       },
     );
+  }
+
+  /** PATCH /assistant/conversations/:id — rename the conversation. */
+  @Patch(':id')
+  async rename(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateConversationDto,
+  ): Promise<Conversation> {
+    return this.commandBus.execute<UpdateConversationTitleCommand, Conversation>(
+      new UpdateConversationTitleCommand(user.userId, id, dto.title),
+    );
+  }
+
+  /**
+   * DELETE /assistant/conversations/:id — hard-delete the conversation and its
+   * messages. Fires no flush; preference events are left intact.
+   */
+  @Delete(':id')
+  async remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<{ deleted: true }> {
+    await this.commandBus.execute<DeleteConversationCommand, void>(
+      new DeleteConversationCommand(user.userId, id),
+    );
+    return { deleted: true };
   }
 
   /** POST /assistant/conversations/:id/close — end the session (fires flush). */

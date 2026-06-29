@@ -76,7 +76,7 @@ export class CoachService {
 
     const tools: AnyAgentTool[] = [
       ...this.readTools.forCoach(),
-      this.commitSkeletonTool(),
+      this.commitSkeletonTool(seed.programId),
     ];
 
     return this.loop.run<CommitSkeletonResult>({
@@ -120,7 +120,7 @@ export class CoachService {
 
   // ── terminal write tools ──────────────────────────────────────────────────
 
-  private commitSkeletonTool(): AnyAgentTool {
+  private commitSkeletonTool(programId: string | null): AnyAgentTool {
     return defineTool<CommitSkeletonArgs, CommitSkeletonResult>({
       name: 'commit_program_skeleton',
       description:
@@ -128,6 +128,9 @@ export class CoachService {
       schema: commitSkeletonSchema,
       terminal: true,
       handler: async (args, c) => {
+        if (!programId) {
+          throw new Error('No active program to commit the skeleton to.');
+        }
         const violations = validateSkeleton(args);
         if (violations.length > 0) {
           throw new Error(`Guardrail rejected skeleton: ${violations.join(' ')}`);
@@ -149,7 +152,7 @@ export class CoachService {
         >(
           new CommitSkeletonCommand(
             c.userId,
-            args.programId,
+            programId,
             weeks,
             args.currentWeekIndex,
           ),

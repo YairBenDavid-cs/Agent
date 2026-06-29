@@ -13,8 +13,12 @@ export class ConversationDoc {
   @Prop({ type: String, required: true, enum: STATUSES, default: 'active' })
   status!: ConversationStatus;
 
-  /** Tier-3 rolling summary; '' until the first compaction. */
-  @Prop({ type: String, required: true, default: '' }) summary!: string;
+  /**
+   * Tier-3 rolling summary; '' until the first compaction. Not `required`:
+   * Mongoose's String required-validator rejects empty strings, and an empty
+   * summary is the valid initial state, so the default carries it instead.
+   */
+  @Prop({ type: String, default: '' }) summary!: string;
   /** Messages with seq <= this are folded into `summary`. */
   @Prop({ type: Number, required: true, default: 0 }) summarized_up_to_seq!: number;
   /** Monotonic message counter — the seq source. */

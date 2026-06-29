@@ -6,7 +6,7 @@ import { emitLogout } from '@/shared/auth/authEvents';
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
   /** Internal: set once a request has already been retried after a refresh. */

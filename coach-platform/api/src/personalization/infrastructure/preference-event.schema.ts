@@ -19,7 +19,7 @@ const SCOPES = ['global', 'session', 'exercise'];
 const DURABILITIES = ['standing', 'one_off'];
 const POLARITIES = ['avoid', 'prefer', 'increase', 'decrease', 'neutral'];
 const CONFIDENCES = ['explicit', 'inferred'];
-const TAG_TYPES = [
+export const TAG_TYPES = [
   // reused reason codes (outcome-sourced)
   'disliked_time',
   'disliked_exercise',
@@ -43,6 +43,19 @@ const TAG_TYPES = [
   'modality_pref',
   'exercise_override',
   'injury',
+  // onboarding-settable setpoints (latest explicit value wins)
+  'session_duration',
+  'sessions_per_week',
+  'weekly_km',
+  'run_type_pref',
+  'split_preference',
+  'exercises_per_session',
+  'default_sets',
+  'default_reps',
+  'muscle_group_pref',
+  'exercise_prescription',
+  'experience_level',
+  'primary_goal',
   'other',
 ];
 const RUN_TYPES = ['easy', 'tempo', 'fartlek', 'intervals', 'long', 'recovery'];
@@ -95,7 +108,9 @@ export class PreferenceEventDoc {
   target!: PreferenceTargetClass | null;
   @Prop({ type: PreferenceTagSchema, required: true })
   tag!: PreferenceTagClass;
-  @Prop({ type: String, required: true, default: '' }) raw_text!: string;
+  // Not `required`: Mongoose's String required-validator rejects empty strings,
+  // and inferred/outcome-derived events legitimately have no verbatim text.
+  @Prop({ type: String, default: '' }) raw_text!: string;
   @Prop({ type: Boolean, required: true, default: false })
   applied_to_projection!: boolean;
   @Prop({ type: Number, required: true }) taxonomy_version!: number;

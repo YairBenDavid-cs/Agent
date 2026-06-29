@@ -1,9 +1,12 @@
 import {
+  ArrayMaxSize,
   ArrayUnique,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import {
@@ -30,18 +33,22 @@ export class StrengthPrefsDto {
     { each: true },
   )
   @ArrayUnique()
+  @ArrayMaxSize(8)
   targetMuscleGroups!: MuscleGroup[];
 
   @IsInt()
   @Min(1)
+  @Max(50)
   exercisesPerSession!: number;
 
   @IsInt()
   @Min(1)
+  @Max(20)
   setsPerExercise!: number;
 
   @IsInt()
   @Min(1)
+  @Max(100)
   repsPerExercise!: number;
 
   @IsIn(
@@ -62,6 +69,8 @@ export class StrengthPrefsDto {
 
   @IsOptional()
   @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  @ArrayMaxSize(50)
   preferredExercises?: string[];
 
   @IsOptional()

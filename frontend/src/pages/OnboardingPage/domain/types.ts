@@ -15,7 +15,11 @@ export type PrimaryGoal =
   | 'build_muscle'
   | 'get_stronger'
   | 'race_prep'
-  | 'general_fitness';
+  | 'general_fitness'
+  | 'improve_speed'
+  | 'run_longer'
+  | 'build_power'
+  | 'body_recomp';
 
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
 

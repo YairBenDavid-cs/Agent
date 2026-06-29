@@ -12,8 +12,8 @@ interface UseAssistantThread {
   loadError: string | null;
   turns: AssistantTurn[];
   phase: StreamPhase;
-  streamingText: string;
-  streamError: string | null;
+  progressDetail: string;
+  sendError: string | null;
   isBusy: boolean;
   send: (text: string) => void;
   stop: () => void;
@@ -23,51 +23,33 @@ interface UseAssistantThread {
 interface UseAssistantThreadOptions {
   initialPrompt?: string | undefined;
   onReplyComplete?: (() => void) | undefined;
-  onTitle?: ((title: string) => void) | undefined;
 }
 
 export function useAssistantThread(
   conversationId: string,
   options: UseAssistantThreadOptions = {},
 ): UseAssistantThread {
-  const { initialPrompt, onReplyComplete, onTitle } = options;
+  const { initialPrompt, onReplyComplete } = options;
 
-  const { status, loadError, turns, append, replace, remove } = useTurnHistory(conversationId);
+  const { status, loadError, turns, append, remove } = useTurnHistory(conversationId);
+  const { phase: streamPhase, progressDetail, open, close } = useAssistantStream();
 
   const lastPromptRef = useRef<string | null>(null);
-  const needsResendRef = useRef(false);
   const autoSentRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [posting, setPosting] = useState(false);
-
-  const onStreamError = useCallback((): void => {
-    needsResendRef.current = false;
-  }, []);
-
-  const {
-    phase: streamPhase,
-    streamingText,
-    streamError,
-    open,
-    stop: stopStream,
-    reportError,
-    clearError,
-  } = useAssistantStream(conversationId, {
-    onDone: append,
-    onReplyComplete,
-    onError: onStreamError,
-    onTitle,
-  });
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const phase: StreamPhase = posting ? 'thinking' : streamPhase;
-  const isBusy = posting || streamPhase !== 'idle';
+  const isBusy = posting;
 
   const send = useCallback(
     (text: string): void => {
       const trimmed = text.trim();
-      if (trimmed === '' || posting || streamPhase !== 'idle') {
+      if (trimmed === '' || posting) {
         return;
       }
-      clearError();
+      setSendError(null);
       lastPromptRef.current = trimmed;
 
       const optimisticId = `temp-${crypto.randomUUID()}`;
@@ -80,43 +62,54 @@ export function useAssistantThread(
       };
       append(optimistic);
       setPosting(true);
+      open();
 
-      postAssistantMessage(conversationId, trimmed).then(
-        (saved) => {
-          replace(optimisticId, saved);
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      postAssistantMessage(conversationId, trimmed, controller.signal).then(
+        (reply) => {
+          abortRef.current = null;
+          close();
           setPosting(false);
-          open();
+          append(reply);
+          if (onReplyComplete !== undefined) {
+            onReplyComplete();
+          }
         },
         (err: unknown) => {
-          remove(optimisticId);
+          abortRef.current = null;
+          close();
           setPosting(false);
-          needsResendRef.current = true;
-          reportError(err instanceof ApiError ? err.message : 'Failed to send your message.');
+          // Stop() aborts the request on purpose — keep the user's turn, no error.
+          if (controller.signal.aborted) {
+            return;
+          }
+          remove(optimisticId);
+          setSendError(err instanceof ApiError ? err.message : 'Failed to send your message.');
         },
       );
     },
-    [conversationId, posting, streamPhase, append, replace, remove, open, reportError, clearError],
+    [conversationId, posting, append, remove, open, close, onReplyComplete],
   );
 
   const stop = useCallback((): void => {
-    const partial = stopStream();
-    if (partial !== null) {
-      append(partial);
+    if (abortRef.current !== null) {
+      abortRef.current.abort();
+      abortRef.current = null;
     }
-  }, [stopStream, append]);
+    close();
+    setPosting(false);
+  }, [close]);
 
   const retry = useCallback((): void => {
     const last = lastPromptRef.current;
-    if (last === null || posting || streamPhase !== 'idle') {
+    if (last === null || posting) {
       return;
     }
-    clearError();
-    if (needsResendRef.current) {
-      send(last);
-    } else {
-      open();
-    }
-  }, [posting, streamPhase, clearError, open, send]);
+    setSendError(null);
+    send(last);
+  }, [posting, send]);
 
   useEffect(() => {
     autoSentRef.current = false;
@@ -139,8 +132,8 @@ export function useAssistantThread(
     loadError,
     turns,
     phase,
-    streamingText,
-    streamError,
+    progressDetail,
+    sendError,
     isBusy,
     send,
     stop,

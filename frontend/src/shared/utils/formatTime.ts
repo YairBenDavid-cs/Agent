@@ -1,9 +1,16 @@
 export function formatMessageTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatConversationTime(iso: string): string {
   const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
   const now = new Date();
   const sameDay =
     date.getFullYear() === now.getFullYear() &&

@@ -190,6 +190,41 @@ export class ConversationRepository
       .exec();
   }
 
+  async deleteConversation(
+    userId: string,
+    conversationId: string,
+  ): Promise<boolean> {
+    // Delete the conversation first: an interrupted cascade then leaves orphan
+    // messages (invisible to the UI, harmless) rather than a visible empty
+    // conversation. deletedCount drives the not-found signal.
+    const { deletedCount } = await this.model
+      .deleteOne(this.scoped(userId, { _id: conversationId }))
+      .exec();
+    if (!deletedCount) {
+      return false;
+    }
+    await this.messages
+      .deleteMany(this.scoped(userId, { conversation_id: conversationId }))
+      .exec();
+    return true;
+  }
+
+  async updateTitle(
+    userId: string,
+    conversationId: string,
+    title: string,
+  ): Promise<Conversation | null> {
+    const doc = (await this.model
+      .findOneAndUpdate(
+        this.scoped(userId, { _id: conversationId }),
+        { $set: { title } },
+        { new: true },
+      )
+      .lean()
+      .exec()) as ConversationLean | null;
+    return doc ? toConversation(doc) : null;
+  }
+
   async findIdleActive(
     idleBeforeIso: string,
     limit: number,

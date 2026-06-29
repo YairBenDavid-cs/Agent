@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/ApiError';
+import { MOCK_API } from '@/shared/config';
 import type { ConnectionsDraft } from '../../state/onboardingDraft';
 import {
   completeGoogleConnect,
   connectGarmin,
   fetchIntegrationStatuses,
+  runGarminSync,
   startGoogleConnect,
   verifyGarminMfa,
+  type GarminSyncStatus,
 } from '../../api/connections';
 import { Field } from '../Field/Field';
 import section from '../stepSection.module.css';
@@ -29,7 +32,16 @@ function messageOf(err: unknown, fallback: string): string {
  * value.googleConnected`. Google's consent flow navigates the whole tab away and
  * returns to /onboarding with a `?code=`; the wizard's draft is persisted across
  * that round-trip, and the effect below exchanges the code on the way back.
+ *
+ * Garmin is only considered "connected" once the initial data ingestion has
+ * actually landed in the DB. After auth succeeds the server kicks off a backfill;
+ * we poll its status and flip `garminConnected` to true only on `synced` — so the
+ * program generated right after Finish always has the user's wearable data. A
+ * failed fetch (`sync_failed`) is retried with the stored token (no re-login); an
+ * auth rejection (`auth_failed`) drops back to the credential form.
  */
+const SYNC_POLL_MS = 2000;
+const MAX_SYNC_POLLS = 30; // ~60s before we offer a manual retry
 export function ConnectStep({
   value,
   onChange,
@@ -46,6 +58,9 @@ export function ConnectStep({
   // with the verify call (the server persists them only once login fully succeeds).
   const [mfaLoginId, setMfaLoginId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState('');
+  // Tracks the post-auth ingestion run. `null` means we haven't started one yet
+  // (still on the credential/MFA form). 'syncing' drives the poll effect below.
+  const [garminSync, setGarminSync] = useState<GarminSyncStatus | null>(null);
 
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
@@ -59,14 +74,17 @@ export function ConnectStep({
     fetchIntegrationStatuses()
       .then((statuses) => {
         if (!active) return;
-        const connected = (p: string): boolean =>
-          statuses.some((s) => s.provider === p && s.connected);
         // Upgrade-only: never flip a flag back to false. This avoids racing the
         // OAuth code exchange on the redirect return, where the server may not
         // have stored the Google token yet when this status read resolves.
         const patch: Partial<ConnectionsDraft> = {};
-        if (connected('garmin')) patch.garminConnected = true;
-        if (connected('google_calendar')) patch.googleConnected = true;
+        // Garmin counts as connected only once its data has actually synced —
+        // storing credentials isn't enough to plan against.
+        const garmin = statuses.find((s) => s.provider === 'garmin');
+        if (garmin?.syncStatus === 'synced') patch.garminConnected = true;
+        if (statuses.some((s) => s.provider === 'google_calendar' && s.connected)) {
+          patch.googleConnected = true;
+        }
         if (Object.keys(patch).length > 0) onChange(patch);
       })
       .catch(() => {
@@ -108,6 +126,75 @@ export function ConnectStep({
     setMfaCode('');
   };
 
+  // Auth succeeded — enter the syncing state and let the poll effect watch the
+  // backfill land. We deliberately do NOT mark connected yet.
+  const startGarminSync = (): void => {
+    setGarminError(null);
+    setMfaLoginId(null);
+    setMfaCode('');
+    setGarminSync('syncing');
+  };
+
+  // Re-run the fetch with the stored token (no re-login), then re-enter the poll.
+  const handleRetrySync = (): void => {
+    setGarminError(null);
+    setGarminSync('syncing');
+    runGarminSync().catch(() => {
+      /* The authoritative outcome is read back by the poll effect. */
+    });
+  };
+
+  // While syncing, poll the server until the run reaches a terminal state.
+  useEffect(() => {
+    if (garminSync !== 'syncing') return;
+
+    if (MOCK_API) {
+      const t = setTimeout(() => {
+        setGarminSync('synced');
+        markGarminConnected();
+      }, 400);
+      return () => clearTimeout(t);
+    }
+
+    let polls = 0;
+    const id = setInterval(() => {
+      polls += 1;
+      fetchIntegrationStatuses()
+        .then((statuses) => {
+          const status =
+            statuses.find((s) => s.provider === 'garmin')?.syncStatus ?? null;
+          if (status === 'synced') {
+            setGarminSync('synced');
+            markGarminConnected();
+          } else if (status === 'auth_failed') {
+            // Credentials/session rejected — send them back to re-authenticate.
+            setGarminSync(null);
+            setGarminError(
+              'Garmin rejected the connection. Please re-enter your email and password.',
+            );
+          } else if (status === 'sync_failed' || polls >= MAX_SYNC_POLLS) {
+            setGarminSync('sync_failed');
+            setGarminError(
+              'We connected to Garmin but couldn’t pull your data. Please retry.',
+            );
+          }
+          // 'syncing' / null → keep polling.
+        })
+        .catch(() => {
+          if (polls >= MAX_SYNC_POLLS) {
+            setGarminSync('sync_failed');
+            setGarminError(
+              'We couldn’t confirm your Garmin sync. Please retry.',
+            );
+          }
+        });
+    }, SYNC_POLL_MS);
+
+    return () => clearInterval(id);
+    // markGarminConnected is stable for our purposes; re-running on it is unwanted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [garminSync]);
+
   const handleConnectGarmin = (): void => {
     if (!email.trim() || !password.trim()) return;
     setGarminBusy(true);
@@ -118,7 +205,7 @@ export function ConnectStep({
           setMfaLoginId(result.loginId);
           return;
         }
-        markGarminConnected();
+        startGarminSync();
       })
       .catch((err: unknown) =>
         setGarminError(messageOf(err, 'Could not connect Garmin. Check your credentials.')),
@@ -142,7 +229,7 @@ export function ConnectStep({
           setMfaLoginId(result.loginId);
           return;
         }
-        markGarminConnected();
+        startGarminSync();
       })
       .catch((err: unknown) =>
         setGarminError(messageOf(err, 'Could not verify the code. Please try again.')),
@@ -173,6 +260,20 @@ export function ConnectStep({
           <span className={styles.connected}>
             <span className={styles.dot} /> Connected
           </span>
+        ) : garminSync === 'syncing' ? (
+          <p className={styles.cardHint}>Syncing your Garmin data…</p>
+        ) : garminSync === 'sync_failed' ? (
+          <div className={styles.form}>
+            {garminError !== null && <p className={styles.error}>{garminError}</p>}
+            <button
+              type="button"
+              className={styles.button}
+              onClick={handleRetrySync}
+              disabled={disabled}
+            >
+              Retry sync
+            </button>
+          </div>
         ) : mfaLoginId !== null ? (
           <div className={styles.form}>
             <p className={styles.cardHint}>
