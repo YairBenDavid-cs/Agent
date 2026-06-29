@@ -18,9 +18,17 @@ export default defineConfig({
     proxy: {
       '/auth': { target: 'http://localhost:3000', changeOrigin: true },
       '/users': { target: 'http://localhost:3000', changeOrigin: true },
-      '/conversations': { target: 'http://localhost:3000', changeOrigin: true },
+      '/assistant': { target: 'http://localhost:3000', changeOrigin: true },
+      '/agents': { target: 'http://localhost:3000', changeOrigin: true },
       '/training-profile': { target: 'http://localhost:3000', changeOrigin: true },
       '/integrations': { target: 'http://localhost:3000', changeOrigin: true },
+      '/programs': { target: 'http://localhost:3000', changeOrigin: true },
+      '/planned-sessions': { target: 'http://localhost:3000', changeOrigin: true },
+      '/sessions': { target: 'http://localhost:3000', changeOrigin: true },
+      '/recovery': { target: 'http://localhost:3000', changeOrigin: true },
+      '/performance': { target: 'http://localhost:3000', changeOrigin: true },
+      '/personalization': { target: 'http://localhost:3000', changeOrigin: true },
+      '/ingestion': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
 });

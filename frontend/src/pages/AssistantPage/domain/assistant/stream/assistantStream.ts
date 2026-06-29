@@ -27,8 +27,10 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 // Auth rides in the httpOnly cookie: the EventSource is opened with
 // `withCredentials: true`, so no token appears in the URL.
-export function assistantStreamUrl(conversationId: string): string {
-  return `${BASE_URL}/conversations/${conversationId}/assistant/stream`;
+// The backend streams workflow-progress beats per user (not per conversation),
+// so the path is /assistant/stream with no conversation ID in the URL.
+export function assistantStreamUrl(_conversationId: string): string {
+  return `${BASE_URL}/assistant/stream`;
 }
 
 export function parseTokenEvent(raw: string): TokenEventData | null {

@@ -82,10 +82,12 @@ export function useAssistantThread(
       setPosting(true);
 
       postAssistantMessage(conversationId, trimmed).then(
-        (saved) => {
-          replace(optimisticId, saved);
+        (assistantReply) => {
+          // The backend responds synchronously with the assistant reply.
+          // Keep the optimistic user turn in place and append the reply directly
+          // (no SSE token stream — /assistant/stream emits progress beats only).
+          append(assistantReply);
           setPosting(false);
-          open();
         },
         (err: unknown) => {
           remove(optimisticId);
