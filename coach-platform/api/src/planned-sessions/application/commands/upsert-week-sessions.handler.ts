@@ -57,7 +57,7 @@ export class UpsertWeekSessionsHandler
       }
     }
 
-    const inserted = await this.repository.insertMany(sessions);
-    return { inserted, requested: sessions.length };
+    const written = await this.repository.replaceTentativeWeek(sessions);
+    return { written, requested: sessions.length };
   }
 }

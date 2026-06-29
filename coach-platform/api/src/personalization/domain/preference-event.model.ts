@@ -14,11 +14,22 @@
 
 import { RunType } from '../../training/domain/training-profile.model';
 
-/** Where the event came from. */
+/**
+ * Where the event came from.
+ *
+ * `chat` is the unified conversation-captured source (Plan & Ask modes). It
+ * replaces the former `assistant` source and the heavyweight `revision`
+ * mechanism: net intent is distilled at the action point and written as a single
+ * `chat` event, classified hard/soft via the tag's `confidence`
+ * (explicit/inferred) — see the dual-mode redesign plan.
+ *
+ * The legacy `revision`/`assistant` values are no longer part of the live
+ * taxonomy; persisted rows carrying them are mapped to `chat` on read by
+ * `normalizeLegacySource` (the backfill rewrites them durably — see migration §11).
+ */
 export type PreferenceEventSource =
-  | 'revision' // a card revision (incl. NotebookLM-style weekly batch)
+  | 'chat' // unified conversation capture (distilled net intent; Plan/Ask)
   | 'outcome' // derived from a planned-session outcome (skip/deviation)
-  | 'assistant' // captured autonomously mid-conversation
   | 'session_flush'; // the session-teardown flush step
 
 export type EventDiscipline = 'running' | 'strength';
@@ -118,8 +129,21 @@ export interface PreferenceEvent {
   rawText: string; // verbatim user phrasing (NOT indexed in Tier 1)
   /** false for one_off / narrative-only ('other') events. */
   appliedToProjection: boolean;
+  /**
+   * Legacy lifecycle flag from the retired revision mechanism: a one-off event
+   * folded into a committed week. Nothing sets it now (kept for read-compat with
+   * historical rows); near-term reads still exclude non-null values.
+   */
+  consumedAt: string | null;
   taxonomyVersion: number;
 }
 
-/** Bump whenever the tag vocabulary changes; enables replay-based migration. */
-export const CURRENT_TAXONOMY_VERSION = 2;
+/**
+ * Bump whenever the tag vocabulary OR source taxonomy changes; enables
+ * replay-based migration.
+ *  - v3: prior tag vocabulary.
+ *  - v4: introduced unified `chat` source (dual-mode redesign); `assistant` and
+ *        `revision` removed from the live taxonomy and mapped to `chat` on
+ *        read/backfill.
+ */
+export const CURRENT_TAXONOMY_VERSION = 4;

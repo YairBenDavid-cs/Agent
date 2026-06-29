@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { BaseTenantRepository } from '../../common/infrastructure/base-tenant.repository';
 import { getActiveSession } from '../../common/transaction/transaction.context';
-import { Program } from '../domain/program.model';
+import { Program, WeeklyTargets } from '../domain/program.model';
 import { ProgramRepositoryPort } from '../domain/program.repository.port';
 import {
   ProgramLean,
@@ -75,10 +75,51 @@ export class ProgramRepository
             plan_state: w.planState,
             status: w.status,
             generated_at: w.generatedAt,
+            week_state: w.weekState ?? 'open',
+            weekly_targets: w.weeklyTargets
+              ? {
+                  session_count: w.weeklyTargets.sessionCount,
+                  total_volume: w.weeklyTargets.totalVolume,
+                  key_goals: w.weeklyTargets.keyGoals,
+                  locked_at: w.weeklyTargets.lockedAt,
+                }
+              : null,
           })),
           current_week_index: currentWeekIndex,
         },
       })
+      .exec();
+  }
+
+  /**
+   * Freeze Step A on a single week: stamp the weekly quota and flip
+   * `week_state` to 'targets_locked'. Targeted positional update on the matching
+   * `weeks[]` entry, so sibling weeks and the rest of the doc are untouched.
+   */
+  async lockWeeklyTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: WeeklyTargets,
+  ): Promise<void> {
+    await this.model
+      .updateOne(
+        this.scoped(userId, {
+          _id: programId,
+          'weeks.week_index': weekIndex,
+        }),
+        {
+          $set: {
+            'weeks.$.week_state': 'targets_locked',
+            'weeks.$.weekly_targets': {
+              session_count: targets.sessionCount,
+              total_volume: targets.totalVolume,
+              key_goals: targets.keyGoals,
+              locked_at: targets.lockedAt,
+            },
+          },
+        },
+      )
       .exec();
   }
 }

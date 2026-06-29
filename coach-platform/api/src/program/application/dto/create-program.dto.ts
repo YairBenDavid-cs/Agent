@@ -35,7 +35,7 @@ export class ProgramWeekDto {
 
   @IsISO8601({ strict: true }) endDate!: string;
 
-  @IsIn(['base', 'build', 'peak', 'deload', 'taper'])
+  @IsIn(['assessment', 'base', 'build', 'peak', 'deload', 'taper'])
   theme!: WeekTheme;
 
   @IsOptional() @IsInt() @Min(0) plannedLoadTarget?: number;

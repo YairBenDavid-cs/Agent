@@ -19,6 +19,7 @@ import {
   CloseConversationCommand,
 } from '../../conversation/application/commands/close-conversation.command';
 import { DeleteConversationCommand } from '../../conversation/application/commands/delete-conversation.command';
+import { SetConversationModeCommand } from '../../conversation/application/commands/set-mode.command';
 import { UpdateConversationTitleCommand } from '../../conversation/application/commands/update-title.command';
 import {
   StartConversationCommand,
@@ -35,6 +36,7 @@ import { ListConversationsQuery } from '../../conversation/application/queries/l
 import { TriggerContextResolver } from '../../triggers/trigger-context.resolver';
 import { AssistantService, AssistantTurnOutcome } from '../assistant.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { SetModeDto } from './dto/set-mode.dto';
 import { StartConversationDto } from './dto/start-conversation.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 
@@ -177,6 +179,18 @@ export class AssistantController {
   ): Promise<Conversation> {
     return this.commandBus.execute<UpdateConversationTitleCommand, Conversation>(
       new UpdateConversationTitleCommand(user.userId, id, dto.title),
+    );
+  }
+
+  /** PATCH /assistant/conversations/:id/mode — toggle Plan/Ask mode. */
+  @Patch(':id/mode')
+  async setMode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: SetModeDto,
+  ): Promise<Conversation> {
+    return this.commandBus.execute<SetConversationModeCommand, Conversation>(
+      new SetConversationModeCommand(user.userId, id, dto.mode),
     );
   }
 

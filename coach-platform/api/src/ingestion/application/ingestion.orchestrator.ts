@@ -168,8 +168,19 @@ export class IngestionOrchestrator {
     }
   }
 
+  /** First sync after a user connects Garmin: backfill a wider window so any
+   * pre-existing history is pulled in. Empty days are legitimately skipped. */
+  async runInitialForUser(userId: string): Promise<IngestionSummary> {
+    const days = this.config.get<number>('INGESTION_INITIAL_BACKFILL_DAYS') ?? 30;
+    return this.runForUser(userId, this.rangeForDays(days));
+  }
+
   private defaultRange(): { from: string; to: string } {
-    const days = this.config.get<number>('INGESTION_BACKFILL_DAYS') ?? 7;
+    const days = this.config.get<number>('INGESTION_BACKFILL_DAYS') ?? 3;
+    return this.rangeForDays(days);
+  }
+
+  private rangeForDays(days: number): { from: string; to: string } {
     const to = new Date();
     const from = new Date(to);
     from.setUTCDate(from.getUTCDate() - (days - 1));

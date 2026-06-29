@@ -4,7 +4,10 @@ import { Model } from 'mongoose';
 import { BaseTenantRepository } from '../../../common/infrastructure/base-tenant.repository';
 import {
   Conversation,
+  ConversationMode,
+  ConversationOrigin,
   Message,
+  PendingCandidate,
 } from '../domain/conversation.model';
 import {
   ConversationRepositoryPort,
@@ -37,18 +40,43 @@ export class ConversationRepository
   async createConversation(
     userId: string,
     title: string | null = null,
+    opts: {
+      mode?: ConversationMode;
+      origin?: ConversationOrigin;
+      attention?: boolean;
+    } = {},
   ): Promise<Conversation> {
     const doc = await this.model.create({
       user_id: userId,
       title,
       status: 'active',
+      mode: opts.mode ?? 'plan',
+      origin: opts.origin ?? 'user',
+      attention: opts.attention ?? false,
       summary: '',
       summarized_up_to_seq: 0,
       last_seq: 0,
       pending_card_batch_id: null,
+      pending_candidates: [],
       closed_at: null,
     });
     return toConversation(doc.toObject() as ConversationLean);
+  }
+
+  async setMode(
+    userId: string,
+    conversationId: string,
+    mode: ConversationMode,
+  ): Promise<Conversation | null> {
+    const doc = (await this.model
+      .findOneAndUpdate(
+        this.scoped(userId, { _id: conversationId }),
+        { $set: { mode } },
+        { new: true },
+      )
+      .lean()
+      .exec()) as ConversationLean | null;
+    return doc ? toConversation(doc) : null;
   }
 
   async findConversation(
@@ -225,6 +253,36 @@ export class ConversationRepository
     return doc ? toConversation(doc) : null;
   }
 
+  async addPendingCandidates(
+    userId: string,
+    conversationId: string,
+    candidates: PendingCandidate[],
+  ): Promise<Conversation | null> {
+    if (candidates.length === 0) {
+      return this.findConversation(userId, conversationId);
+    }
+    const doc = (await this.model
+      .findOneAndUpdate(
+        this.scoped(userId, { _id: conversationId }),
+        { $push: { pending_candidates: { $each: candidates } } },
+        { new: true },
+      )
+      .lean()
+      .exec()) as ConversationLean | null;
+    return doc ? toConversation(doc) : null;
+  }
+
+  async clearPendingCandidates(
+    userId: string,
+    conversationId: string,
+  ): Promise<void> {
+    await this.model
+      .updateOne(this.scoped(userId, { _id: conversationId }), {
+        $set: { pending_candidates: [] },
+      })
+      .exec();
+  }
+
   async findIdleActive(
     idleBeforeIso: string,
     limit: number,
@@ -257,10 +315,16 @@ function toConversation(d: ConversationLean): Conversation {
     userId: d.user_id,
     title: d.title,
     status: d.status,
+    // Legacy rows predate these fields; fall back to the back-compat defaults.
+    mode: d.mode ?? 'plan',
+    origin: d.origin ?? 'user',
+    attention: d.attention ?? false,
     summary: d.summary,
     summarizedUpToSeq: d.summarized_up_to_seq,
     lastSeq: d.last_seq,
     pendingCardBatchId: d.pending_card_batch_id,
+    // Legacy rows predate the buffer; an absent field reads as an empty buffer.
+    pendingCandidates: (d.pending_candidates ?? []) as PendingCandidate[],
     createdAt: (d.createdAt ?? new Date()).toISOString(),
     updatedAt: (d.updatedAt ?? new Date()).toISOString(),
     closedAt: d.closed_at,

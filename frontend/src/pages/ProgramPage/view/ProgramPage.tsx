@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { Spinner } from '@/shared/ui/Spinner/Spinner';
-import type { PlannedSession, Program } from '../domain/types';
+import type { Program } from '../domain/types';
 import { formatDayLabel, themeLabel } from '../domain/format';
 import { useProgram } from '../hooks/useProgram';
 import { TrainCard } from '../components/TrainCard/TrainCard';
@@ -85,7 +86,9 @@ export function ProgramPage(): ReactElement {
   const lastWeekIndex = program.weeks[program.weeks.length - 1]?.weekIndex ?? 0;
   const firstWeekIndex = program.weeks[0]?.weekIndex ?? 0;
   const isTentative = week?.planState === 'tentative';
-  const byDay = groupByDay(sessions);
+  const sortedSessions = [...sessions].sort((a, b) =>
+    a.scheduledStartUtc.localeCompare(b.scheduledStartUtc),
+  );
 
   return (
     <Shell>
@@ -128,6 +131,7 @@ export function ProgramPage(): ReactElement {
       {pendingBatch ? (
         <WeekReview
           batch={pendingBatch}
+          sessions={sessions}
           pending={actionPending}
           error={actionError}
           onApprove={approve}
@@ -144,19 +148,12 @@ export function ProgramPage(): ReactElement {
 
           {sessionsLoading ? (
             <p className={styles.muted}>Loading trains…</p>
-          ) : byDay.length === 0 ? (
+          ) : sortedSessions.length === 0 ? (
             <p className={styles.muted}>No trains scheduled this week.</p>
           ) : (
-            <div className={styles.days}>
-              {byDay.map(([date, daySessions]) => (
-                <section key={date} className={styles.day}>
-                  <h2 className={styles.dayLabel}>{formatDayLabel(date)}</h2>
-                  <div className={styles.dayCards}>
-                    {daySessions.map((s) => (
-                      <TrainCard key={s.id} session={s} />
-                    ))}
-                  </div>
-                </section>
+            <div className={styles.cardGrid}>
+              {sortedSessions.map((s) => (
+                <TrainCard key={s.id} session={s} />
               ))}
             </div>
           )}
@@ -185,26 +182,41 @@ function GoalHeader({ program }: { program: Program }): ReactElement {
 }
 
 function Shell({ children }: { children: ReactNode }): ReactElement {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const navState = location.state as
+    | { fromOnboarding?: boolean; fromConversationId?: string | null }
+    | null;
+  // Hide the back-to-chat link during the post-onboarding review: the user
+  // arrives here straight from the wizard and should focus on their first
+  // program before returning to the chat.
+  const fromOnboarding = navState?.fromOnboarding === true;
+  // Return to the conversation the user had open before opening the program,
+  // rather than dropping them on the new-chat start screen.
+  const fromConversationId = navState?.fromConversationId ?? null;
+  const backToChatPath =
+    fromConversationId !== null ? `/assistant/${fromConversationId}` : '/assistant';
+
   return (
     <div className={styles.page}>
       <div className={styles.container}>
-        <div className={styles.brand}>
-          <BasketballIcon size={26} />
-          <span className={styles.brandName}>AgentiCoach</span>
+        <div className={styles.topBar}>
+          <div className={styles.brand}>
+            <BasketballIcon size={26} />
+            <span className={styles.brandName}>AgentiCoach</span>
+          </div>
+          {!fromOnboarding && (
+            <button
+              type="button"
+              className={styles.backToChat}
+              onClick={() => navigate(backToChatPath)}
+            >
+              ‹ Back to chat
+            </button>
+          )}
         </div>
         {children}
       </div>
     </div>
   );
-}
-
-// Group sessions into [date, sessions[]] pairs, ascending by date.
-function groupByDay(sessions: PlannedSession[]): Array<[string, PlannedSession[]]> {
-  const map = new Map<string, PlannedSession[]>();
-  for (const s of sessions) {
-    const list = map.get(s.scheduledDate) ?? [];
-    list.push(s);
-    map.set(s.scheduledDate, list);
-  }
-  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
 }

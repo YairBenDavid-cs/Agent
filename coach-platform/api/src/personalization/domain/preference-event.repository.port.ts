@@ -30,9 +30,9 @@ export interface PreferenceEventRepositoryPort {
   findByBatch(userId: string, batchId: string): Promise<PreferenceEvent[]>;
 
   /**
-   * Active one-off events (not yet expired as of `nowIso`) for a discipline,
-   * including cross-cutting (discipline = null) ones. These never enter the
-   * projection but steer near-term generation. Most-recent-first.
+   * Active one-off events (not yet expired as of `nowIso`, not yet consumed) for
+   * a discipline, including cross-cutting (discipline = null) ones. These never
+   * enter the projection but steer near-term generation. Most-recent-first.
    */
   findActiveOneOffs(
     userId: string,

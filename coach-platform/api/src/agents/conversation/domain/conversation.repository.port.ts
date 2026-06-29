@@ -1,4 +1,12 @@
-import { Conversation, Message, MessageMeta, MessageRole } from './conversation.model';
+import {
+  Conversation,
+  ConversationMode,
+  ConversationOrigin,
+  Message,
+  MessageMeta,
+  MessageRole,
+  PendingCandidate,
+} from './conversation.model';
 
 export const CONVERSATION_REPOSITORY = Symbol('CONVERSATION_REPOSITORY');
 
@@ -21,7 +29,15 @@ export interface NewMessage {
  * can never be read across tenants.
  */
 export interface ConversationRepositoryPort {
-  createConversation(userId: string, title?: string | null): Promise<Conversation>;
+  createConversation(
+    userId: string,
+    title?: string | null,
+    opts?: {
+      mode?: ConversationMode;
+      origin?: ConversationOrigin;
+      attention?: boolean;
+    },
+  ): Promise<Conversation>;
   findConversation(userId: string, conversationId: string): Promise<Conversation | null>;
   listConversations(
     userId: string,
@@ -79,6 +95,30 @@ export interface ConversationRepositoryPort {
     title: string,
   ): Promise<Conversation | null>;
 
+  /** Toggle Plan/Ask mode. Returns the updated record, or null when not found. */
+  setMode(
+    userId: string,
+    conversationId: string,
+    mode: ConversationMode,
+  ): Promise<Conversation | null>;
+
   /** Active conversations whose last activity is on or before `idleBeforeIso`. */
   findIdleActive(idleBeforeIso: string, limit: number): Promise<Conversation[]>;
+
+  /**
+   * Append candidates to the conversation staging buffer (Plan-mode iteration).
+   * Returns the updated record, or null when not found. Append-only until the
+   * action point flush; retractions are handled by re-distilling net intent.
+   */
+  addPendingCandidates(
+    userId: string,
+    conversationId: string,
+    candidates: PendingCandidate[],
+  ): Promise<Conversation | null>;
+
+  /** Empty the staging buffer (called after an action-point flush). */
+  clearPendingCandidates(
+    userId: string,
+    conversationId: string,
+  ): Promise<void>;
 }

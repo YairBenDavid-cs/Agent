@@ -8,12 +8,14 @@ import {
   PlanState,
   ReasonCode,
   SegmentKind,
+  StepType,
 } from '../domain/planned-session.model';
 
 export type PlannedSessionDocument = HydratedDocument<PlannedSessionDoc>;
 
 const RUN_TYPES = ['easy', 'tempo', 'fartlek', 'intervals', 'long', 'recovery'];
 const SEGMENT_KINDS = ['warmup', 'work', 'recovery', 'cooldown'];
+const STEP_TYPES = ['run', 'rest'];
 const PLAN_STATES = ['committed', 'tentative'];
 const PLANNED_STATUSES = [
   'planned',
@@ -41,17 +43,26 @@ const SYNC_STATES = ['pending', 'synced', 'failed'];
 /* ── RUNNING prescription ──────────────────────────────────────── */
 
 @Schema({ _id: false })
-export class RunSegmentClass {
-  @Prop({ type: String, required: true, enum: SEGMENT_KINDS })
-  kind!: SegmentKind;
-  @Prop({ type: Number, required: true, default: 1 }) repeat!: number;
+export class RunStepClass {
+  @Prop({ type: String, required: true, enum: STEP_TYPES })
+  type!: StepType;
   @Prop({ type: Number, default: null }) distance_m!: number | null;
   @Prop({ type: Number, default: null }) duration_sec!: number | null;
   @Prop({ type: String, default: null }) target_pace!: string | null;
   @Prop({ type: Number, default: null }) target_hr_zone!: number | null;
-  @Prop({ type: Number, default: null }) rest_sec!: number | null;
+  @Prop({ type: String, default: null }) note!: string | null;
 }
-const RunSegmentSchema = SchemaFactory.createForClass(RunSegmentClass);
+const RunStepSchema = SchemaFactory.createForClass(RunStepClass);
+
+@Schema({ _id: false })
+export class RunBlockClass {
+  @Prop({ type: String, required: true, enum: SEGMENT_KINDS })
+  kind!: SegmentKind;
+  @Prop({ type: String, default: null }) label!: string | null;
+  @Prop({ type: Number, required: true, default: 1 }) repeat!: number;
+  @Prop({ type: [RunStepSchema], default: [] }) steps!: RunStepClass[];
+}
+const RunBlockSchema = SchemaFactory.createForClass(RunBlockClass);
 
 @Schema({ _id: false })
 export class RunningPlanClass {
@@ -61,7 +72,7 @@ export class RunningPlanClass {
   @Prop({ type: String, default: null }) target_pace!: string | null;
   @Prop({ type: Number, default: null }) target_hr_zone!: number | null;
   @Prop({ type: Number, default: null }) target_rpe!: number | null;
-  @Prop({ type: [RunSegmentSchema], default: [] }) segments!: RunSegmentClass[];
+  @Prop({ type: [RunBlockSchema], default: [] }) blocks!: RunBlockClass[];
 }
 const RunningPlanSchema = SchemaFactory.createForClass(RunningPlanClass);
 
@@ -126,6 +137,26 @@ export class CalendarSyncClass {
 }
 const CalendarSyncSchema = SchemaFactory.createForClass(CalendarSyncClass);
 
+/* ── commit diff ───────────────────────────────────────────────── */
+
+@Schema({ _id: false })
+export class SessionDiffChangeClass {
+  @Prop({ type: String, required: true }) field!: string;
+  @Prop({ type: Object, default: null }) before!: string | number | null;
+  @Prop({ type: Object, default: null }) after!: string | number | null;
+}
+const SessionDiffChangeSchema = SchemaFactory.createForClass(
+  SessionDiffChangeClass,
+);
+
+@Schema({ _id: false })
+export class SessionDiffClass {
+  @Prop({ type: String, required: true }) committed_at!: string;
+  @Prop({ type: [SessionDiffChangeSchema], default: [] })
+  changes!: SessionDiffChangeClass[];
+}
+const SessionDiffSchema = SchemaFactory.createForClass(SessionDiffClass);
+
 /* ── root document ─────────────────────────────────────────────── */
 
 @Schema({ collection: 'planned_sessions', timestamps: true })
@@ -164,6 +195,9 @@ export class PlannedSessionDoc {
 
   @Prop({ type: CalendarSyncSchema, default: null })
   calendar_sync!: CalendarSyncClass | null;
+
+  @Prop({ type: SessionDiffSchema, default: null })
+  last_diff!: SessionDiffClass | null;
 }
 
 export const PlannedSessionSchema =

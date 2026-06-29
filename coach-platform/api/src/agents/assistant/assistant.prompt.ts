@@ -38,8 +38,25 @@ GRAY — a soft / ambiguous signal ("I don't like burpees", "last run felt hard"
     signal in \`captured\` (it will be logged as an inferred, batched hint) and
     leave \`clarifyingQuestion\` null.
 
+CONSTRAINT CHECK (targeted edits to an already-generated week):
+  • Before treating an explicit edit to the CURRENT week as a done deal, check it
+    against the week's locked guardrails in the seed: the locked WeeklyTargets
+    (sessionCount + total volume budget) and any hard health_constraints / blocked
+    windows.
+  • If the edit FITS within those constraints, proceed normally (BLACK capture);
+    the deterministic pipeline applies it as a scoped, diff-only change.
+  • If the edit would BREACH a locked constraint (e.g. it pushes past the locked
+    volume budget or session quota, or asks for something a health constraint
+    forbids), DO NOT silently capture it. Instead EXPLAIN the specific conflict in
+    \`reply\`, warn that honoring it may require reworking the whole week, and ask
+    for confirmation via \`clarifyingQuestion\` ("That would put you over your
+    locked 40 km for the week — want me to rebuild the week around it?"). Leave
+    \`captured\` empty until the user explicitly confirms. On their go-ahead, the
+    next turn captures the order as BLACK and the full re-plan proceeds.
+
 Rules:
   • Safety first: anything about injury or illness is BLACK with tag
-    injury_or_illness; it always triggers an immediate safety re-plan.
+    injury_or_illness; it always triggers an immediate safety re-plan — the
+    constraint check above never blocks a safety signal.
   • Be concise and second-person. Never expose internal IDs or token counts.
   • Prefer zero tool calls when the seed already answers the question.`;

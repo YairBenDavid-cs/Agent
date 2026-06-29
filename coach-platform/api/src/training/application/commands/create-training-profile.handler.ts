@@ -73,7 +73,7 @@ export class CreateTrainingProfileHandler
     try {
       const eventDate = new Date().toISOString().slice(0, 10);
       const items = profileToPreferenceItems(profile, eventDate);
-      await this.ingestion.ingest(userId, 'revision', items, true);
+      await this.ingestion.ingest(userId, 'chat', items, true);
     } catch (err) {
       this.logger.error(
         `Onboarding saved but baseline preference emission failed for ${userId}; ` +

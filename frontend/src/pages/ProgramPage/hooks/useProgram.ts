@@ -179,13 +179,19 @@ export function useProgram(): ProgramState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programId, weekIndex, reloadKey]);
 
-  // ── Enter "generating" when the current week has no draft and no trains yet ──
+  // ── Enter "generating" only when the current week hasn't been built yet ──
+  // A week the coach has already generated (`generatedAt` set) is a valid resting
+  // state even when it carries no trains and no draft — that's just an empty/preview
+  // week, not a build in progress. Gating on `generatedAt === null` keeps week
+  // navigation from re-arming the spinner on an already-generated empty week.
   const viewingCurrentWeek = program !== null && weekIndex === program.currentWeekIndex;
+  const currentWeekUngenerated = week !== null && week.generatedAt === null;
   useEffect(() => {
     if (
       programLoaded &&
       hasProgram &&
       viewingCurrentWeek &&
+      currentWeekUngenerated &&
       sessionsReady &&
       batchReady &&
       sessions.length === 0 &&
@@ -200,6 +206,7 @@ export function useProgram(): ProgramState {
     programLoaded,
     hasProgram,
     viewingCurrentWeek,
+    currentWeekUngenerated,
     sessionsReady,
     batchReady,
     sessions.length,

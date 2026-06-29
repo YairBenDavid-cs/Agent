@@ -1,6 +1,9 @@
 import type {
+  PlannedExercise,
   PlannedStatus,
-  RunSegment,
+  RunBlock,
+  RunStep,
+  SegmentKind,
   WeekTheme,
 } from './types';
 
@@ -38,6 +41,7 @@ export function statusLabel(status: PlannedStatus): string {
 }
 
 const THEME_LABEL: Record<WeekTheme, string> = {
+  assessment: 'Assessment',
   base: 'Base',
   build: 'Build',
   peak: 'Peak',
@@ -49,27 +53,93 @@ export function themeLabel(theme: WeekTheme): string {
   return THEME_LABEL[theme];
 }
 
-// "6 × 800m @ 4:45/km" style one-liner for a run segment.
-export function formatSegment(seg: RunSegment): string {
-  const amount =
-    seg.distanceM !== null
-      ? `${seg.distanceM >= 1000 ? `${seg.distanceM / 1000}km` : `${seg.distanceM}m`}`
-      : seg.durationSec !== null
-        ? `${seg.durationSec}s`
-        : '';
-  const head = seg.repeat > 1 ? `${seg.repeat} × ${amount}` : amount;
-  const pace = seg.targetPace !== null ? ` @ ${seg.targetPace}` : '';
-  const rest = seg.restSec !== null ? ` (${seg.restSec}s rest)` : '';
-  return `${head}${pace}${rest}`.trim();
-}
+/* ── Running blocks ─────────────────────────────────────────────── */
 
-const SEGMENT_KIND_LABEL: Record<RunSegment['kind'], string> = {
-  warmup: 'Warm-up',
+const BLOCK_KIND_LABEL: Record<SegmentKind, string> = {
+  warmup: 'Warm-Up',
   work: 'Work',
   recovery: 'Recovery',
-  cooldown: 'Cool-down',
+  cooldown: 'Cool-Down',
 };
 
-export function segmentKindLabel(kind: RunSegment['kind']): string {
-  return SEGMENT_KIND_LABEL[kind];
+export function blockKindLabel(kind: SegmentKind): string {
+  return BLOCK_KIND_LABEL[kind];
+}
+
+// Header text for a block: an interval set ("Repeat ×6") when it repeats,
+// otherwise the explicit label or the kind fallback.
+export function blockLabel(block: RunBlock): string {
+  if (block.repeat > 1) return `Repeat ×${block.repeat}`;
+  return block.label ?? blockKindLabel(block.kind);
+}
+
+// The primary measure of a step: "2km" / "400m" / "90s" / "5min".
+export function formatStepMeasure(step: RunStep): string {
+  if (step.distanceM !== null) {
+    return step.distanceM >= 1000 ? `${step.distanceM / 1000}km` : `${step.distanceM}m`;
+  }
+  if (step.durationSec !== null) {
+    return step.durationSec >= 60 && step.durationSec % 60 === 0
+      ? `${step.durationSec / 60}min`
+      : `${step.durationSec}s`;
+  }
+  return '';
+}
+
+export function stepBadge(step: RunStep): 'RUN' | 'REST' {
+  return step.type === 'rest' ? 'REST' : 'RUN';
+}
+
+/* ── Strength exercises ─────────────────────────────────────────── */
+
+// "6" for a single target, "6–8" for a range.
+export function formatReps(ex: PlannedExercise): string {
+  return ex.targetRepsMin === ex.targetRepsMax
+    ? `${ex.targetRepsMin}`
+    : `${ex.targetRepsMin}–${ex.targetRepsMax}`;
+}
+
+// Absolute load wins, then %1RM; "—" when the plan leaves load open (RIR-driven).
+export function formatLoad(ex: PlannedExercise): string {
+  if (ex.targetWeightKg !== null) return `${ex.targetWeightKg} kg`;
+  if (ex.targetPct1rm !== null) return `${ex.targetPct1rm}% 1RM`;
+  return '—';
+}
+
+// "3:00" for whole minutes, "90 s" otherwise; "—" when unset.
+export function formatRest(restSec: number | null): string {
+  if (restSec === null) return '—';
+  if (restSec >= 60) {
+    const min = Math.floor(restSec / 60);
+    const sec = restSec % 60;
+    return `${min}:${String(sec).padStart(2, '0')}`;
+  }
+  return `${restSec} s`;
+}
+
+export interface SupersetGroup {
+  // null for standalone exercises; the shared label for a real superset.
+  supersetGroup: string | null;
+  exercises: PlannedExercise[];
+}
+
+// Order by `order`, then fold consecutive exercises that share a non-null
+// `supersetGroup` into one group. Standalone exercises each become their own
+// single-exercise group, preserving sequence.
+export function groupSupersets(exercises: PlannedExercise[]): SupersetGroup[] {
+  const ordered = [...exercises].sort((a, b) => a.order - b.order);
+  const groups: SupersetGroup[] = [];
+  for (const ex of ordered) {
+    const last = groups[groups.length - 1];
+    if (
+      ex.supersetGroup !== null &&
+      last !== undefined &&
+      last.supersetGroup === ex.supersetGroup
+    ) {
+      last.exercises.push(ex);
+    } else {
+      groups.push({ supersetGroup: ex.supersetGroup, exercises: [ex] });
+    }
+  }
+  return groups;
 }

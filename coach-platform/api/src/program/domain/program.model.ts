@@ -21,7 +21,13 @@ export type { Discipline };
 export type ProgramStatus = 'active' | 'completed' | 'abandoned';
 
 /** Periodization phase for a week. Sketched up front; trains filled weekly. */
-export type WeekTheme = 'base' | 'build' | 'peak' | 'deload' | 'taper';
+export type WeekTheme =
+  | 'assessment'
+  | 'base'
+  | 'build'
+  | 'peak'
+  | 'deload'
+  | 'taper';
 
 /**
  * `committed` = shown to the user and locked (the matcher/outcome may attach,
@@ -31,6 +37,31 @@ export type WeekTheme = 'base' | 'build' | 'peak' | 'deload' | 'taper';
 export type PlanState = 'committed' | 'tentative';
 
 export type WeekStatus = 'upcoming' | 'current' | 'done';
+
+/**
+ * Lifecycle of a week's plan within the iterative (Step A → B → C) generation:
+ * - `open`          — nothing locked; the macro shape may still change.
+ * - `targets_locked`— Step A is committed: the weekly quota (session count /
+ *                     volume / key goals) is frozen, and per-session drafting
+ *                     (Step B) must fit inside it. Targets are immutable once set.
+ * - `locked`        — every session is committed; the week is closed to direct
+ *                     mutation (changes flow through a reactive edit instead).
+ */
+export type WeekState = 'open' | 'targets_locked' | 'locked';
+
+/**
+ * Step-A weekly macro budget. Frozen by `LockWeeklyTargetsCommand`, after which
+ * per-session generation (Step B) must fit inside it — the
+ * `validateAgainstWeeklyTargets` guardrail bounces any draft that overshoots.
+ * `totalVolume` is in the discipline's native unit (km for running,
+ * volume-load for strength), matching the session prescription fields.
+ */
+export interface WeeklyTargets {
+  sessionCount: number; // how many sessions the week should hold
+  totalVolume: number; // native-unit budget (km or volume-load)
+  keyGoals: string[]; // free-text intents, e.g. "one quality tempo"
+  lockedAt: string | null; // ISO timestamp when Step A was frozen
+}
 
 /** A point-in-time copy of the goal that seeded the program. */
 export interface GoalSnapshot {
@@ -49,6 +80,10 @@ export interface ProgramWeek {
   planState: PlanState;
   status: WeekStatus;
   generatedAt: string | null; // ISO timestamp when trains were generated
+  // Iterative-generation state. Optional so legacy skeleton literals (which
+  // predate Step A) stay valid; the mapper defaults reads to 'open' / null.
+  weekState?: WeekState;
+  weeklyTargets?: WeeklyTargets | null;
 }
 
 export interface Program {

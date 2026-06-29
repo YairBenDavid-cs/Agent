@@ -24,6 +24,7 @@ export class StartConversationHandler
     const conversation = await this.repository.createConversation(
       command.userId,
       command.title,
+      command.opts,
     );
     return { conversationId: conversation.id };
   }

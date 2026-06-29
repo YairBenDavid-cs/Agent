@@ -6,6 +6,7 @@ import { OpenAiClient } from '../shared/llm/openai.client';
 import { AppendMessageHandler } from './application/commands/append-message.handler';
 import { CloseConversationHandler } from './application/commands/close-conversation.handler';
 import { DeleteConversationHandler } from './application/commands/delete-conversation.handler';
+import { SetConversationModeHandler } from './application/commands/set-mode.handler';
 import { SetPendingCardBatchHandler } from './application/commands/set-pending-card-batch.handler';
 import { StartConversationHandler } from './application/commands/start-conversation.handler';
 import { UpdateConversationSummaryHandler } from './application/commands/update-summary.handler';
@@ -32,6 +33,7 @@ const CommandHandlers = [
   CloseConversationHandler,
   DeleteConversationHandler,
   UpdateConversationTitleHandler,
+  SetConversationModeHandler,
 ];
 const QueryHandlers = [
   GetConversationHandler,

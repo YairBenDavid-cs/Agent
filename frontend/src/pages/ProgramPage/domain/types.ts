@@ -9,7 +9,7 @@ export type PlannedStatus =
   | 'partially_completed'
   | 'skipped'
   | 'deviated';
-export type WeekTheme = 'base' | 'build' | 'peak' | 'deload' | 'taper';
+export type WeekTheme = 'assessment' | 'base' | 'build' | 'peak' | 'deload' | 'taper';
 export type WeekStatus = 'upcoming' | 'current' | 'done';
 
 export interface GoalSnapshot {
@@ -45,14 +45,30 @@ export interface ActiveProgramResponse {
   program: Program | null;
 }
 
-export interface RunSegment {
-  kind: 'warmup' | 'work' | 'recovery' | 'cooldown';
-  repeat: number;
-  distanceM: number | null;
+// Section semantics — drives the label + colour of a block header.
+export type SegmentKind = 'warmup' | 'work' | 'recovery' | 'cooldown';
+
+// 'run' -> RUN badge, 'rest' -> REST badge.
+export type StepType = 'run' | 'rest';
+
+// One row inside a block — a single run or rest interval. `targetPace` is a free
+// string: a concrete value ("4:30/km") or a qualitative cue ("conversational").
+export interface RunStep {
+  type: StepType;
+  distanceM: number | null; // exactly one of distanceM / durationSec is set
   durationSec: number | null;
   targetPace: string | null;
-  targetHrZone: number | null;
-  restSec: number | null;
+  targetHrZone: number | null; // 1–5
+  note: string | null; // secondary cue line, e.g. "No faster than 5:15/km"
+}
+
+// An ordered section of a run. `repeat > 1` renders the "Repeat ×{repeat}"
+// header that wraps its steps; `label` overrides the title (falls back to kind).
+export interface RunBlock {
+  kind: SegmentKind;
+  label: string | null;
+  repeat: number; // 1 = single pass
+  steps: RunStep[]; // min 1
 }
 
 export interface RunningPlan {
@@ -62,7 +78,7 @@ export interface RunningPlan {
   targetPace: string | null;
   targetHrZone: number | null;
   targetRpe: number | null;
-  segments: RunSegment[];
+  blocks: RunBlock[];
 }
 
 export interface PlannedExercise {

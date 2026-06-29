@@ -8,7 +8,7 @@
 //
 //   Tip: leave UID = "" to just list all users (with their user_id) and exit.
 
-const UID = "u_be155ec3-b28d-4d5f-a683-8c8b908504fd"; // <-- PASTE a user_id here
+const UID = "u_516557ca-7f48-4266-9b18-30b0eb7accea"; // <-- PASTE a user_id here
 
 // ---------------------------------------------------------------------------
 

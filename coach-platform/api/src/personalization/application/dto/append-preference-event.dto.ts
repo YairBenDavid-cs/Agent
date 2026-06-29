@@ -18,12 +18,7 @@ import {
   TagPolarity,
 } from '../../domain/preference-event.model';
 
-const SOURCES: PreferenceEventSource[] = [
-  'revision',
-  'outcome',
-  'assistant',
-  'session_flush',
-];
+const SOURCES: PreferenceEventSource[] = ['chat', 'outcome', 'session_flush'];
 const DISCIPLINES: EventDiscipline[] = ['running', 'strength'];
 const SCOPES: PreferenceScope[] = ['global', 'session', 'exercise'];
 const DURABILITIES: PreferenceDurability[] = ['standing', 'one_off'];
@@ -97,9 +92,9 @@ export class PreferenceTargetDto {
 }
 
 /**
- * Append one event to the semantic log. The producer (revision flow, outcome
- * hook, assistant tool, session flush) supplies an already-tagged event; this
- * layer never re-parses prose.
+ * Append one event to the semantic log. The producer (chat capture, outcome
+ * hook, session flush) supplies an already-tagged event; this layer never
+ * re-parses prose.
  */
 export class AppendPreferenceEventDto {
   @IsString() eventDate!: string; // YYYY-MM-DD

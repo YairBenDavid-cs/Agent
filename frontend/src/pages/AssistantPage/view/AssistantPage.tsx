@@ -10,6 +10,7 @@ import {
   renameAssistantConversation,
 } from '../domain/assistant/api/assistantApi';
 import { useAssistantConversations } from '../domain/assistant/hooks/useAssistantConversations';
+import { useGarminSync } from '../domain/garmin/useGarminSync';
 import type { PendingPrompt } from '../domain/assistant/types/assistant';
 import { AssistantSidebar } from '../components/AssistantSidebar/view/AssistantSidebar';
 import { StartView } from '../components/StartView/view/StartView';
@@ -30,6 +31,18 @@ export function AssistantPage(): ReactElement {
     () => conversations.find((c) => c.id === pendingDeleteId) ?? null,
     [conversations, pendingDeleteId],
   );
+
+  const garmin = useGarminSync({
+    onSynced: () =>
+      showToast('Garmin synced — open your Program to see new sessions.', () =>
+        navigate('/program'),
+      ),
+    onError: (message) => showToast(message),
+    onReconnect: () => {
+      showToast('Garmin needs reconnecting.');
+      navigate('/onboarding');
+    },
+  });
 
   const onToggle = useCallback((): void => {
     setCollapsed((prev) => !prev);
@@ -102,6 +115,10 @@ export function AssistantPage(): ReactElement {
           error={error}
           activeId={id ?? null}
           collapsed={collapsed}
+          garminVisible={garmin.visible}
+          garminSyncing={garmin.syncing}
+          garminLastSyncedAt={garmin.lastSyncedAt}
+          onGarminSync={garmin.sync}
           onToggle={onToggle}
           onNew={onNew}
           onSelect={onSelect}

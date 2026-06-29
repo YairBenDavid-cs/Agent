@@ -1,5 +1,6 @@
 import { request } from '@/shared/api/httpClient';
 import { MOCK_API } from '@/shared/config';
+import { MOCK_APPROVAL_BATCH, MOCK_PENDING_BATCHES } from './mockData';
 
 // Frontend mirror of the backend approval contracts (agents/approval). A
 // generated week is a batch of per-session cards the user acts on as a unit:
@@ -66,18 +67,26 @@ export interface ApproveResult {
 export async function fetchPendingApprovals(): Promise<PendingCardBatch[]> {
   if (MOCK_API) {
     await delay();
-    return [];
+    return MOCK_PENDING_BATCHES;
   }
   return request<PendingCardBatch[]>('/assistant/approvals');
 }
 
 // GET /assistant/approvals/:batchId — the full card set + lifecycle.
 export async function fetchApprovalBatch(batchId: string): Promise<ApprovalBatchView> {
+  if (MOCK_API) {
+    await delay();
+    return MOCK_APPROVAL_BATCH;
+  }
   return request<ApprovalBatchView>(`/assistant/approvals/${encodeURIComponent(batchId)}`);
 }
 
 // POST /assistant/approvals/:batchId/approve — commit the week + sync calendar.
 export async function approveBatch(batchId: string): Promise<ApproveResult> {
+  if (MOCK_API) {
+    await delay();
+    return { committed: 0, calendar: { created: 0, updated: 0, deleted: 0, skipped: 0 } };
+  }
   return request<ApproveResult>(`/assistant/approvals/${encodeURIComponent(batchId)}/approve`, {
     method: 'POST',
   });
@@ -88,6 +97,10 @@ export async function reviseBatch(
   batchId: string,
   edits: CardRevisionEdit[],
 ): Promise<{ revisionBatchId: string | null }> {
+  if (MOCK_API) {
+    await delay();
+    return { revisionBatchId: null };
+  }
   return request<{ revisionBatchId: string | null }>(
     `/assistant/approvals/${encodeURIComponent(batchId)}/revise`,
     { method: 'POST', body: { edits } },
@@ -96,6 +109,10 @@ export async function reviseBatch(
 
 // POST /assistant/approvals/:batchId/reject — discard draft, keep committed.
 export async function rejectBatch(batchId: string): Promise<{ discarded: number }> {
+  if (MOCK_API) {
+    await delay();
+    return { discarded: 0 };
+  }
   return request<{ discarded: number }>(
     `/assistant/approvals/${encodeURIComponent(batchId)}/reject`,
     { method: 'POST' },

@@ -87,6 +87,7 @@ export class PreferenceEventRepository
       {
         durability: 'one_off',
         discipline: { $in: [discipline, null] },
+        consumed_at: null,
         $or: [{ expires_at: null }, { expires_at: { $gte: nowIso } }],
       },
       { event_date: -1 },

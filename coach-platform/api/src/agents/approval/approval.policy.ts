@@ -1,17 +1,17 @@
 /**
- * Pure approval-action rules. The card flow offers three actions; which ones are
- * legal depends only on whether a committed week already exists to fall back to.
+ * Pure approval-action rules. The card flow is commit-only: a generated week is
+ * approved or (when a committed fallback exists) rejected. Targeted changes are
+ * made by conversing in Plan mode, not via a card-revise round-trip.
  *
  *  - approve → flip tentative → committed + sync calendar.
- *  - revise  → re-enter as a revision trigger (fresh card set).
  *  - reject  → discard the tentative draft, keep the current committed week.
  *
  * Reject is ONLY allowed when a committed week already exists: on the FIRST
  * generation of a week there is nothing to fall back to, so the user may only
- * approve or revise. This guard is enforced here (code), not left to the UI.
+ * approve. This guard is enforced here (code), not left to the UI.
  */
 
-export type ApprovalAction = 'approve' | 'revise' | 'reject';
+export type ApprovalAction = 'approve' | 'reject';
 
 export interface ApprovalContext {
   /** True when a committed version of this week already exists (a fallback). */
@@ -20,7 +20,7 @@ export interface ApprovalContext {
 
 /** The set of actions the user may take on the current card batch. */
 export function allowedApprovalActions(ctx: ApprovalContext): ApprovalAction[] {
-  const actions: ApprovalAction[] = ['approve', 'revise'];
+  const actions: ApprovalAction[] = ['approve'];
   if (ctx.hasCommittedFallback) {
     actions.push('reject');
   }

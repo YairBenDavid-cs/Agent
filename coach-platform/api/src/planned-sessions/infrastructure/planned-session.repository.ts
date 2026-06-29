@@ -7,6 +7,7 @@ import {
   PlannedOutcome,
   PlannedSession,
   PlannedSessionType,
+  SessionDiff,
 } from '../domain/planned-session.model';
 import {
   PlannedSessionRepositoryPort,
@@ -14,6 +15,7 @@ import {
 } from '../domain/planned-session.repository.port';
 import {
   calendarToPersistence,
+  diffToPersistence,
   outcomeToPersistence,
   PlannedSessionLean,
   toDomain,
@@ -33,28 +35,75 @@ export class PlannedSessionRepository
   }
 
   /**
-   * Idempotent bulk insert via upsert keyed on the unique
-   * {program_id, week_index, slot_key}. `$setOnInsert` means an existing train
-   * (possibly already committed/outcome-bearing) is never clobbered. Returns the
-   * number of new docs created.
+   * Replace one program week's TENTATIVE draft in place. Keyed on the unique
+   * {program_id, week_index, slot_key}, it overwrites the content of an existing
+   * tentative slot (`$set`, so the `_id` — and every id-keyed reference to it,
+   * e.g. revision preference events — survives a re-plan) and inserts genuinely
+   * new slots. Two invariants are upheld:
+   *
+   *  - committed / outcome-bearing slots are NEVER touched (excluded from both
+   *    the write set and the orphan delete), so an approved or already-logged
+   *    train is never clobbered by a content re-plan;
+   *  - slots the re-plan no longer includes are dropped, so a revision that
+   *    REMOVES a session ("cut Friday's run") doesn't leave the stale row behind.
+   *
+   * Returns the number of slots written (overwritten or inserted).
    */
-  async insertMany(sessions: PlannedSession[]): Promise<number> {
+  async replaceTentativeWeek(sessions: PlannedSession[]): Promise<number> {
     if (sessions.length === 0) {
       return 0;
     }
-    const ops = sessions.map((s) => ({
-      updateOne: {
-        filter: {
-          program_id: s.programId,
-          week_index: s.weekIndex,
-          slot_key: s.slotKey,
-        },
-        update: { $setOnInsert: toPersistence(s) },
-        upsert: true,
+    // Handler invariant: every session shares one tenant + program + week.
+    const { userId, programId, weekIndex } = sessions[0];
+
+    // Slots that must survive untouched: committed, or any non-`planned`
+    // outcome (already logged/matched), even while still tentative.
+    const protectedDocs = (await this.findManyScoped(
+      userId,
+      {
+        program_id: programId,
+        week_index: weekIndex,
+        $or: [
+          { plan_state: 'committed' },
+          { 'outcome.status': { $ne: 'planned' } },
+        ],
       },
-    }));
-    const res = await this.model.bulkWrite(ops, { ordered: false });
-    return res.upsertedCount ?? 0;
+      { slot_key: 1 },
+    )) as PlannedSessionLean[];
+    const protectedSlots = new Set(protectedDocs.map((d) => d.slot_key));
+
+    const writable = sessions.filter((s) => !protectedSlots.has(s.slotKey));
+    const incomingSlots = writable.map((s) => s.slotKey);
+
+    if (writable.length > 0) {
+      const ops = writable.map((s) => ({
+        updateOne: {
+          filter: {
+            program_id: s.programId,
+            week_index: s.weekIndex,
+            slot_key: s.slotKey,
+          },
+          update: { $set: toPersistence(s) },
+          upsert: true,
+        },
+      }));
+      await this.model.bulkWrite(ops, { ordered: false });
+    }
+
+    // Drop tentative, not-yet-resolved slots this re-plan no longer includes.
+    await this.model
+      .deleteMany(
+        this.scoped(userId, {
+          program_id: programId,
+          week_index: weekIndex,
+          plan_state: 'tentative',
+          'outcome.status': 'planned',
+          slot_key: { $nin: incomingSlots },
+        }),
+      )
+      .exec();
+
+    return writable.length;
   }
 
   async findByDateRange(
@@ -139,6 +188,21 @@ export class PlannedSessionRepository
       )
       .exec();
     return res.modifiedCount ?? 0;
+  }
+
+  async commitSession(
+    userId: string,
+    plannedSessionId: string,
+    lastDiff: SessionDiff,
+  ): Promise<void> {
+    await this.model
+      .updateOne(this.scoped(userId, { _id: plannedSessionId }), {
+        $set: {
+          plan_state: 'committed',
+          last_diff: diffToPersistence(lastDiff),
+        },
+      })
+      .exec();
   }
 
   async discardTentativeWeek(

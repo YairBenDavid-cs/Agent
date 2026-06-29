@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
+import { CommitSessionHandler } from './application/commands/commit-session.handler';
 import { CommitWeekHandler } from './application/commands/commit-week.handler';
 import { DiscardTentativeWeekHandler } from './application/commands/discard-tentative-week.handler';
 import { RecordOutcomeHandler } from './application/commands/record-outcome.handler';
@@ -22,6 +23,7 @@ const CommandHandlers = [
   UpsertWeekSessionsHandler,
   UpsertSessionScheduleHandler,
   CommitWeekHandler,
+  CommitSessionHandler,
   UpdateCalendarSyncHandler,
   DiscardTentativeWeekHandler,
 ];

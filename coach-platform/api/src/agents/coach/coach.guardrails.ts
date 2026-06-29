@@ -67,6 +67,71 @@ export function weekLoadProxy(sessions: LoadProxyInput[]): number {
   return sessions.reduce((sum, s) => sum + sessionLoadProxy(s), 0);
 }
 
+/* ── Step-A weekly quota enforcement ───────────────────────────── */
+
+/** The frozen weekly budget a per-session draft must fit inside (Step A). */
+export interface WeeklyTargetsCheck {
+  sessionCount: number;
+  totalVolume: number; // native units: km (running) or volume-load (strength)
+}
+
+/**
+ * Native (un-weighted) volume contribution of one train, in the discipline's
+ * own unit so it sums against a `WeeklyTargets.totalVolume` budget: kilometres
+ * for running, volume-load (kg·reps) for strength. Sessions without an explicit
+ * target contribute 0 (the budget tracks prescribed volume, not effort).
+ */
+export function sessionVolume(s: LoadProxyInput): number {
+  if (s.type === 'running' && s.running?.totalDistanceKm) {
+    return s.running.totalDistanceKm;
+  }
+  if (s.type === 'strength' && s.strength?.targetVolumeLoad) {
+    return s.strength.targetVolumeLoad;
+  }
+  return 0;
+}
+
+/**
+ * Step-B quota guardrail: a newly-drafted session, added to the sessions already
+ * committed this week, must not overshoot the locked weekly targets — neither
+ * the session COUNT nor the native VOLUME budget. A non-empty list bounces the
+ * draft back into the loop so the model trims it to fit the frozen quota.
+ *
+ * Pure: the caller supplies the already-committed sessions; this never reads I/O.
+ */
+export function validateAgainstWeeklyTargets(
+  proposed: LoadProxyInput,
+  committedSoFar: LoadProxyInput[],
+  targets: WeeklyTargetsCheck,
+): string[] {
+  const EPSILON = 1e-6;
+  const violations: string[] = [];
+
+  const count = committedSoFar.length + 1;
+  if (count > targets.sessionCount) {
+    violations.push(
+      `Adding this session makes ${count} sessions, exceeding the locked ` +
+        `weekly quota of ${targets.sessionCount}. Fold it into an existing ` +
+        `session or drop it.`,
+    );
+  }
+
+  const committedVolume = committedSoFar.reduce(
+    (sum, s) => sum + sessionVolume(s),
+    0,
+  );
+  const total = committedVolume + sessionVolume(proposed);
+  if (total > targets.totalVolume + EPSILON) {
+    violations.push(
+      `Cumulative volume ${total.toFixed(1)} exceeds the locked weekly budget ` +
+        `of ${targets.totalVolume.toFixed(1)} (already committed ` +
+        `${committedVolume.toFixed(1)}). Reduce this session's volume.`,
+    );
+  }
+
+  return violations;
+}
+
 /** Validate a proposed week of sessions against the hard limits. */
 export function validateWeek(
   args: UpsertWeekSessionsArgs,
@@ -112,7 +177,109 @@ export function validateWeek(
     }
   }
 
+  // 4. Structured-detail enforcement — a session must be a real, step-by-step
+  //    workout, not just a title + prose. Light coherence only; the model
+  //    re-plans on a bounce.
+  for (const s of args.sessions) {
+    violations.push(...validateSessionStructure(s));
+  }
+
   return violations;
+}
+
+/**
+ * One drafted session must carry concrete structure matching its type: running
+ * sessions need non-empty blocks of run/rest steps with a target each; strength
+ * sessions need fully-specified exercises with a load anchor. Returns a (possibly
+ * empty) list of human-readable violations to bounce back to the model.
+ */
+export function validateSessionStructure(
+  s: UpsertWeekSessionsArgs['sessions'][number],
+): string[] {
+  const v: string[] = [];
+  const tag = `Session "${s.slotKey}"`;
+
+  if (s.type === 'running') {
+    if (!s.running) {
+      v.push(`${tag} is type running but has no running plan.`);
+      return v;
+    }
+    const blocks = s.running.blocks ?? [];
+    if (blocks.length === 0) {
+      v.push(`${tag} has no running blocks — emit warmup/work/cooldown steps.`);
+      return v;
+    }
+    blocks.forEach((b, bi) => {
+      const steps = b.steps ?? [];
+      if (steps.length === 0) {
+        v.push(`${tag} block ${bi} (${b.label ?? b.kind}) has no steps.`);
+        return;
+      }
+      steps.forEach((st, si) => {
+        const hasTarget =
+          (st.distanceM != null && st.distanceM > 0) ||
+          (st.durationSec != null && st.durationSec > 0);
+        if (!hasTarget) {
+          v.push(
+            `${tag} block ${bi} step ${si} needs a distance or duration target.`,
+          );
+        }
+      });
+    });
+
+    // Soft total-distance coherence: only when totalDistanceKm is declared AND
+    // every run step is distance-based (mixed distance/duration is left alone).
+    const runSteps = blocks.flatMap((b) =>
+      (b.steps ?? [])
+        .filter((st) => st.type === 'run')
+        .map((st) => ({ d: st.distanceM, repeat: b.repeat ?? 1 })),
+    );
+    if (
+      s.running.totalDistanceKm &&
+      runSteps.length > 0 &&
+      runSteps.every((r) => r.d != null && r.d > 0)
+    ) {
+      const summedKm =
+        runSteps.reduce((sum, r) => sum + (r.d as number) * r.repeat, 0) / 1000;
+      const declared = s.running.totalDistanceKm;
+      if (Math.abs(summedKm - declared) > declared * 0.25) {
+        v.push(
+          `${tag} totalDistanceKm ${declared} disagrees with summed step ` +
+            `distance ${summedKm.toFixed(1)}km (>25%). Reconcile the two.`,
+        );
+      }
+    }
+  }
+
+  if (s.type === 'strength') {
+    if (!s.strength) {
+      v.push(`${tag} is type strength but has no strength plan.`);
+      return v;
+    }
+    const exercises = s.strength.exercises ?? [];
+    if (exercises.length === 0) {
+      v.push(`${tag} has no exercises — prescribe sets/reps/load.`);
+      return v;
+    }
+    exercises.forEach((e) => {
+      if (e.sets < 1) v.push(`${tag} exercise "${e.name}" needs sets >= 1.`);
+      if (e.targetRepsMin > e.targetRepsMax) {
+        v.push(`${tag} exercise "${e.name}" has repsMin > repsMax.`);
+      }
+      const hasLoadAnchor =
+        e.targetWeightKg != null ||
+        e.targetPct1rm != null ||
+        e.targetRir != null;
+      if (!hasLoadAnchor) {
+        v.push(
+          `${tag} exercise "${e.name}" needs a load anchor ` +
+            `(targetWeightKg, targetPct1rm, or targetRir).`,
+        );
+      }
+    });
+  }
+
+  return v;
 }
 
 /** Validate the periodization skeleton: mandatory deload cadence. */

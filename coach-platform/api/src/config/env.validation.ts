@@ -40,6 +40,14 @@ export const envValidationSchema = Joi.object({
 
   INGESTION_BACKFILL_DAYS: Joi.number().integer().min(1).max(30).default(3),
 
+  // Wider one-time window used on the very first sync after a user connects
+  // Garmin, so we backfill whatever history already exists for the account.
+  INGESTION_INITIAL_BACKFILL_DAYS: Joi.number()
+    .integer()
+    .min(1)
+    .max(365)
+    .default(30),
+
   // Google Calendar per-user OAuth ("Web application" client in Google Cloud).
   // Optional: unset/empty disables the Connect-Google-Calendar flow, which then
   // returns 503 GOOGLE_OAUTH_NOT_CONFIGURED instead of crashing at boot.

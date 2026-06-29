@@ -1,4 +1,4 @@
-import { Program } from './program.model';
+import { Program, WeeklyTargets } from './program.model';
 
 /** DI token for the program repository port (DIP). */
 export const PROGRAM_REPOSITORY = Symbol('PROGRAM_REPOSITORY');
@@ -28,5 +28,16 @@ export interface ProgramRepositoryPort {
     programId: string,
     weeks: Program['weeks'],
     currentWeekIndex: number,
+  ): Promise<void>;
+
+  /**
+   * Freeze Step A on one week: stamp its `weeklyTargets` quota and flip
+   * `weekState` to 'targets_locked'. Targeted update on the matching week entry.
+   */
+  lockWeeklyTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: WeeklyTargets,
   ): Promise<void>;
 }

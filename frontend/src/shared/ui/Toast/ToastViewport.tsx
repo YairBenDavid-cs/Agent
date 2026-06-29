@@ -18,7 +18,10 @@ export function ToastViewport({ toasts, onDismiss }: ToastViewportProps): ReactE
           key={toast.id}
           type="button"
           className={styles.toast}
-          onClick={() => onDismiss(toast.id)}
+          onClick={() => {
+            toast.onClick?.();
+            onDismiss(toast.id);
+          }}
         >
           {toast.message}
         </button>

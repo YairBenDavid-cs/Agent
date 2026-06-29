@@ -3,7 +3,11 @@ import {
   UpsertWeekSessionsArgs,
 } from '../coach.contracts';
 import {
+  LoadProxyInput,
   sessionLoadProxy,
+  sessionVolume,
+  validateAgainstWeeklyTargets,
+  validateSessionStructure,
   validateSkeleton,
   validateWeek,
   weekLoadProxy,
@@ -27,9 +31,88 @@ function run(
       targetPace: null,
       targetHrZone: 2,
       targetRpe: null,
-      segments: [],
+      blocks: [
+        {
+          kind: 'work',
+          label: 'Main',
+          repeat: 1,
+          steps: [
+            {
+              type: 'run',
+              distanceM: 8000,
+              durationSec: null,
+              targetPace: 'conversational',
+              targetHrZone: 2,
+              note: null,
+            },
+          ],
+        },
+      ],
     },
     strength: null,
+    ...overrides,
+  };
+}
+
+/** A coherent 20km easy run (block distance matches totalDistanceKm). */
+function bigRun(): UpsertWeekSessionsArgs['sessions'][number] {
+  return run({
+    running: {
+      ...run().running!,
+      totalDistanceKm: 20,
+      blocks: [
+        {
+          kind: 'work',
+          label: 'Main',
+          repeat: 1,
+          steps: [
+            {
+              type: 'run',
+              distanceM: 20000,
+              durationSec: null,
+              targetPace: 'conversational',
+              targetHrZone: 2,
+              note: null,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+function strength(
+  overrides: Partial<UpsertWeekSessionsArgs['sessions'][number]> = {},
+): UpsertWeekSessionsArgs['sessions'][number] {
+  return {
+    slotKey: 'str-1',
+    type: 'strength',
+    dayOffset: 1,
+    title: 'Lower body',
+    estDurationMin: 50,
+    intensityLabel: 'moderate',
+    coachNotes: 'Progressive overload on the squat.',
+    running: null,
+    strength: {
+      splitFocus: 'legs',
+      targetVolumeLoad: 4000,
+      exercises: [
+        {
+          name: 'Back Squat',
+          category: 'compound',
+          order: 0,
+          sets: 4,
+          targetRepsMin: 6,
+          targetRepsMax: 8,
+          targetWeightKg: 80,
+          targetPct1rm: null,
+          targetRir: 2,
+          restSec: 120,
+          tempo: null,
+          supersetGroup: null,
+        },
+      ],
+    },
     ...overrides,
   };
 }
@@ -68,7 +151,7 @@ describe('coach.guardrails — validateWeek', () => {
   });
 
   it('flags a week that breaches the +10% load cap', () => {
-    const v = validateWeek(week([run({ running: { ...run().running!, totalDistanceKm: 20 } })]), {
+    const v = validateWeek(week([bigRun()]), {
       priorWeekLoad: 8,
       weekTheme: 'build',
       readiness: 'green',
@@ -78,7 +161,7 @@ describe('coach.guardrails — validateWeek', () => {
   });
 
   it('does not apply the load cap on a deload week', () => {
-    const v = validateWeek(week([run({ running: { ...run().running!, totalDistanceKm: 20 } })]), {
+    const v = validateWeek(week([bigRun()]), {
       priorWeekLoad: 8,
       weekTheme: 'deload',
       readiness: 'green',
@@ -112,6 +195,79 @@ describe('coach.guardrails — validateWeek', () => {
       readiness: 'green',
     });
     expect(v.some((m) => m.includes('coachNotes'))).toBe(true);
+  });
+
+  it('passes a fully structured strength session', () => {
+    const v = validateWeek(week([strength()]), {
+      priorWeekLoad: null,
+      weekTheme: 'build',
+      readiness: 'green',
+    });
+    expect(v).toEqual([]);
+  });
+});
+
+describe('coach.guardrails — validateSessionStructure', () => {
+  it('flags a running session with no blocks', () => {
+    const s = run({ running: { ...run().running!, blocks: [] } });
+    expect(
+      validateSessionStructure(s).some((m) => m.includes('no running blocks')),
+    ).toBe(true);
+  });
+
+  it('flags a run step with neither distance nor duration', () => {
+    const s = run({
+      running: {
+        ...run().running!,
+        totalDistanceKm: null,
+        blocks: [
+          {
+            kind: 'work',
+            label: null,
+            repeat: 1,
+            steps: [
+              {
+                type: 'run',
+                distanceM: null,
+                durationSec: null,
+                targetPace: null,
+                targetHrZone: null,
+                note: null,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(
+      validateSessionStructure(s).some((m) => m.includes('distance or duration')),
+    ).toBe(true);
+  });
+
+  it('flags a totalDistanceKm that disagrees with summed steps', () => {
+    const s = run({ running: { ...run().running!, totalDistanceKm: 20 } });
+    expect(
+      validateSessionStructure(s).some((m) => m.includes('disagrees')),
+    ).toBe(true);
+  });
+
+  it('flags a strength exercise missing a load anchor', () => {
+    const s = strength({
+      strength: {
+        ...strength().strength!,
+        exercises: [
+          {
+            ...strength().strength!.exercises[0],
+            targetWeightKg: null,
+            targetPct1rm: null,
+            targetRir: null,
+          },
+        ],
+      },
+    });
+    expect(
+      validateSessionStructure(s).some((m) => m.includes('load anchor')),
+    ).toBe(true);
   });
 });
 
@@ -158,5 +314,66 @@ describe('coach.guardrails — validateSkeleton', () => {
 describe('coach.guardrails — weekLoadProxy', () => {
   it('sums session proxies', () => {
     expect(weekLoadProxy([run(), run({ slotKey: 'run-2' })])).toBe(16);
+  });
+});
+
+describe('coach.guardrails — validateAgainstWeeklyTargets', () => {
+  /** A native LoadProxyInput for a running session of N km. */
+  function runKm(km: number): LoadProxyInput {
+    return {
+      type: 'running',
+      intensityLabel: 'easy',
+      estDurationMin: 40,
+      running: { totalDistanceKm: km },
+      strength: null,
+    };
+  }
+
+  it('reads native km / volume-load for sessionVolume', () => {
+    expect(sessionVolume(runKm(8))).toBe(8);
+    expect(
+      sessionVolume({
+        type: 'strength',
+        intensityLabel: 'moderate',
+        estDurationMin: 50,
+        running: null,
+        strength: { targetVolumeLoad: 4000 },
+      }),
+    ).toBe(4000);
+  });
+
+  it('passes a session that fits within both count and volume budgets', () => {
+    const v = validateAgainstWeeklyTargets(
+      runKm(10),
+      [runKm(10), runKm(10)],
+      { sessionCount: 4, totalVolume: 40 },
+    );
+    expect(v).toEqual([]);
+  });
+
+  it('flags exceeding the locked session count', () => {
+    const v = validateAgainstWeeklyTargets(
+      runKm(5),
+      [runKm(5), runKm(5)], // 3rd session
+      { sessionCount: 2, totalVolume: 100 },
+    );
+    expect(v.some((m) => m.includes('quota'))).toBe(true);
+  });
+
+  it('flags exceeding the locked volume budget', () => {
+    const v = validateAgainstWeeklyTargets(
+      runKm(20),
+      [runKm(20)], // 40 total
+      { sessionCount: 5, totalVolume: 30 },
+    );
+    expect(v.some((m) => m.includes('budget'))).toBe(true);
+  });
+
+  it('allows hitting the budget exactly (epsilon tolerance)', () => {
+    const v = validateAgainstWeeklyTargets(runKm(15), [runKm(15)], {
+      sessionCount: 2,
+      totalVolume: 30,
+    });
+    expect(v).toEqual([]);
   });
 });

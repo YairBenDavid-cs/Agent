@@ -1,8 +1,9 @@
 import { PreferenceItemDto } from '../../personalization/application/dto/preference-item.dto';
-import { TagConfidence } from '../../personalization/domain/preference-event.model';
+import { ConversationMode } from '../conversation/domain/conversation.model';
 import { Pipeline } from '../orchestrator/pipeline.types';
 import { pipelineForTag } from '../orchestrator/tag-routing.table';
 import { AssistantLane, AssistantTurn, CapturedSignal } from './assistant.contracts';
+import { signalToPreferenceItem } from './assistant.mapping';
 
 /**
  * The deterministic interpretation of a (model-produced) assistant turn. Keeping
@@ -22,6 +23,11 @@ export interface AssistantActions {
   pipeline: Pipeline | null;
   /** True when we asked a grounded question and are awaiting the user's reply. */
   awaitingConfirmation: boolean;
+  /**
+   * True when the user expressed a mutation in ASK mode: we wrote nothing and
+   * fired nothing, and the caller should surface a "switch to Plan mode" hint.
+   */
+  intentBlocked: boolean;
 }
 
 /** Tags that bypass the firing boundary and always re-plan immediately. */
@@ -43,7 +49,15 @@ const PIPELINE_PRECEDENCE: Record<Pipeline, number> = {
 export function decideActions(
   turn: AssistantTurn,
   today: string,
+  mode: ConversationMode = 'plan',
 ): AssistantActions {
+  // ASK mode is a hard read-only boundary: regardless of lane, write nothing and
+  // fire nothing. A non-white turn means the user asked to change something —
+  // flag it so the caller can nudge them to switch to Plan mode.
+  if (mode === 'ask') {
+    return base(turn, [], false, null, false, turn.lane !== 'white');
+  }
+
   if (turn.lane === 'white') {
     return base(turn, [], false, null, false);
   }
@@ -54,12 +68,16 @@ export function decideActions(
       return base(turn, [], false, null, true);
     }
     // No confirmation → demote to inferred + batched; reinforcement only.
-    const writes = turn.captured.map((s) => toItem(s, today, 'inferred'));
+    const writes = turn.captured.map((s) =>
+      signalToPreferenceItem(s, today, 'inferred'),
+    );
     return base(turn, writes, true, null, false);
   }
 
   // black: explicit order → eager explicit write + (maybe) fire now.
-  const writes = turn.captured.map((s) => toItem(s, today, 'explicit'));
+  const writes = turn.captured.map((s) =>
+    signalToPreferenceItem(s, today, 'explicit'),
+  );
   const pipeline = selectPipeline(turn.captured);
   return base(turn, writes, false, pipeline, false);
 }
@@ -89,44 +107,13 @@ export function selectPipeline(signals: CapturedSignal[]): Pipeline | null {
   return best;
 }
 
-function toItem(
-  s: CapturedSignal,
-  today: string,
-  confidence: TagConfidence,
-): PreferenceItemDto {
-  const target =
-    s.target &&
-    (s.target.plannedSessionId || s.target.exerciseId || s.target.runType)
-      ? {
-          plannedSessionId: s.target.plannedSessionId ?? null,
-          exerciseId: s.target.exerciseId ?? null,
-          runType: s.target.runType ?? null,
-        }
-      : null;
-
-  return {
-    eventDate: today,
-    discipline: s.discipline,
-    scope: s.scope,
-    durability: s.durability,
-    expiresAt: null,
-    target,
-    tag: {
-      type: s.tagType,
-      value: s.value,
-      polarity: s.polarity,
-      confidence,
-    },
-    rawText: s.rawText,
-  };
-}
-
 function base(
   turn: AssistantTurn,
   writes: PreferenceItemDto[],
   inferred: boolean,
   pipeline: Pipeline | null,
   awaitingConfirmation: boolean,
+  intentBlocked = false,
 ): AssistantActions {
   return {
     lane: turn.lane,
@@ -135,5 +122,6 @@ function base(
     inferred,
     pipeline,
     awaitingConfirmation,
+    intentBlocked,
   };
 }

@@ -99,6 +99,49 @@ describe('assistant.decision', () => {
     expect(a.pipeline).toBeNull();
   });
 
+  describe('ask mode (read-only gate)', () => {
+    it('white query is answered, never blocked', () => {
+      const a = decideActions(
+        turn({ lane: 'white', reply: 'Your HRV is up.' }),
+        TODAY,
+        'ask',
+      );
+      expect(a.writes).toEqual([]);
+      expect(a.pipeline).toBeNull();
+      expect(a.intentBlocked).toBe(false);
+    });
+
+    it('black order writes/fires nothing and flags intentBlocked', () => {
+      const a = decideActions(turn({ captured: [signal()] }), TODAY, 'ask');
+      expect(a.writes).toEqual([]);
+      expect(a.pipeline).toBeNull();
+      expect(a.inferred).toBe(false);
+      expect(a.intentBlocked).toBe(true);
+    });
+
+    it('gray signal captures nothing and flags intentBlocked', () => {
+      const a = decideActions(
+        turn({ lane: 'gray', captured: [signal()] }),
+        TODAY,
+        'ask',
+      );
+      expect(a.writes).toEqual([]);
+      expect(a.pipeline).toBeNull();
+      expect(a.intentBlocked).toBe(true);
+    });
+
+    it('safety tag is still NOT auto-applied in ask mode', () => {
+      const a = decideActions(
+        turn({ captured: [signal({ tagType: 'injury_or_illness' })] }),
+        TODAY,
+        'ask',
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.writes).toEqual([]);
+      expect(a.intentBlocked).toBe(true);
+    });
+  });
+
   it('selectPipeline picks the strongest pipeline across multiple signals', () => {
     const p = selectPipeline([
       signal({ tagType: 'disliked_time' }), // TIMING_REPLACE
@@ -110,6 +153,11 @@ describe('assistant.decision', () => {
   it('selectPipeline returns null when no signal touches the current week', () => {
     const p = selectPipeline([signal({ affectsCurrentWeek: false })]);
     expect(p).toBeNull();
+  });
+
+  it('plan mode (default) never flags intentBlocked', () => {
+    const a = decideActions(turn({ captured: [signal()] }), TODAY);
+    expect(a.intentBlocked).toBe(false);
   });
 
   it('maps target through only when a target field is present', () => {

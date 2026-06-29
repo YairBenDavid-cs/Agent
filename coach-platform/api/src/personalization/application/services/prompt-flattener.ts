@@ -170,8 +170,9 @@ export function flattenHealthConstraints(
 /** Render raw near-term/standing events as one-line signals. */
 function renderEvent(e: PreferenceEvent): string {
   const value = e.tag.value === null ? '' : ` = ${e.tag.value}`;
+  const note = e.rawText.trim() ? ` "${e.rawText.trim()}"` : '';
   const expiry = e.expiresAt ? `, expires ${e.expiresAt.slice(0, 10)}` : '';
-  return `  - ${e.eventDate} ${e.tag.type}/${e.tag.polarity}${value} [${e.tag.confidence}, ${e.source}${expiry}]`;
+  return `  - ${e.eventDate} ${e.tag.type}/${e.tag.polarity}${value}${note} [${e.tag.confidence}, ${e.source}${expiry}]`;
 }
 
 export function flattenEvents(label: string, events: PreferenceEvent[]): string {

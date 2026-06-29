@@ -22,7 +22,7 @@ export class GarminConnectedListener {
   @OnEvent(GARMIN_CONNECTED)
   async handle(event: GarminConnectedEvent): Promise<void> {
     try {
-      const summary = await this.orchestrator.runForUser(event.userId);
+      const summary = await this.orchestrator.runInitialForUser(event.userId);
       this.logger.log(
         `Initial Garmin ingestion for ${event.userId}: ${JSON.stringify(summary)}`,
       );

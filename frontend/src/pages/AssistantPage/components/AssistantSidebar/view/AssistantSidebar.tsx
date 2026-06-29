@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Spinner } from '@/shared/ui/Spinner/Spinner';
 import { NewChatIcon } from '@/shared/ui/icons/NewChatIcon';
 import { SidebarToggleIcon } from '@/shared/ui/icons/SidebarToggleIcon';
+import { GarminSyncIcon } from '@/shared/ui/icons/GarminSyncIcon';
 import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { SettingsMenu } from '@/shared/ui/SettingsMenu/SettingsMenu';
 import type { AssistantConversation } from '@/pages/AssistantPage/domain/assistant/types/assistant';
@@ -15,11 +16,21 @@ interface AssistantSidebarProps {
   error: string | null;
   activeId: string | null;
   collapsed: boolean;
+  garminVisible: boolean;
+  garminSyncing: boolean;
+  garminLastSyncedAt: string | null;
+  onGarminSync: () => void;
   onToggle: () => void;
   onNew: () => void;
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+}
+
+function syncTooltip(syncing: boolean, lastSyncedAt: string | null): string {
+  if (syncing) return 'Syncing Garmin…';
+  if (lastSyncedAt === null) return 'Sync Garmin';
+  return `Sync Garmin · last ${new Date(lastSyncedAt).toLocaleString()}`;
 }
 
 export function AssistantSidebar({
@@ -28,6 +39,10 @@ export function AssistantSidebar({
   error,
   activeId,
   collapsed,
+  garminVisible,
+  garminSyncing,
+  garminLastSyncedAt,
+  onGarminSync,
   onToggle,
   onNew,
   onSelect,
@@ -59,6 +74,18 @@ export function AssistantSidebar({
         >
           <NewChatIcon />
         </button>
+        {garminVisible && (
+          <button
+            type="button"
+            className={styles.iconButton}
+            onClick={onGarminSync}
+            disabled={garminSyncing}
+            aria-label="Sync Garmin"
+            data-tooltip={syncTooltip(garminSyncing, garminLastSyncedAt)}
+          >
+            <GarminSyncIcon className={garminSyncing ? styles.spin : undefined} />
+          </button>
+        )}
       </header>
 
       {!collapsed && (
@@ -90,7 +117,11 @@ export function AssistantSidebar({
 
       <footer className={collapsed ? `${styles.footer} ${styles.collapsedFooter}` : styles.footer}>
         {!collapsed && (
-          <Link to="/program" className={styles.messengerLink}>
+          <Link
+            to="/program"
+            state={{ fromConversationId: activeId }}
+            className={styles.messengerLink}
+          >
             Program
           </Link>
         )}

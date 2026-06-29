@@ -13,7 +13,11 @@ import {
 
 export type PreferenceEventDocument = HydratedDocument<PreferenceEventDoc>;
 
-const SOURCES = ['revision', 'outcome', 'assistant', 'session_flush'];
+// `chat`/`outcome`/`session_flush` are the live v4 sources. The legacy
+// `revision`/`assistant` values stay in the write-enum ONLY so historical rows
+// validate on lean reads; producers never emit them (mapped to `chat` on read
+// via normalizeLegacySource, rewritten durably by the migration backfill).
+const SOURCES = ['chat', 'outcome', 'session_flush', 'revision', 'assistant'];
 const DISCIPLINES = ['running', 'strength'];
 const SCOPES = ['global', 'session', 'exercise'];
 const DURABILITIES = ['standing', 'one_off'];
@@ -113,6 +117,7 @@ export class PreferenceEventDoc {
   @Prop({ type: String, default: '' }) raw_text!: string;
   @Prop({ type: Boolean, required: true, default: false })
   applied_to_projection!: boolean;
+  @Prop({ type: String, default: null }) consumed_at!: string | null;
   @Prop({ type: Number, required: true }) taxonomy_version!: number;
 }
 
@@ -125,5 +130,5 @@ PreferenceEventSchema.index({ user_id: 1, event_date: -1 });
 PreferenceEventSchema.index({ user_id: 1, 'tag.type': 1 });
 // Per-discipline slice feeding the generation context.
 PreferenceEventSchema.index({ user_id: 1, discipline: 1, event_date: -1 });
-// Group + replay one weekly-revision submit.
+// Group + replay one batched submit (e.g. an action-point chat flush).
 PreferenceEventSchema.index({ user_id: 1, batch_id: 1 }, { sparse: true });

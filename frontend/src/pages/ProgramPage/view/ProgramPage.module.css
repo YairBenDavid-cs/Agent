@@ -12,24 +12,51 @@
   --wa-row-selected: #2f2f2f;
   --wa-brand: #ececec;
   --wa-brand-dark: #ececec;
+  /* Orange accent + warm-dark design tokens for the program surface — used by
+     the goal card, week nav, workout step cards, pills, and buttons. */
+  --ac-accent: #f2611c;
+  --pg-card-grad: linear-gradient(180deg, #16120f, #120f0c);
+  --pg-card-border: color-mix(in srgb, var(--ac-accent) 26%, #2b2724);
+  --pg-step-bg: #0e0b09;
+  --pg-step-border: color-mix(in srgb, var(--ac-accent) 13%, #221e1a);
+  --pg-section-pill: #1d1814;
+  --pg-accent-pill-border: color-mix(in srgb, var(--ac-accent) 20%, #2a2420);
+  --pg-accent-soft: color-mix(in srgb, var(--ac-accent) 70%, transparent);
+  --pg-glow: 0 12px 44px -10px color-mix(in srgb, var(--ac-accent) 60%, transparent);
+  --pg-muted: #9a938c;
+  --pg-muted2: #857e77;
 
   color-scheme: dark;
   min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  background: var(--wa-chat-bg);
-  color: var(--wa-text);
+  background:
+    radial-gradient(
+      1000px 560px at 50% -8%,
+      color-mix(in srgb, var(--ac-accent) 16%, transparent),
+      transparent 62%
+    ),
+    #0a0a0a;
+  color: #ece7e1;
   padding: var(--wa-space-4);
 }
 
 .container {
   width: 100%;
-  max-width: 720px;
+  max-width: 1200px;
   margin: var(--wa-space-4) 0;
   display: flex;
   flex-direction: column;
   gap: var(--wa-space-4);
+  padding: 24px 8px 64px;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wa-space-2);
 }
 
 .brand {
@@ -38,9 +65,38 @@
   gap: var(--wa-space-2);
 }
 
+.backToChat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--wa-space-1);
+  padding: var(--wa-space-2) var(--wa-space-3);
+  font-weight: 600;
+  color: #cfc8c1;
+  background: #161310;
+  border: 1px solid var(--pg-card-border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+
+.backToChat:hover {
+  border-color: var(--ac-accent);
+  color: var(--ac-accent);
+}
+
+.brand {
+  margin-bottom: 12px;
+}
+
+.brand svg {
+  color: #fff;
+}
+
 .brandName {
-  font-weight: 700;
-  color: var(--wa-text);
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+  color: #fff;
 }
 
 .muted {
@@ -56,65 +112,73 @@
 .goal {
   display: flex;
   flex-direction: column;
-  gap: var(--wa-space-2);
-  background: var(--wa-panel-bg);
-  border: 1px solid var(--wa-border);
-  border-radius: var(--wa-radius-lg);
-  padding: var(--wa-space-4);
+  gap: 10px;
+  background: var(--pg-card-grad);
+  border: 1px solid var(--pg-card-border);
+  border-radius: 20px;
+  padding: 26px 30px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .goalEyebrow {
   font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--wa-text-muted);
+  letter-spacing: 0.14em;
+  color: var(--ac-accent);
 }
 
 .goalTitle {
-  font-size: 1.4rem;
-  font-weight: 700;
+  font-size: 2.05rem;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
   margin: 0;
-  color: var(--wa-text);
+  color: #fff;
 }
 
 .goalNote {
   margin: 0;
-  color: var(--wa-text-muted);
+  color: var(--pg-muted);
+  line-height: 1.55;
 }
 
 .adaptNote {
-  margin: var(--wa-space-1) 0 0;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  color: var(--wa-text-muted);
-  border-top: 1px solid var(--wa-border);
-  padding-top: var(--wa-space-3);
+  margin: 6px 0 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--pg-muted);
+  max-width: 760px;
 }
 
 .weekNav {
   display: flex;
   align-items: center;
-  gap: var(--wa-space-3);
+  justify-content: center;
+  gap: var(--wa-space-4);
+  margin: 14px 0 22px;
 }
 
 .navBtn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
-  border: 1px solid var(--wa-border);
-  background: var(--wa-panel-bg);
-  color: var(--wa-text);
-  border-radius: var(--wa-radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pg-card-border);
+  background: #161310;
+  color: #cfc8c1;
+  border-radius: 12px;
   font-size: 1.2rem;
   line-height: 1;
   cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    opacity 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.2, 0, 0.38, 0.9);
 }
 
 .navBtn:hover:not(:disabled) {
-  background: var(--wa-row-hover);
+  border-color: var(--ac-accent);
+  color: var(--ac-accent);
 }
 
 .navBtn:disabled {
@@ -123,35 +187,36 @@
 }
 
 .weekLabel {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 3px;
+  min-width: 240px;
 }
 
 .weekTitle {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--wa-text);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #fff;
 }
 
 .weekTheme {
-  color: var(--wa-text-muted);
-  font-weight: 400;
+  color: var(--ac-accent);
+  font-weight: 700;
 }
 
 .weekDates {
-  font-size: 0.8rem;
-  color: var(--wa-text-muted);
+  font-size: 0.82rem;
+  color: var(--pg-muted2);
 }
 
 .previewBadge {
   margin: 0;
   font-size: 0.8rem;
-  color: #f0a44a;
-  background: rgba(240, 164, 74, 0.12);
-  border: 1px solid rgba(240, 164, 74, 0.3);
+  color: var(--ac-accent);
+  background: color-mix(in srgb, var(--ac-accent) 12%, transparent);
+  border: 1px solid var(--pg-accent-pill-border);
   border-radius: var(--wa-radius-md);
   padding: var(--wa-space-2) var(--wa-space-3);
 }
@@ -184,29 +249,10 @@
   background: var(--wa-row-hover);
 }
 
-.days {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wa-space-4);
-}
-
-.day {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wa-space-2);
-}
-
-.dayLabel {
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--wa-text-muted);
-  margin: 0;
-}
-
-.dayCards {
-  display: flex;
-  flex-direction: column;
-  gap: var(--wa-space-3);
+/* Session cards in a responsive auto-fit grid — matches the design. */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 20px;
+  align-items: stretch;
 }

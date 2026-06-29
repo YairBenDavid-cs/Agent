@@ -3,11 +3,13 @@ import { useCallback, useRef, useState } from 'react';
 export interface Toast {
   id: string;
   message: string;
+  /** When set, clicking the toast runs this before dismissing (e.g. navigate). */
+  onClick?: (() => void) | undefined;
 }
 
 interface UseToasts {
   toasts: Toast[];
-  showToast: (message: string) => void;
+  showToast: (message: string, onClick?: () => void) => void;
   dismiss: (id: string) => void;
 }
 
@@ -28,9 +30,9 @@ export function useToasts(): UseToasts {
   }, []);
 
   const showToast = useCallback(
-    (message: string): void => {
+    (message: string, onClick?: () => void): void => {
       const id = crypto.randomUUID();
-      setToasts((prev) => [...prev, { id, message }]);
+      setToasts((prev) => [...prev, { id, message, onClick }]);
       timers.current.set(
         id,
         setTimeout(() => dismiss(id), TTL_MS),

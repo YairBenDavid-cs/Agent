@@ -118,6 +118,69 @@ describe('AgenticLoopRuntime workflow telemetry', () => {
     expect(sentMessages[4].content).toBe('seed');
   });
 
+  it('coerces the terminal tool when the model first answers in free text', async () => {
+    const { runtime, llm } = makeRuntime([
+      // Turn 1: model emulates the tool as a JSON code block in prose.
+      {
+        message: {
+          role: 'assistant',
+          content: '```json\n{"ok":true}\n```',
+        },
+        usage,
+        finishReason: 'stop',
+      },
+      // Turn 2 (forced): a real terminal tool call.
+      {
+        message: {
+          role: 'assistant',
+          content: null,
+          toolCalls: [{ id: 't1', name: 'emit', argumentsJson: '{"ok":true}' }],
+        },
+        usage,
+        finishReason: 'tool_calls',
+      },
+    ]);
+
+    const res = await runtime.run({
+      agentName: 'assistant',
+      systemPrompt: 'sys',
+      seedMessage: 'seed',
+      tools: [terminalTool()],
+      ctx: { userId: 'user-c', runId: 'run-c' },
+      coerceTerminalTool: true,
+    });
+
+    expect(res.terminalResult).toEqual({ ok: true });
+    expect(res.iterations).toBe(2);
+    // First call is unforced; the retry forces the single terminal tool.
+    const calls = llm.complete.mock.calls as unknown as Array<
+      [{ forceTool?: string }]
+    >;
+    expect(calls[0][0].forceTool).toBeUndefined();
+    expect(calls[1][0].forceTool).toBe('emit');
+  });
+
+  it('coerces at most once, then falls back to free text', async () => {
+    const freeText: LlmCompletion = {
+      message: { role: 'assistant', content: 'still prose' },
+      usage,
+      finishReason: 'stop',
+    };
+    const { runtime, llm } = makeRuntime([freeText, freeText]);
+
+    const res = await runtime.run({
+      agentName: 'assistant',
+      systemPrompt: 'sys',
+      seedMessage: 'seed',
+      tools: [terminalTool()],
+      ctx: { userId: 'user-c2', runId: 'run-c2' },
+      coerceTerminalTool: true,
+    });
+
+    expect(res.finalText).toBe('still prose');
+    expect(llm.complete).toHaveBeenCalledTimes(2);
+  });
+
   it('emits started then exhausted when the iteration cap is hit', async () => {
     const loopingCompletion: LlmCompletion = {
       message: {

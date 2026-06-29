@@ -59,6 +59,25 @@
   color: var(--wa-accent);
 }
 
+.iconButton:disabled {
+  cursor: default;
+  color: var(--wa-accent);
+}
+
+.iconButton:disabled:hover {
+  background: transparent;
+}
+
+.spin {
+  animation: sidebar-spin 0.9s linear infinite;
+}
+
+@keyframes sidebar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Tooltip shown on hover, positioned to the right of the icon button. */
 .iconButton[data-tooltip]::after {
   content: attr(data-tooltip);

@@ -23,6 +23,15 @@ export interface AgenticLoopParams {
   maxIterations?: number;
   model?: string;
   temperature?: number;
+  /**
+   * When true and the model answers in free text instead of calling the loop's
+   * single terminal tool, retry ONCE forcing that tool (`tool_choice`). This
+   * stops weaker turns (e.g. a trivial greeting) from emulating the structured
+   * output as a JSON code block in prose. Opt-in: only the structured-reply
+   * agents that show `finalText` to a user need it. No-op unless EXACTLY one
+   * terminal tool is registered.
+   */
+  coerceTerminalTool?: boolean;
 }
 
 export interface AgenticLoopResult<T = unknown> {
@@ -77,6 +86,12 @@ export class AgenticLoopRuntime {
       { role: 'user', content: params.seedMessage },
     ];
 
+    // Set on a turn to force the model to call a specific tool on the NEXT
+    // completion; consumed (cleared) immediately after that call is issued.
+    let forceTool: string | undefined;
+    // Tracks whether we've already spent our one terminal-tool coercion retry.
+    let coerced = false;
+
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
       const completion = await this.llm.complete({
         agentName: params.agentName,
@@ -84,13 +99,28 @@ export class AgenticLoopRuntime {
         tools: toolSpecs,
         model: params.model,
         temperature: params.temperature,
+        forceTool,
       });
+      forceTool = undefined;
       const assistant = completion.message;
       messages.push(assistant);
 
       const toolCalls = assistant.toolCalls ?? [];
       if (toolCalls.length === 0) {
-        // No tool requested — the model is answering in free text.
+        // No tool requested — the model is answering in free text. If asked to,
+        // retry ONCE forcing the single terminal tool so the structured output
+        // comes back as a real tool call instead of JSON-in-prose.
+        if (params.coerceTerminalTool && !coerced) {
+          const terminals = params.tools.filter((t) => t.terminal);
+          if (terminals.length === 1) {
+            coerced = true;
+            forceTool = terminals[0].name;
+            this.logger.warn(
+              `${params.agentName} answered in free text; forcing ${terminals[0].name}.`,
+            );
+            continue;
+          }
+        }
         this.telemetry.emitWorkflow(
           params.ctx.userId,
           params.agentName,

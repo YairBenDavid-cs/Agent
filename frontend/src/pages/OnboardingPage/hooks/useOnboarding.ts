@@ -195,7 +195,7 @@ export function useOnboarding(): UseOnboarding {
         // Drop the persisted wizard state and head to the program view, where
         // the user watches generation progress and reviews the built week.
         clearPersistedDraft();
-        navigate('/program', { replace: true });
+        navigate('/program', { replace: true, state: { fromOnboarding: true } });
       },
       (err: unknown) => {
         setError(

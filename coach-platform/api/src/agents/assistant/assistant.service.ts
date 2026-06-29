@@ -1,9 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
-import { CaptureAssistantPreferenceCommand } from '../../personalization/application/commands/capture-assistant-preference.command';
 import { EventDiscipline } from '../../personalization/domain/preference-event.model';
 import { AppendMessageCommand } from '../conversation/application/commands/append-message.command';
 import { ConversationContextService } from '../conversation/application/conversation-context.service';
+import { ConversationMode } from '../conversation/domain/conversation.model';
+import {
+  CONVERSATION_REPOSITORY,
+  ConversationRepositoryPort,
+} from '../conversation/domain/conversation.repository.port';
 import { AnyAgentTool, defineTool } from '../shared/llm/agent-tool';
 import { AgenticLoopRuntime } from '../shared/llm/agentic-loop.runtime';
 import { ReadToolRegistry } from '../shared/read-tools/read-tool-registry.service';
@@ -16,8 +20,17 @@ import {
   assistantTurnSchema,
 } from './assistant.contracts';
 import { decideActions } from './assistant.decision';
+import { signalToPendingCandidate } from './assistant.mapping';
 import { ASSISTANT_SYSTEM_PROMPT } from './assistant.prompt';
+import {
+  salvageAssistantTurn,
+  stripStructuredArtifacts,
+} from './assistant.salvage';
 import { DelegationService } from './delegation';
+
+/** Appended to an ASK-mode reply when the user asked for a change we won't make. */
+const ASK_MODE_BLOCKED_HINT =
+  "\n\n_(You're in Ask mode, so I haven't changed your plan. Switch to Plan mode and I'll make this change.)_";
 
 export interface AssistantTurnOptions {
   /** Active program — keys any pending card batch a fired re-plan produces. */
@@ -41,6 +54,8 @@ export interface AssistantTurnOutcome {
   inferred: boolean;
   /** True when we asked a grounded question and await the user's confirmation. */
   awaitingConfirmation: boolean;
+  /** True when an ASK-mode turn refused a mutation (client should offer Plan). */
+  intentBlocked: boolean;
   /** The pipeline result if the turn fired a re-plan now, else null. */
   pipelineRun: PipelineRunResult | null;
   /** The conversation this turn belongs to. */
@@ -72,6 +87,8 @@ export class AssistantService {
     private readonly commandBus: CommandBus,
     private readonly queue: PipelineQueue,
     private readonly conversationContext: ConversationContextService,
+    @Inject(CONVERSATION_REPOSITORY)
+    private readonly conversations: ConversationRepositoryPort,
   ) {}
 
   async handleTurn(
@@ -116,14 +133,19 @@ export class AssistantService {
       tools,
       ctx: { userId, runId },
       temperature: 0.3,
+      // If the model answers in prose instead of calling assistant_turn, retry
+      // once forcing the tool so we get a real structured turn back.
+      coerceTerminalTool: true,
     });
 
-    const turn = loopRes.terminalResult;
+    // Prefer the real terminal tool result; otherwise try to salvage a turn the
+    // model emulated as JSON-in-prose (recovers reply + captured signals).
+    const turn = loopRes.terminalResult ?? salvageAssistantTurn(loopRes.finalText);
     if (!turn) {
-      // The model answered in free text or the loop exhausted — degrade to a
-      // plain reply, write no preference, but DO persist the reply.
+      // Truly unstructured output — degrade to a plain reply, write no
+      // preference, but DO persist the reply (with any JSON artifacts stripped).
       const reply =
-        loopRes.finalText ??
+        stripStructuredArtifacts(loopRes.finalText) ||
         "Sorry, I couldn't process that — could you rephrase?";
       const assistantMessageId = await this.persistReply(
         userId,
@@ -137,19 +159,42 @@ export class AssistantService {
         capturedCount: 0,
         inferred: false,
         awaitingConfirmation: false,
+        intentBlocked: false,
         pipelineRun: null,
         conversationId,
         assistantMessageId,
       };
     }
 
-    const actions = decideActions(turn, opts.today);
+    // Resolve the conversation's mode — ASK forces a read-only turn. Default to
+    // `plan` if the record can't be read (back-compat with the prior behavior).
+    const mode: ConversationMode =
+      (await this.conversations.findConversation(userId, conversationId))?.mode ??
+      'plan';
 
-    // Eager preference writes — append-only, OUTSIDE any pipeline lock, so
-    // intent is never lost even if the (optional) re-plan is queued behind work.
-    for (const item of actions.writes) {
-      await this.commandBus.execute(
-        new CaptureAssistantPreferenceCommand(userId, item),
+    const actions = decideActions(turn, opts.today, mode);
+
+    // In ASK mode, a mutation request wrote/fired nothing — append a hint that
+    // the user must switch to Plan mode for the change to take effect.
+    const reply = actions.intentBlocked
+      ? `${actions.reply}${ASK_MODE_BLOCKED_HINT}`
+      : actions.reply;
+
+    // Plan-mode capture is now STAGED, not written: accumulate the turn's signals
+    // into the conversation buffer (append-only) instead of eager-writing a
+    // preference event per turn. The durable write happens once, at the action
+    // point (week approval), where the buffer is distilled to NET intent and
+    // persisted as a single source='chat' batch (decision E). White/clarifying/
+    // ASK turns carry no writes, so nothing is staged for them.
+    if (mode === 'plan' && actions.writes.length > 0) {
+      const capturedAt = new Date().toISOString();
+      const candidates = turn.captured.map((s) =>
+        signalToPendingCandidate(s, turn.lane as 'black' | 'gray', capturedAt),
+      );
+      await this.conversations.addPendingCandidates(
+        userId,
+        conversationId,
+        candidates,
       );
     }
 
@@ -175,7 +220,7 @@ export class AssistantService {
     const assistantMessageId = await this.persistReply(
       userId,
       conversationId,
-      actions.reply,
+      reply,
       {
         lane: actions.lane,
         awaitingConfirmation: actions.awaitingConfirmation,
@@ -184,15 +229,16 @@ export class AssistantService {
     );
 
     this.logger.log(
-      `Assistant turn ${runId}: lane=${actions.lane} writes=${actions.writes.length} fired=${actions.pipeline ?? 'none'}`,
+      `Assistant turn ${runId}: mode=${mode} lane=${actions.lane} writes=${actions.writes.length} fired=${actions.pipeline ?? 'none'}${actions.intentBlocked ? ' intentBlocked' : ''}`,
     );
 
     return {
       lane: actions.lane,
-      reply: actions.reply,
+      reply,
       capturedCount: actions.writes.length,
       inferred: actions.inferred,
       awaitingConfirmation: actions.awaitingConfirmation,
+      intentBlocked: actions.intentBlocked,
       pipelineRun,
       conversationId,
       assistantMessageId,

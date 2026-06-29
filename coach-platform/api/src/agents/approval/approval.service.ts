@@ -1,9 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiError } from '../../common/errors/api-error';
-import { SubmitWeeklyRevisionsCommand } from '../../personalization/application/commands/submit-weekly-revisions.command';
-import { PreferenceItemDto } from '../../personalization/application/dto/preference-item.dto';
-import { IngestResult } from '../../personalization/application/services/preference-ingestion.service';
+import { FlushConversationPreferencesCommand } from '../assistant/flush-conversation-preferences.command';
 import {
   CommitWeekCommand,
   CommitWeekResult,
@@ -21,7 +19,6 @@ import {
 import { ActiveProgramResponse } from '../../program/application/dto/program.response';
 import { GetActiveProgramQuery } from '../../program/application/queries/get-active-program.query';
 import { ProgramWeek } from '../../program/domain/program.model';
-import { RevisionTrigger } from '../triggers/revision.trigger';
 import {
   ApprovalAction,
   allowedApprovalActions,
@@ -51,14 +48,6 @@ export interface ApprovalBatchView extends ApprovalCardBatch {
   conversationId: string | null;
 }
 
-/** One per-card free-text revision the user submitted from the card UI. */
-export interface CardRevisionEdit {
-  /** The planned session the comment is about (the card's session id). */
-  plannedSessionId: string;
-  /** The user's verbatim instruction; the Coach interprets it at regeneration. */
-  freeText: string;
-}
-
 export interface ApproveResult {
   committed: number;
   calendar: CalendarSyncSummary;
@@ -69,9 +58,12 @@ export interface ApproveResult {
  * week, and applies the user's chosen action:
  *  - approve → CommitWeekCommand (tentative→committed) + flip the program week to
  *    committed + push owned Google Calendar events (CalendarSyncService).
- *  - revise  → re-enter as a revision trigger (fresh card set).
  *  - reject  → discard the tentative draft, keep the committed fallback — ONLY
  *    legal when such a fallback exists (enforced by approval.policy).
+ *
+ * Targeted changes no longer flow through a card-revise round-trip: the user
+ * adjusts the plan in a Plan-mode conversation, whose net intent is distilled and
+ * persisted at the approval action point (see `flushConversationBuffer`).
  *
  * All writes go THROUGH CQRS commands; this service holds no repositories.
  */
@@ -83,7 +75,6 @@ export class ApprovalService {
     private readonly queryBus: QueryBus,
     private readonly commandBus: CommandBus,
     private readonly calendarSync: CalendarSyncService,
-    private readonly revision: RevisionTrigger,
     private readonly batches: PendingCardBatchService,
   ) {}
 
@@ -151,11 +142,6 @@ export class ApprovalService {
     return { committed, calendar };
   }
 
-  /** Revise: re-enter the batch as a revision trigger → a fresh card set. */
-  async reviseWeek(userId: string, batchId: string) {
-    return this.revision.run(userId, batchId);
-  }
-
   /**
    * Reject: discard the tentative draft and keep the committed fallback. Only
    * legal when a committed fallback exists (first generation cannot be rejected).
@@ -219,52 +205,47 @@ export class ApprovalService {
       batch.weekIndex,
     );
     await this.batches.setStatus(userId, batchId, 'approved');
+
+    // Action point (decision E): approval is the commit point, so flush the
+    // chat thread's staging buffer here — distil the Plan-mode iteration to net
+    // intent and persist it as one source='chat' batch. Only when this batch
+    // came from a conversation (the scheduled fetch has no thread to flush).
+    await this.flushConversationBuffer(userId, batch.conversationId, batch.runId);
+
     return result;
   }
 
   /**
-   * Revise: capture each per-card comment as an explicit one-off preference
-   * event (raw text preserved verbatim — the Coach interprets it at
-   * regeneration), mark the batch revised, then fire a fresh CONTENT_REPLAN.
-   * The new run records its own pending batch (supersession handles the rest).
+   * Distil + persist the conversation staging buffer at the approval action
+   * point. No-op when the batch has no originating thread. Never blocks the
+   * approve result — a flush failure leaves the buffer staged for a later retry.
    */
-  async reviseByBatch(
+  private async flushConversationBuffer(
     userId: string,
-    batchId: string,
-    edits: CardRevisionEdit[],
-  ): Promise<{ revisionBatchId: string | null }> {
-    const batch = await this.requirePendingBatch(userId, batchId);
-    const eventDate = new Date().toISOString().slice(0, 10);
-    const revisions: PreferenceItemDto[] = edits.map((e) => ({
-      eventDate,
-      discipline: null,
-      scope: 'session',
-      durability: 'one_off',
-      target: { plannedSessionId: e.plannedSessionId },
-      tag: {
-        type: 'other',
-        value: null,
-        polarity: 'neutral',
-        confidence: 'explicit',
-      },
-      rawText: e.freeText,
-    }));
-
-    const ingest = await this.commandBus.execute<
-      SubmitWeeklyRevisionsCommand,
-      IngestResult
-    >(new SubmitWeeklyRevisionsCommand(userId, { revisions }));
-
-    await this.batches.setStatus(userId, batchId, 'revised');
-
-    const replan = await this.revision.run(
-      userId,
-      ingest.batchId ?? batch.id,
+    conversationId: string | null,
+    runId: string,
+  ): Promise<void> {
+    if (!conversationId) {
+      return;
+    }
+    const active = await this.queryBus.execute<
+      GetActiveProgramQuery,
+      ActiveProgramResponse
+    >(new GetActiveProgramQuery(userId));
+    const discipline = active.program?.discipline;
+    if (!discipline) {
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    await this.commandBus.execute(
+      new FlushConversationPreferencesCommand(
+        userId,
+        conversationId,
+        runId,
+        discipline,
+        today,
+      ),
     );
-    this.logger.log(
-      `Revised batch ${batchId} for ${userId}: ${edits.length} edit(s) → ${replan?.pipeline ?? 'no'} re-plan.`,
-    );
-    return { revisionBatchId: ingest.batchId };
   }
 
   /** Reject: discard the draft (only if a committed fallback exists), mark it. */

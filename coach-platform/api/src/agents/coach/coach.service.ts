@@ -4,6 +4,10 @@ import {
   CommitSkeletonCommand,
   CommitSkeletonResult,
 } from '../../program/application/commands/commit-skeleton.command';
+import {
+  LockWeeklyTargetsCommand,
+  LockWeeklyTargetsResult,
+} from '../../program/application/commands/lock-weekly-targets.command';
 import { ProgramWeek } from '../../program/domain/program.model';
 import {
   UpsertWeekSessionsCommand,
@@ -26,13 +30,17 @@ import { CoachSeed, SeedContextBuilder } from '../shared/seed/seed-context.build
 import {
   CommitSkeletonArgs,
   commitSkeletonSchema,
+  LockWeeklyTargetsArgs,
+  lockWeeklyTargetsSchema,
   PlannedSessionDraft,
   UpsertWeekSessionsArgs,
   upsertWeekSessionsSchema,
 } from './coach.contracts';
 import {
+  LoadProxyInput,
   ReadinessBand,
   sessionLoadProxy,
+  validateAgainstWeeklyTargets,
   validateSkeleton,
   validateWeek,
   WeekGuardrailContext,
@@ -88,6 +96,36 @@ export class CoachService {
     });
   }
 
+  /**
+   * Step A of the iterative weekly flow: lock the week's macro budget (session
+   * count + native-unit volume + key goals) BEFORE any session is drafted. The
+   * locked targets become the quota that Step B's per-session drafting must fit
+   * inside (`validateAgainstWeeklyTargets`). Targets are immutable once locked.
+   */
+  async generateWeeklyTargets(
+    userId: string,
+    runId: string,
+    discipline: EventDiscipline,
+    opts: { weekIndex?: number; timezone: string },
+  ): Promise<AgenticLoopResult<LockWeeklyTargetsResult>> {
+    const seed = await this.seeds.buildCoachSeed(userId, discipline);
+    const ctx: AgentToolContext = { userId, runId };
+    const targetWeek = opts.weekIndex ?? seed.currentWeekIndex ?? 0;
+
+    const tools: AnyAgentTool[] = [
+      ...this.readTools.forCoach(),
+      this.lockWeeklyTargetsTool(seed.programId),
+    ];
+
+    return this.loop.run<LockWeeklyTargetsResult>({
+      agentName: 'coach',
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seedMessage: `${seed.seedMessage}\n\n== TASK (Step A — weekly targets) ==\nDecide the macro budget for week index ${targetWeek}: how many sessions, the total native-unit volume (km for running, volume-load for strength), and the key weekly goals. Call lock_weekly_targets exactly once with programId "${seed.programId ?? ''}".`,
+      tools,
+      ctx,
+    });
+  }
+
   /** Turn the current skeleton week into concrete tentative sessions. */
   async generateWeek(
     userId: string,
@@ -119,6 +157,36 @@ export class CoachService {
   }
 
   // ── terminal write tools ──────────────────────────────────────────────────
+
+  private lockWeeklyTargetsTool(programId: string | null): AnyAgentTool {
+    return defineTool<LockWeeklyTargetsArgs, LockWeeklyTargetsResult>({
+      name: 'lock_weekly_targets',
+      description:
+        "Lock this week's macro budget (session count + native-unit volume + " +
+        'key goals) BEFORE drafting any session. Terminal: ends the run.',
+      schema: lockWeeklyTargetsSchema,
+      terminal: true,
+      handler: async (args, c) => {
+        if (!programId) {
+          throw new Error('No active program to lock weekly targets on.');
+        }
+        return this.commandBus.execute<
+          LockWeeklyTargetsCommand,
+          LockWeeklyTargetsResult
+        >(
+          new LockWeeklyTargetsCommand(
+            c.userId,
+            programId,
+            args.weekIndex,
+            args.sessionCount,
+            args.totalVolume,
+            args.keyGoals,
+            new Date().toISOString(),
+          ),
+        );
+      },
+    });
+  }
 
   private commitSkeletonTool(programId: string | null): AnyAgentTool {
     return defineTool<CommitSkeletonArgs, CommitSkeletonResult>({
@@ -172,8 +240,37 @@ export class CoachService {
       schema: upsertWeekSessionsSchema,
       terminal: true,
       handler: async (args, c) => {
+        const weeks = seed.skeletonWeeks as ProgramWeek[];
+        const thisWeek = weeks.find((w) => w.weekIndex === args.weekIndex);
+
+        // B9 — a locked week is immutable; reject direct mutation outright.
+        if (thisWeek?.weekState === 'locked') {
+          throw new Error(
+            `Week ${args.weekIndex} is locked; its sessions cannot be changed.`,
+          );
+        }
+
         const guardCtx = this.buildWeekGuardrailContext(seed, args, readiness);
         const violations = validateWeek(args, guardCtx);
+
+        // B7 — when targets are locked, the per-session drafts must fit inside
+        // the macro budget. Validate cumulatively across the proposed sessions.
+        const targets = thisWeek?.weeklyTargets;
+        if (targets) {
+          args.sessions.forEach((session, i) => {
+            violations.push(
+              ...validateAgainstWeeklyTargets(
+                session as LoadProxyInput,
+                args.sessions.slice(0, i) as LoadProxyInput[],
+                {
+                  sessionCount: targets.sessionCount,
+                  totalVolume: targets.totalVolume,
+                },
+              ),
+            );
+          });
+        }
+
         if (violations.length > 0) {
           throw new Error(`Guardrail rejected week: ${violations.join(' ')}`);
         }

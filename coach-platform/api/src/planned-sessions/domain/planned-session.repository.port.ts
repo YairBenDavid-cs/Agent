@@ -2,6 +2,7 @@ import {
   CalendarSync,
   PlannedOutcome,
   PlannedSession,
+  SessionDiff,
 } from './planned-session.model';
 
 /** DI token for the planned-session repository port (DIP). */
@@ -18,11 +19,13 @@ export interface SessionSchedule {
 
 export interface PlannedSessionRepositoryPort {
   /**
-   * Idempotent bulk insert. The unique index `{program_id, week_index, slot_key}`
-   * means re-running the (future) generator over the same week inserts nothing
-   * new. Returns the count actually inserted.
+   * Replace one program week's tentative draft in place, keyed on the unique
+   * `{program_id, week_index, slot_key}`. Overwrites existing tentative slots
+   * (preserving their `_id`), inserts new ones, and drops tentative slots the
+   * re-plan omits. Committed / outcome-bearing slots are never touched. Returns
+   * the number of slots written.
    */
-  insertMany(sessions: PlannedSession[]): Promise<number>;
+  replaceTentativeWeek(sessions: PlannedSession[]): Promise<number>;
 
   /** Calendar / card view: a user's trains across a closed local date range. */
   findByDateRange(
@@ -56,6 +59,18 @@ export interface PlannedSessionRepositoryPort {
   ): Promise<PlannedSession[]>;
 
   findById(userId: string, plannedSessionId: string): Promise<PlannedSession | null>;
+
+  /**
+   * Per-session commit (chat-originated edit path): flip a single train to
+   * `committed` and persist its display `lastDiff`. Unlike `commitWeek`, this
+   * targets one session — the iterative flow commits each session as it is
+   * finalized rather than approving a whole week. Idempotent on plan_state.
+   */
+  commitSession(
+    userId: string,
+    plannedSessionId: string,
+    lastDiff: SessionDiff,
+  ): Promise<void>;
 
   /** Set the adherence outcome on a single train. */
   updateOutcome(

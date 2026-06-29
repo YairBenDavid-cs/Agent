@@ -102,7 +102,7 @@ export class SeedPersonalizationHandler
   async execute(command: SeedPersonalizationCommand): Promise<IngestResult> {
     return this.ingestion.ingest(
       command.userId,
-      'revision',
+      'chat',
       demoItems(),
       true, // one batch, one rebuild
     );

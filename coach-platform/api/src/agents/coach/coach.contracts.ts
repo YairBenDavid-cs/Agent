@@ -21,8 +21,11 @@ export const skeletonWeekSchema = z.object({
   startDate: isoDate.describe('Inclusive local start of the week.'),
   endDate: isoDate.describe('Inclusive local end of the week.'),
   theme: z
-    .enum(['base', 'build', 'peak', 'deload', 'taper'])
-    .describe('Periodization phase for the week.'),
+    .enum(['assessment', 'base', 'build', 'peak', 'deload', 'taper'])
+    .describe(
+      'Periodization phase. Use "assessment" for an early baseline week (time-' +
+        'trial / top-set test) when the user has no hard pace/load numbers yet.',
+    ),
   plannedLoadTarget: z
     .number()
     .nullable()
@@ -53,16 +56,79 @@ export const commitSkeletonSchema = z.object({
 });
 export type CommitSkeletonArgs = z.infer<typeof commitSkeletonSchema>;
 
+// ── lock_weekly_targets (Step A: weekly macro budget) ──────────────────────
+
+export const lockWeeklyTargetsSchema = z.object({
+  programId: z.string(),
+  weekIndex: z.number().int().min(0),
+  sessionCount: z
+    .number()
+    .int()
+    .min(1)
+    .describe('How many sessions this week should hold (the locked quota).'),
+  totalVolume: z
+    .number()
+    .min(0)
+    .describe(
+      'Native-unit weekly volume budget: total kilometres (running) or ' +
+        'total volume-load (strength). Per-session drafts must sum within it.',
+    ),
+  keyGoals: z
+    .array(z.string())
+    .default([])
+    .describe('Free-text weekly intents, e.g. "one quality tempo", "long run".'),
+  rationale: z
+    .string()
+    .min(1)
+    .describe('Why this macro budget serves the goal + the week theme.'),
+});
+export type LockWeeklyTargetsArgs = z.infer<typeof lockWeeklyTargetsSchema>;
+
 // ── upsert_week_sessions ───────────────────────────────────────────────────
 
-const runSegmentSchema = z.object({
-  kind: z.enum(['warmup', 'work', 'recovery', 'cooldown']),
-  repeat: z.number().int().min(1).default(1),
-  distanceM: z.number().nullable().default(null),
+const runStepSchema = z.object({
+  type: z
+    .enum(['run', 'rest'])
+    .describe('"run" = active running, "rest" = recovery/walk interval.'),
+  distanceM: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe('Step distance in metres. Set this OR durationSec, not both.'),
   durationSec: z.number().nullable().default(null),
-  targetPace: z.string().nullable().default(null).describe('"mm:ss/km"'),
+  targetPace: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      'Free text: a concrete pace "4:30/km" OR a cue like "conversational". ' +
+        'Null for rest steps.',
+    ),
   targetHrZone: z.number().int().min(1).max(5).nullable().default(null),
-  restSec: z.number().nullable().default(null),
+  note: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe('Secondary coaching cue, e.g. "No faster than 5:15/km", "or slower!".'),
+});
+
+const runBlockSchema = z.object({
+  kind: z.enum(['warmup', 'work', 'recovery', 'cooldown']),
+  label: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe('Display title override, e.g. "Tempo" / "Main". Falls back to kind.'),
+  repeat: z
+    .number()
+    .int()
+    .min(1)
+    .default(1)
+    .describe('Times to repeat this block; >1 renders as "Repeat xN".'),
+  steps: z
+    .array(runStepSchema)
+    .min(1)
+    .describe('Ordered run/rest steps within the block.'),
 });
 
 const runningPlanSchema = z.object({
@@ -72,7 +138,13 @@ const runningPlanSchema = z.object({
   targetPace: z.string().nullable().default(null),
   targetHrZone: z.number().int().min(1).max(5).nullable().default(null),
   targetRpe: z.number().int().min(1).max(10).nullable().default(null),
-  segments: z.array(runSegmentSchema).default([]),
+  blocks: z
+    .array(runBlockSchema)
+    .min(1)
+    .describe(
+      'Full step-by-step structure: warmup -> work (intervals via repeat) -> ' +
+        'cooldown. REQUIRED — never emit a running session without blocks.',
+    ),
 });
 
 const plannedExerciseSchema = z.object({

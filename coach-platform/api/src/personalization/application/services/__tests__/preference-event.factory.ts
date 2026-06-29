@@ -29,7 +29,7 @@ export function makeEvent(
     id: `evt-${++seq}`,
     userId: 'user-1',
     eventDate: '2026-06-01',
-    source: 'revision',
+    source: 'chat',
     batchId: null,
     discipline: 'strength',
     scope: 'exercise',
@@ -39,6 +39,7 @@ export function makeEvent(
     tag,
     rawText: '',
     appliedToProjection: true,
+    consumedAt: null,
     taxonomyVersion: CURRENT_TAXONOMY_VERSION,
     ...rest,
   };

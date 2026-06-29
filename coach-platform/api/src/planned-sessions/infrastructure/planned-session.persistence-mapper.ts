@@ -4,8 +4,10 @@ import {
   PlannedExercise,
   PlannedOutcome,
   PlannedSession,
+  RunBlock,
   RunningPlan,
-  RunSegment,
+  RunStep,
+  SessionDiff,
   StrengthPlan,
 } from '../domain/planned-session.model';
 import {
@@ -13,8 +15,10 @@ import {
   PlannedExerciseClass,
   PlannedOutcomeClass,
   PlannedSessionDoc,
+  RunBlockClass,
   RunningPlanClass,
-  RunSegmentClass,
+  RunStepClass,
+  SessionDiffClass,
   StrengthPlanClass,
 } from './planned-session.schema';
 
@@ -23,24 +27,36 @@ export type PlannedSessionLean = PlannedSessionDoc & { _id: Types.ObjectId };
 
 /* ── running ───────────────────────────────────────────────────── */
 
-const segToPersistence = (s: RunSegment): RunSegmentClass => ({
-  kind: s.kind,
-  repeat: s.repeat,
+const stepToPersistence = (s: RunStep): RunStepClass => ({
+  type: s.type,
   distance_m: s.distanceM,
   duration_sec: s.durationSec,
   target_pace: s.targetPace,
   target_hr_zone: s.targetHrZone,
-  rest_sec: s.restSec,
+  note: s.note,
 });
 
-const segToDomain = (s: RunSegmentClass): RunSegment => ({
-  kind: s.kind,
-  repeat: s.repeat ?? 1,
+const stepToDomain = (s: RunStepClass): RunStep => ({
+  type: s.type,
   distanceM: s.distance_m ?? null,
   durationSec: s.duration_sec ?? null,
   targetPace: s.target_pace ?? null,
   targetHrZone: s.target_hr_zone ?? null,
-  restSec: s.rest_sec ?? null,
+  note: s.note ?? null,
+});
+
+const blockToPersistence = (b: RunBlock): RunBlockClass => ({
+  kind: b.kind,
+  label: b.label,
+  repeat: b.repeat,
+  steps: b.steps.map(stepToPersistence),
+});
+
+const blockToDomain = (b: RunBlockClass): RunBlock => ({
+  kind: b.kind,
+  label: b.label ?? null,
+  repeat: b.repeat ?? 1,
+  steps: (b.steps ?? []).map(stepToDomain),
 });
 
 const runToPersistence = (r: RunningPlan): RunningPlanClass => ({
@@ -50,7 +66,7 @@ const runToPersistence = (r: RunningPlan): RunningPlanClass => ({
   target_pace: r.targetPace,
   target_hr_zone: r.targetHrZone,
   target_rpe: r.targetRpe,
-  segments: r.segments.map(segToPersistence),
+  blocks: r.blocks.map(blockToPersistence),
 });
 
 const runToDomain = (r: RunningPlanClass): RunningPlan => ({
@@ -60,7 +76,7 @@ const runToDomain = (r: RunningPlanClass): RunningPlan => ({
   targetPace: r.target_pace ?? null,
   targetHrZone: r.target_hr_zone ?? null,
   targetRpe: r.target_rpe ?? null,
-  segments: (r.segments ?? []).map(segToDomain),
+  blocks: (r.blocks ?? []).map(blockToDomain),
 });
 
 /* ── strength ──────────────────────────────────────────────────── */
@@ -145,6 +161,24 @@ const calendarToDomain = (c: CalendarSyncClass): CalendarSync => ({
   syncState: c.sync_state,
 });
 
+export const diffToPersistence = (d: SessionDiff): SessionDiffClass => ({
+  committed_at: d.committedAt,
+  changes: d.changes.map((c) => ({
+    field: c.field,
+    before: c.before,
+    after: c.after,
+  })),
+});
+
+const diffToDomain = (d: SessionDiffClass): SessionDiff => ({
+  committedAt: d.committed_at,
+  changes: (d.changes ?? []).map((c) => ({
+    field: c.field,
+    before: c.before ?? null,
+    after: c.after ?? null,
+  })),
+});
+
 /* ── root ──────────────────────────────────────────────────────── */
 
 export const toPersistence = (s: PlannedSession): PlannedSessionDoc => ({
@@ -167,6 +201,7 @@ export const toPersistence = (s: PlannedSession): PlannedSessionDoc => ({
   strength: s.strength ? strengthToPersistence(s.strength) : null,
   outcome: outcomeToPersistence(s.outcome),
   calendar_sync: s.calendarSync ? calendarToPersistence(s.calendarSync) : null,
+  last_diff: s.lastDiff ? diffToPersistence(s.lastDiff) : null,
 });
 
 export const toDomain = (doc: PlannedSessionLean): PlannedSession => ({
@@ -200,4 +235,5 @@ export const toDomain = (doc: PlannedSessionLean): PlannedSession => ({
         recordedAt: null,
       },
   calendarSync: doc.calendar_sync ? calendarToDomain(doc.calendar_sync) : null,
+  lastDiff: doc.last_diff ? diffToDomain(doc.last_diff) : null,
 });

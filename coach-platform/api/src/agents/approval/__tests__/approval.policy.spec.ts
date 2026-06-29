@@ -5,17 +5,15 @@ import {
 } from '../approval.policy';
 
 describe('approval.policy', () => {
-  it('offers only approve + revise on the first generation (no fallback)', () => {
+  it('offers only approve on the first generation (no fallback)', () => {
     expect(allowedApprovalActions({ hasCommittedFallback: false })).toEqual([
       'approve',
-      'revise',
     ]);
   });
 
   it('adds reject once a committed fallback exists', () => {
     expect(allowedApprovalActions({ hasCommittedFallback: true })).toEqual([
       'approve',
-      'revise',
       'reject',
     ]);
   });
@@ -32,11 +30,10 @@ describe('approval.policy', () => {
     expect(rejectionReason('reject', ctx)).toBeNull();
   });
 
-  it('always allows approve and revise regardless of fallback', () => {
+  it('always allows approve regardless of fallback', () => {
     for (const has of [true, false]) {
       const ctx = { hasCommittedFallback: has };
       expect(rejectionReason('approve', ctx)).toBeNull();
-      expect(rejectionReason('revise', ctx)).toBeNull();
     }
   });
 });

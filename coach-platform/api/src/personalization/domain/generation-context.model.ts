@@ -11,7 +11,7 @@ import { EventDiscipline, PreferenceEvent } from './preference-event.model';
 import { UserPreferences } from './user-preferences.model';
 
 /**
- * Coach (generator) context — the full three-slice bundle:
+ * Coach (generator) context — the full slice bundle:
  *   projection (what's true now) + active one-offs (near-term) + recent standing
  *   events (raw nuance) + health constraints (hard avoid set).
  */

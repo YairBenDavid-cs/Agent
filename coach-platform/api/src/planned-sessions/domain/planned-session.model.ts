@@ -48,21 +48,35 @@ export type ReasonCode =
 
 export type SegmentKind = 'warmup' | 'work' | 'recovery' | 'cooldown';
 
+/** Whether a step is active running or a rest interval (drives the RUN/REST badge). */
+export type StepType = 'run' | 'rest';
+
 /* ── RUNNING prescription ──────────────────────────────────────── */
 
 /**
- * One ordered block of a run. Expresses steady runs, tempos, and intervals
- * uniformly: a 6×800m interval set is `{ kind: 'work', repeat: 6,
- * distanceM: 800, restSec: 90, ... }`.
+ * One row inside a block — a single run or rest interval. `targetPace` is a free
+ * string: either a concrete value ("4:30/km") or a qualitative cue
+ * ("conversational"). `note` carries the secondary coaching line.
  */
-export interface RunSegment {
-  kind: SegmentKind;
-  repeat: number; // 1 for a single block
-  distanceM: number | null; // either distance- or duration-based
+export interface RunStep {
+  type: StepType;
+  distanceM: number | null; // exactly one of distanceM / durationSec is set
   durationSec: number | null;
-  targetPace: string | null; // "mm:ss/km"
+  targetPace: string | null;
   targetHrZone: number | null; // 1–5
-  restSec: number | null; // recovery between repeats
+  note: string | null; // secondary cue, e.g. "No faster than 5:15/km"
+}
+
+/**
+ * An ordered section of a run. `repeat > 1` expresses interval sets: a 6×(400m +
+ * 60s rest) set is `{ kind: 'work', repeat: 6, steps: [run 400m, rest 60s] }`.
+ * `label` overrides the display title (e.g. "Tempo", "Main"); falls back to kind.
+ */
+export interface RunBlock {
+  kind: SegmentKind;
+  label: string | null;
+  repeat: number; // 1 = single pass
+  steps: RunStep[];
 }
 
 export interface RunningPlan {
@@ -72,7 +86,7 @@ export interface RunningPlan {
   targetPace: string | null; // "mm:ss/km"
   targetHrZone: number | null; // 1–5
   targetRpe: number | null; // 1–10
-  segments: RunSegment[];
+  blocks: RunBlock[];
 }
 
 /* ── STRENGTH prescription ─────────────────────────────────────── */
@@ -108,6 +122,26 @@ export interface PlannedOutcome {
   matchedActivityId: number | null; // link into `sessions` (Garmin/self-report)
   feedbackRef: string | null; // anchor into file-first memory (future)
   recordedAt: string | null; // ISO timestamp when outcome was set
+}
+
+/* ── commit diff (persisted display change) ────────────────────── */
+
+/** One field that changed at the last commit (before → after, display-ready). */
+export interface SessionDiffChange {
+  field: string; // human label, e.g. "targetPace"
+  before: string | number | null;
+  after: string | number | null;
+}
+
+/**
+ * The persisted display diff captured when a session was last committed. Chat-
+ * originated edits commit straight to `committed` (no revise/approve buttons),
+ * so the UI replays this diff to show the user WHAT changed. Replaced on each
+ * subsequent commit; `null` until the session is first committed.
+ */
+export interface SessionDiff {
+  committedAt: string; // ISO timestamp of the commit
+  changes: SessionDiffChange[];
 }
 
 /* ── calendar sync (placeholder; push logic deferred) ──────────── */
@@ -153,4 +187,8 @@ export interface PlannedSession {
 
   outcome: PlannedOutcome;
   calendarSync: CalendarSync | null;
+
+  // The display diff from the last commit (chat-originated edits replay this).
+  // Optional so legacy rows / pre-commit drafts stay valid; reads default null.
+  lastDiff?: SessionDiff | null;
 }

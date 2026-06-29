@@ -1,10 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
-import { ConversationStatus } from '../domain/conversation.model';
+import {
+  ConversationMode,
+  ConversationOrigin,
+  ConversationStatus,
+} from '../domain/conversation.model';
 
 export type ConversationDocument = HydratedDocument<ConversationDoc>;
 
 const STATUSES = ['active', 'closed'];
+const MODES = ['plan', 'ask'];
+const ORIGINS = ['user', 'system'];
 
 @Schema({ collection: 'conversations', timestamps: true })
 export class ConversationDoc {
@@ -12,6 +18,14 @@ export class ConversationDoc {
   @Prop({ type: String, default: null }) title!: string | null;
   @Prop({ type: String, required: true, enum: STATUSES, default: 'active' })
   status!: ConversationStatus;
+
+  // `plan` default preserves the pre-dual-mode behavior (turns may mutate) for
+  // every existing row; the Ask gate only activates when mode is set to `ask`.
+  @Prop({ type: String, required: true, enum: MODES, default: 'plan' })
+  mode!: ConversationMode;
+  @Prop({ type: String, required: true, enum: ORIGINS, default: 'user' })
+  origin!: ConversationOrigin;
+  @Prop({ type: Boolean, required: true, default: false }) attention!: boolean;
 
   /**
    * Tier-3 rolling summary; '' until the first compaction. Not `required`:
@@ -25,6 +39,15 @@ export class ConversationDoc {
   @Prop({ type: Number, required: true, default: 0 }) last_seq!: number;
 
   @Prop({ type: String, default: null }) pending_card_batch_id!: string | null;
+
+  /**
+   * Staging buffer of captured-but-not-committed preference candidates. Stored
+   * as opaque sub-documents (the neutral `PendingCandidate` shape lives in the
+   * domain); flushed + cleared at an action point. Defaults to an empty array
+   * so legacy rows read as "no pending candidates".
+   */
+  @Prop({ type: [Object], default: [] }) pending_candidates!: unknown[];
+
   @Prop({ type: String, default: null }) closed_at!: string | null;
 }
 

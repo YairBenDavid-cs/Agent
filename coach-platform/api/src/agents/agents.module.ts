@@ -27,11 +27,12 @@ import { IdempotencyStore } from './shared/queue/idempotency.store';
 import { PipelineQueue } from './shared/queue/pipeline-queue.service';
 import { AssistantService } from './assistant/assistant.service';
 import { DelegationService } from './assistant/delegation';
+import { PreferenceDistillationService } from './assistant/preference-distillation.service';
+import { FlushConversationPreferencesHandler } from './assistant/flush-conversation-preferences.handler';
 import { TriggerContextResolver } from './triggers/trigger-context.resolver';
 import { FetchTrigger } from './triggers/fetch.trigger';
 import { OutcomeTrigger } from './triggers/outcome.trigger';
 import { OutcomeClarifyListener } from './triggers/outcome-clarify.listener';
-import { RevisionTrigger } from './triggers/revision.trigger';
 import { SessionFlushTrigger } from './triggers/session-flush.trigger';
 import { SessionFlushListener } from './triggers/session-flush.listener';
 import { OnboardingGenerationListener } from './triggers/onboarding-generation.listener';
@@ -69,6 +70,8 @@ import { ApprovalTtlService } from './approval/approval-ttl.service';
   ],
   providers: [
     { provide: PENDING_CARD_BATCH_REPOSITORY, useClass: PendingCardBatchRepository },
+    PreferenceDistillationService,
+    FlushConversationPreferencesHandler,
     PendingCardBatchService,
     AgentTelemetryService,
     OpenAiClient,
@@ -87,7 +90,6 @@ import { ApprovalTtlService } from './approval/approval-ttl.service';
     FetchTrigger,
     OutcomeTrigger,
     OutcomeClarifyListener,
-    RevisionTrigger,
     SessionFlushTrigger,
     SessionFlushListener,
     OnboardingGenerationListener,
@@ -113,7 +115,6 @@ import { ApprovalTtlService } from './approval/approval-ttl.service';
     TriggerContextResolver,
     FetchTrigger,
     OutcomeTrigger,
-    RevisionTrigger,
     SessionFlushTrigger,
     CalendarSyncService,
     ApprovalService,

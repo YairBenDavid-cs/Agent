@@ -9,11 +9,9 @@ import { CaptureAssistantPreferenceCommand } from '../application/commands/captu
 import { FlushSessionPreferencesCommand } from '../application/commands/flush-session-preferences.command';
 import { RebuildProjectionCommand } from '../application/commands/rebuild-projection.command';
 import { SeedPersonalizationCommand } from '../application/commands/seed-personalization.command';
-import { SubmitWeeklyRevisionsCommand } from '../application/commands/submit-weekly-revisions.command';
 import { AddHealthConstraintDto } from '../application/dto/add-health-constraint.dto';
 import { FlushSessionPreferencesDto } from '../application/dto/flush-session-preferences.dto';
 import { PreferenceItemDto } from '../application/dto/preference-item.dto';
-import { SubmitWeeklyRevisionsDto } from '../application/dto/submit-weekly-revisions.dto';
 import { GetGenerationContextQuery } from '../application/queries/get-generation-context.query';
 import { GetRecoveryContextQuery } from '../application/queries/get-recovery-context.query';
 import { GetSchedulingContextQuery } from '../application/queries/get-scheduling-context.query';
@@ -43,17 +41,6 @@ export class PersonalizationController {
   ) {}
 
   /* ── writes ──────────────────────────────────────────────────── */
-
-  /** POST /personalization/revisions — weekly NotebookLM-style batch submit. */
-  @Post('revisions')
-  async submitRevisions(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: SubmitWeeklyRevisionsDto,
-  ): Promise<IngestResult> {
-    return this.commandBus.execute<SubmitWeeklyRevisionsCommand, IngestResult>(
-      new SubmitWeeklyRevisionsCommand(user.userId, dto),
-    );
-  }
 
   /** POST /personalization/preferences — assistant `save_preference` (single). */
   @Post('preferences')

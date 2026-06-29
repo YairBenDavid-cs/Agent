@@ -13,6 +13,11 @@ import {
   TrainingProfileStatusResponse,
 } from '../../../training/application/dto/training-profile.response';
 import { detectColdStart } from './cold-start';
+import {
+  buildPreferenceWindows,
+  PreferenceWindows,
+  renderPreferenceWindows,
+} from './preference-context';
 import { EventDiscipline } from '../../../personalization/domain/preference-event.model';
 import { GetActiveProgramQuery } from '../../../program/application/queries/get-active-program.query';
 import { ActiveProgramResponse } from '../../../program/application/dto/program.response';
@@ -59,6 +64,11 @@ export interface CoachSeed {
   onboarding: TrainingProfileResponse | null;
   /** True when there is no program / sessions / performance to seed from yet. */
   isColdStart: boolean;
+  /**
+   * Distilled preference signals split by confidence: explicit → near-term
+   * guardrails for this week, inferred → long-term bias for future weeks.
+   */
+  preferenceWindows: PreferenceWindows;
   personalizationPrompt: string;
   /** The rendered, pre-seeded context message for the agentic loop. */
   seedMessage: string;
@@ -176,6 +186,13 @@ export class SeedContextBuilder {
       recoveryRollup: recovery.items,
       onboarding: trainingProfile.profile,
       isColdStart,
+      // Distilled preference projection (replaces the revision windows): explicit
+      // signals become near-term guardrails, inferred ones long-term bias. Drawn
+      // from the near-term one-offs + recent standing events the context surfaces.
+      preferenceWindows: buildPreferenceWindows([
+        ...generation.activeOneOffs,
+        ...generation.recentStandingEvents,
+      ]),
       personalizationPrompt: generation.promptText,
       seedMessage: '',
     };
@@ -292,6 +309,7 @@ function renderCoachSeed(seed: CoachSeed): string {
     jsonBlock('Recovery rollup (7 days)', seed.recoveryRollup),
     '### Personalization',
     seed.personalizationPrompt,
+    renderPreferenceWindows(seed.preferenceWindows),
   ]
     .filter((line): line is string => line !== null)
     .join('\n\n');

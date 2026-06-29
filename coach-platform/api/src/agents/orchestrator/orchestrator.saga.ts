@@ -81,7 +81,14 @@ export class OrchestratorSaga {
 
   // ── pipeline bodies ──────────────────────────────────────────────────────
 
-  /** 5: skeleton -> week 1 -> place. */
+  /**
+   * 5: skeleton -> Step A (lock weekly targets) -> Step B (sessions) -> place.
+   *
+   * Iterative-flow swap: the macro budget is locked BEFORE any session is
+   * drafted, so Step B's per-session drafting is bounded by the frozen quota
+   * (`validateAgainstWeeklyTargets`). Everything stays tentative — commit +
+   * Google sync still happen later at approval (fail-safe contract).
+   */
   private async runProgramGeneration(
     ctx: PipelineRunContext,
     result: PipelineRunResult,
@@ -90,6 +97,17 @@ export class OrchestratorSaga {
     this.requireTerminal(
       await this.coach.generateProgram(ctx.userId, ctx.runId, ctx.discipline),
       'coach.generateProgram',
+    );
+
+    result.stages.push('coach.generateWeeklyTargets');
+    this.requireTerminal(
+      await this.coach.generateWeeklyTargets(
+        ctx.userId,
+        ctx.runId,
+        ctx.discipline,
+        { weekIndex: ctx.weekIndex, timezone: ctx.timezone },
+      ),
+      'coach.generateWeeklyTargets',
     );
 
     result.stages.push('coach.generateWeek');

@@ -5,10 +5,10 @@ import { ExercisesModule } from '../exercises/exercises.module';
 import { AddHealthConstraintHandler } from './application/commands/add-health-constraint.handler';
 import { AppendPreferenceEventHandler } from './application/commands/append-preference-event.handler';
 import { CaptureAssistantPreferenceHandler } from './application/commands/capture-assistant-preference.handler';
+import { CaptureChatPreferencesHandler } from './application/commands/capture-chat-preferences.handler';
 import { FlushSessionPreferencesHandler } from './application/commands/flush-session-preferences.handler';
 import { RebuildProjectionHandler } from './application/commands/rebuild-projection.handler';
 import { SeedPersonalizationHandler } from './application/commands/seed-personalization.handler';
-import { SubmitWeeklyRevisionsHandler } from './application/commands/submit-weekly-revisions.handler';
 import { OutcomeToPreferenceListener } from './application/listeners/outcome-to-preference.listener';
 import { GetGenerationContextHandler } from './application/queries/get-generation-context.handler';
 import { GetRecentPreferenceEventsHandler } from './application/queries/get-recent-preference-events.handler';
@@ -58,8 +58,8 @@ const CommandHandlers = [
   AppendPreferenceEventHandler,
   RebuildProjectionHandler,
   AddHealthConstraintHandler,
-  SubmitWeeklyRevisionsHandler,
   CaptureAssistantPreferenceHandler,
+  CaptureChatPreferencesHandler,
   FlushSessionPreferencesHandler,
   SeedPersonalizationHandler,
 ];

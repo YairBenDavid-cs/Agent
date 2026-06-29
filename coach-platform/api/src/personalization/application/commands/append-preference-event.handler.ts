@@ -57,6 +57,7 @@ export class AppendPreferenceEventHandler
       },
       rawText: dto.rawText ?? '',
       appliedToProjection,
+      consumedAt: null,
       taxonomyVersion: CURRENT_TAXONOMY_VERSION,
     };
 

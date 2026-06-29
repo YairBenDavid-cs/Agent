@@ -16,7 +16,7 @@ export class CaptureAssistantPreferenceHandler
   ): Promise<IngestResult> {
     return this.ingestion.ingest(
       command.userId,
-      'assistant',
+      'chat',
       [command.item],
       false, // single capture — no batch
     );
