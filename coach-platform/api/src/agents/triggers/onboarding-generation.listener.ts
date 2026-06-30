@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { OnEvent } from '@nestjs/event-emitter';
-import { randomUUID } from 'crypto';
 import {
   CreateProgramCommand,
   CreateProgramResult,
@@ -19,26 +18,33 @@ import { GetTrainingProfileQuery } from '../../training/application/queries/get-
 import { TrainingProfileStatusResponse } from '../../training/application/dto/training-profile.response';
 import { UserResponse } from '../../users/application/dto/user.response';
 import { GetUserQuery } from '../../users/application/queries/get-user.query';
-import { Pipeline } from '../orchestrator/pipeline.types';
-import { PipelineQueue } from '../shared/queue/pipeline-queue.service';
+import {
+  StartConversationCommand,
+  StartConversationResult,
+} from '../conversation/application/commands/start-conversation.command';
+import { BuildConversationOrchestrator } from '../build/build-conversation.orchestrator';
 import { TriggerContextResolver } from './trigger-context.resolver';
+
+/** Title for the auto-opened build chat (shown in the conversation list). */
+const BUILD_CONVERSATION_TITLE = 'Build your first week';
 
 /**
  * First-program seam. When a training profile is saved (onboarding submit), this
- * seeds a minimal active program and fires PROGRAM_GENERATION so the user lands
- * on a freshly-built week.
+ * seeds a minimal active program and opens a conversational `program_build` chat
+ * so the coach can walk the user through their first week (propose targets → lock
+ * → draft sessions → schedule), instead of silently autogenerating a whole week.
  *
  * First-time only: if the user already has a *built* program (re-onboarding),
  * we skip — re-planning a live program goes through the explicit replan/approval
  * flow, not a silent from-scratch regeneration. The seed carries only week 0 as
- * a placeholder current week (Coach commits the real skeleton during the run);
+ * a placeholder current week (Coach commits the real skeleton during the build);
  * it exists so context resolution + the skeleton write have a program to target.
  *
- * Self-healing: the seed is committed BEFORE the pipeline runs, so an interrupted
+ * Self-healing: the seed is committed BEFORE the build runs, so an interrupted
  * first run (abort, process restart, dropped tab) leaves a bare, un-built program
  * behind. A built program is distinguished from a bare seed by whether its current
  * week has been generated (`generatedAt`). When an un-built program is found we
- * resume generation against it rather than skipping — otherwise the user is stuck
+ * resume the build against it rather than skipping — otherwise the user is stuck
  * forever on a placeholder the auto-trigger refuses to (re)build.
  */
 @Injectable()
@@ -49,7 +55,7 @@ export class OnboardingGenerationListener {
     private readonly queryBus: QueryBus,
     private readonly commandBus: CommandBus,
     private readonly resolver: TriggerContextResolver,
-    private readonly queue: PipelineQueue,
+    private readonly orchestrator: BuildConversationOrchestrator,
   ) {}
 
   @OnEvent(TRAINING_PROFILE_CREATED)
@@ -94,24 +100,33 @@ export class OnboardingGenerationListener {
         return;
       }
 
-      this.logger.log(
-        `Onboarding for ${userId} → PROGRAM_GENERATION (program ${programId}).`,
+      // Open the build conversation FIRST (so a stable id exists), then kick off
+      // the build: the orchestrator surfaces the chat over SSE and posts the
+      // coach's first targets proposal. System-originated + plan mode + attention
+      // so the UI pins it and lands the user there.
+      const { conversationId } = await this.commandBus.execute<
+        StartConversationCommand,
+        StartConversationResult
+      >(
+        new StartConversationCommand(userId, BUILD_CONVERSATION_TITLE, {
+          mode: 'plan',
+          origin: 'system',
+          attention: true,
+          purpose: 'program_build',
+          buildContext: { programId, weekIndex: ctx.weekIndex },
+        }),
       );
-      await this.queue.enqueue({
-        pipeline: Pipeline.PROGRAM_GENERATION,
-        ctx: {
-          userId,
-          // A fresh token per invocation: an interrupted run already claimed its
-          // runId for 24h, so reusing a program-derived id would dedupe the resume
-          // into a no-op. Uniqueness here, supersession (per user+week) handles
-          // a genuine double-submit.
-          runId: `program-gen:onboarding:${userId}:${programId}:${randomUUID()}`,
-          discipline: ctx.discipline,
-          timezone: ctx.timezone,
-          weekWindow: ctx.weekWindow,
-          weekIndex: ctx.weekIndex,
-          programId: ctx.programId,
-        },
+
+      this.logger.log(
+        `Onboarding for ${userId} → program_build conversation ${conversationId} (program ${programId}).`,
+      );
+      await this.orchestrator.startBuild({
+        userId,
+        conversationId,
+        title: BUILD_CONVERSATION_TITLE,
+        programId,
+        discipline: ctx.discipline,
+        weekIndex: ctx.weekIndex,
       });
     } catch (err) {
       this.logger.error(

@@ -1,7 +1,9 @@
 import {
+  BuildContext,
   Conversation,
   ConversationMode,
   ConversationOrigin,
+  ConversationPurpose,
   Message,
   MessageMeta,
   MessageRole,
@@ -36,9 +38,19 @@ export interface ConversationRepositoryPort {
       mode?: ConversationMode;
       origin?: ConversationOrigin;
       attention?: boolean;
+      purpose?: ConversationPurpose | null;
+      buildContext?: BuildContext | null;
     },
   ): Promise<Conversation>;
   findConversation(userId: string, conversationId: string): Promise<Conversation | null>;
+
+  /**
+   * The user's active `program_build` conversation, if one is in flight (the
+   * onboarding handoff target). At most one exists; the most recently touched
+   * active one wins. Null when there's no build underway.
+   */
+  findOpenBuildConversation(userId: string): Promise<Conversation | null>;
+
   listConversations(
     userId: string,
     opts: { cursor?: string | null; limit: number },

@@ -92,6 +92,38 @@ export class ProgramRepository
   }
 
   /**
+   * Stage a tentative Step-A proposal: stamp `weekly_targets` with
+   * `locked_at: null` while leaving `week_state` at 'open'. The conversational
+   * build proposes a quota the user can still revise before it is locked.
+   * Positional update on the matching `weeks[]` entry.
+   */
+  async proposeWeeklyTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: { sessionCount: number; totalVolume: number; keyGoals: string[] },
+  ): Promise<void> {
+    await this.model
+      .updateOne(
+        this.scoped(userId, {
+          _id: programId,
+          'weeks.week_index': weekIndex,
+        }),
+        {
+          $set: {
+            'weeks.$.weekly_targets': {
+              session_count: targets.sessionCount,
+              total_volume: targets.totalVolume,
+              key_goals: targets.keyGoals,
+              locked_at: null,
+            },
+          },
+        },
+      )
+      .exec();
+  }
+
+  /**
    * Freeze Step A on a single week: stamp the weekly quota and flip
    * `week_state` to 'targets_locked'. Targeted positional update on the matching
    * `weeks[]` entry, so sibling weeks and the rest of the doc are untouched.

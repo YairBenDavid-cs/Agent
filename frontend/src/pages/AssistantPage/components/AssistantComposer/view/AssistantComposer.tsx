@@ -8,6 +8,7 @@ interface AssistantComposerProps {
   disabled?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  initialText?: string | undefined;
 }
 
 export function AssistantComposer({
@@ -15,8 +16,9 @@ export function AssistantComposer({
   disabled = false,
   placeholder = 'Message Popvich',
   autoFocus = false,
+  initialText = '',
 }: AssistantComposerProps): ReactElement {
-  const { text, setText, submit, canSend } = useAssistantComposer(onSend, disabled);
+  const { text, setText, submit, canSend } = useAssistantComposer(onSend, disabled, initialText);
 
   function onSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();

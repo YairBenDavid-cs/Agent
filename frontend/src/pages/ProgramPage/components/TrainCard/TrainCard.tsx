@@ -6,12 +6,15 @@ import styles from './TrainCard.module.css';
 
 interface TrainCardProps {
   session: PlannedSession;
+  // Deep-link this session into chat with a prefilled reference. Optional so the
+  // card stays usable in read-only contexts (review surface, tests).
+  onDiscuss?: (session: PlannedSession) => void;
 }
 
 // One planned train. Renders the running OR strength prescription (via the
 // shared WorkoutBody) plus the recorded outcome, when the matcher / self-report
 // has attached one.
-export function TrainCard({ session }: TrainCardProps): ReactElement {
+export function TrainCard({ session, onDiscuss }: TrainCardProps): ReactElement {
   const { outcome } = session;
   const done = outcome.status !== 'planned';
 
@@ -44,6 +47,14 @@ export function TrainCard({ session }: TrainCardProps): ReactElement {
           {outcome.reasonCode !== null && (
             <span className={styles.outcomeChip}>{outcome.reasonCode.replace(/_/g, ' ')}</span>
           )}
+        </div>
+      )}
+
+      {onDiscuss !== undefined && (
+        <div className={styles.actions}>
+          <button type="button" className={styles.discuss} onClick={() => onDiscuss(session)}>
+            Discuss in chat
+          </button>
         </div>
       )}
     </article>

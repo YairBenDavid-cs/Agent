@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { CommitSkeletonHandler } from './application/commands/commit-skeleton.handler';
 import { CreateProgramHandler } from './application/commands/create-program.handler';
 import { LockWeeklyTargetsHandler } from './application/commands/lock-weekly-targets.handler';
+import { ProposeWeeklyTargetsHandler } from './application/commands/propose-weekly-targets.handler';
 import { GetActiveProgramHandler } from './application/queries/get-active-program.handler';
 import { PROGRAM_REPOSITORY } from './domain/program.repository.port';
 import { ProgramRepository } from './infrastructure/program.repository';
@@ -14,6 +15,7 @@ const CommandHandlers = [
   CreateProgramHandler,
   CommitSkeletonHandler,
   LockWeeklyTargetsHandler,
+  ProposeWeeklyTargetsHandler,
 ];
 const QueryHandlers = [GetActiveProgramHandler];
 

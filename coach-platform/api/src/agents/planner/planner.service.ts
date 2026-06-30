@@ -27,11 +27,34 @@ import {
   HardWindow,
   validatePlacement,
 } from './planner.prewrite-validator';
+import {
+  AvailabilityWindow,
+  proposeSlots,
+  SlotCandidate,
+} from '../build/slot-proposer';
 
 export interface PlaceWeekOptions {
   weekWindow: { from: string; to: string };
   /** IANA tz the orchestrator resolved for this user. */
   timezone: string;
+}
+
+/** Inputs for proposing/validating a single session's calendar slot (BW3). */
+export interface SlotRequest {
+  weekWindow: { from: string; to: string };
+  timezone: string;
+  durationMin: number;
+  /** Soft day-type hint to rank candidates near (the session placeholder date). */
+  preferredDate?: string | null;
+  /** How many candidate slots to return (default 3). */
+  limit?: number;
+}
+
+/** The live scheduling constraints for a target week. */
+interface WeekConstraints {
+  availability: AvailabilityWindow[];
+  busy: BusyInterval[];
+  hardBlocked: HardWindow[];
 }
 
 /**
@@ -124,6 +147,81 @@ export class PlannerService {
         };
       },
     });
+  }
+
+  /**
+   * BW3 — propose concrete, clash-free calendar slots for ONE session, computed
+   * from the user's recurring availability minus the LIVE calendar busy blocks
+   * and HARD windows (same clash logic the irreversible write uses). Returns a
+   * ranked, bounded candidate list the orchestrator surfaces as picks in chat.
+   */
+  async proposeSlotsForSession(
+    userId: string,
+    req: SlotRequest,
+  ): Promise<SlotCandidate[]> {
+    const constraints = await this.gatherConstraints(
+      userId,
+      req.weekWindow,
+      req.timezone,
+    );
+    return proposeSlots({
+      weekWindow: req.weekWindow,
+      availability: constraints.availability,
+      durationMin: req.durationMin,
+      busy: constraints.busy,
+      hardBlocked: constraints.hardBlocked,
+      timezone: req.timezone,
+      preferredDate: req.preferredDate ?? null,
+      limit: req.limit ?? 3,
+    });
+  }
+
+  /**
+   * BW3 — re-validate a single chosen slot against the LIVE calendar at confirm
+   * time (a slot can go stale between propose and pick). Returns a (possibly
+   * empty) violation list; empty = safe to write. Reuses the pre-write validator.
+   */
+  async validateSlot(
+    userId: string,
+    req: { weekWindow: { from: string; to: string }; timezone: string },
+    slot: SlotCandidate,
+  ): Promise<string[]> {
+    const constraints = await this.gatherConstraints(
+      userId,
+      req.weekWindow,
+      req.timezone,
+    );
+    return validatePlacement({
+      placed: [
+        {
+          plannedSessionId: 'confirm',
+          scheduledDate: slot.scheduledDate,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          scheduledStartUtc: slot.scheduledStartUtc,
+        },
+      ],
+      busy: constraints.busy,
+      hardBlocked: constraints.hardBlocked,
+    });
+  }
+
+  /** Gather availability + live busy + hard windows for a target week. */
+  private async gatherConstraints(
+    userId: string,
+    weekWindow: { from: string; to: string },
+    timezone: string,
+  ): Promise<WeekConstraints> {
+    const [seed, busy] = await Promise.all([
+      this.seeds.buildPlannerSeed(userId, weekWindow, timezone),
+      this.fetchBusy(userId, weekWindow),
+    ]);
+    // PlannerSeed.availability is the training profile's AvailabilitySlot[]
+    // ({ day, startTime, endTime }); normalise to the proposer's window shape.
+    const availability: AvailabilityWindow[] = (
+      seed.availability as Array<{ day: string; startTime: string; endTime: string }>
+    ).map((a) => ({ day: a.day, start: a.startTime, end: a.endTime }));
+    return { availability, busy, hardBlocked: seed.hardBlockedWindows };
   }
 
   /** Live busy intervals for the target week from the user's Google Calendar. */

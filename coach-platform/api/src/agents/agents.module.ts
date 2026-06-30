@@ -20,6 +20,7 @@ import { OpenAiClient } from './shared/llm/openai.client';
 import { ReadToolRegistry } from './shared/read-tools/read-tool-registry.service';
 import { SeedContextBuilder } from './shared/seed/seed-context.builder';
 import { CoachService } from './coach/coach.service';
+import { BuildConversationOrchestrator } from './build/build-conversation.orchestrator';
 import { RecoveryService } from './recovery/recovery.service';
 import { PlannerService } from './planner/planner.service';
 import { OrchestratorSaga } from './orchestrator/orchestrator.saga';
@@ -79,6 +80,7 @@ import { ApprovalTtlService } from './approval/approval-ttl.service';
     ReadToolRegistry,
     SeedContextBuilder,
     CoachService,
+    BuildConversationOrchestrator,
     RecoveryService,
     PlannerService,
     OrchestratorSaga,

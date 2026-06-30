@@ -1,8 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 import {
+  BuildContext,
   ConversationMode,
   ConversationOrigin,
+  ConversationPurpose,
   ConversationStatus,
 } from '../domain/conversation.model';
 
@@ -11,6 +13,7 @@ export type ConversationDocument = HydratedDocument<ConversationDoc>;
 const STATUSES = ['active', 'closed'];
 const MODES = ['plan', 'ask'];
 const ORIGINS = ['user', 'system'];
+const PURPOSES = ['program_build'];
 
 @Schema({ collection: 'conversations', timestamps: true })
 export class ConversationDoc {
@@ -39,6 +42,19 @@ export class ConversationDoc {
   @Prop({ type: Number, required: true, default: 0 }) last_seq!: number;
 
   @Prop({ type: String, default: null }) pending_card_batch_id!: string | null;
+
+  /**
+   * The job this conversation performs. `program_build` routes turns to the
+   * build orchestrator; absent/null is an ordinary chat. Enumerated so a typo
+   * can't tag a chat as a build.
+   */
+  @Prop({ type: String, enum: PURPOSES, default: null })
+  purpose!: ConversationPurpose | null;
+  /**
+   * The program + week a `program_build` conversation is building. Stored as an
+   * opaque sub-document; null for ordinary chats.
+   */
+  @Prop({ type: Object, default: null }) build_context!: BuildContext | null;
 
   /**
    * Staging buffer of captured-but-not-committed preference candidates. Stored

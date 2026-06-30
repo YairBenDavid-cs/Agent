@@ -14,6 +14,7 @@ import { UpdateConversationTitleHandler } from './application/commands/update-ti
 import { ConversationContextAssembler } from './application/conversation-context.assembler';
 import { ConversationContextService } from './application/conversation-context.service';
 import { ConversationCompactor } from './application/conversation-compactor.service';
+import { FindBuildConversationHandler } from './application/queries/find-build-conversation.handler';
 import { GetConversationHandler } from './application/queries/get-conversation.handler';
 import { GetMessagesHandler } from './application/queries/get-messages.handler';
 import { ListConversationsHandler } from './application/queries/list-conversations.handler';
@@ -39,6 +40,7 @@ const QueryHandlers = [
   GetConversationHandler,
   ListConversationsHandler,
   GetMessagesHandler,
+  FindBuildConversationHandler,
 ];
 
 /**

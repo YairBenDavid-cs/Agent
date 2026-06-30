@@ -32,6 +32,25 @@ export type ConversationMode = 'plan' | 'ask';
 export type ConversationOrigin = 'user' | 'system';
 
 /**
+ * What a conversation exists to do, when it is more than a free chat:
+ *  - `program_build` = the assistant-led, HITL build of a program week (propose
+ *    targets → lock → draft sessions one-by-one → schedule). Tagging the
+ *    conversation lets the turn router hand it to the build orchestrator and
+ *    lets a returning user resume mid-build. `null` = an ordinary chat.
+ */
+export type ConversationPurpose = 'program_build';
+
+/**
+ * The program + week a `program_build` conversation is building. Snapshotted at
+ * creation so the orchestrator can resolve the live build phase from program /
+ * week / session state without re-deriving which week the chat belongs to.
+ */
+export interface BuildContext {
+  programId: string;
+  weekIndex: number;
+}
+
+/**
  * A captured-but-not-yet-committed preference signal held in the conversation
  * staging buffer (tier-2 scratch). During Plan-mode iteration the user may keep
  * adjusting a request (lower the pace, then raise it again); each adjustment is
@@ -76,6 +95,28 @@ export interface MessageMeta {
   cardBatchId?: string;
   /** True when the assistant asked a grounded question and awaits confirmation. */
   awaitingConfirmation?: boolean;
+  /**
+   * BW4 — set on a build turn whose Coach/Planner run aborted (e.g. the model
+   * backend was unreachable). The chat never silently stalls: the FE renders a
+   * "retry" affordance, and any user reply (or a resume) re-runs the same phase.
+   */
+  buildRetry?: boolean;
+  /**
+   * BW3 — an outstanding calendar-slot proposal for one build session: the
+   * candidate times the user is being asked to pick between. Present only on the
+   * assistant turn that proposed them; cleared (absent) once a slot is confirmed.
+   * Shape is primitive-only so the conversation domain stays decoupled from the
+   * build module's `SlotCandidate`.
+   */
+  slotProposal?: {
+    plannedSessionId: string;
+    candidates: Array<{
+      scheduledDate: string;
+      startTime: string;
+      endTime: string;
+      scheduledStartUtc: string;
+    }>;
+  };
 }
 
 export interface Message {
@@ -100,6 +141,13 @@ export interface Conversation {
   mode: ConversationMode;
   /** `user` (human-opened) vs `system` (proactively opened after a sync event). */
   origin: ConversationOrigin;
+  /**
+   * The job this conversation performs, if any. `program_build` routes turns to
+   * the build orchestrator; `null` is an ordinary chat. Defaults to null.
+   */
+  purpose: ConversationPurpose | null;
+  /** The program + week a `program_build` chat is building; null otherwise. */
+  buildContext: BuildContext | null;
   /** True for system-opened chats the user should read (pinned + flagged). */
   attention: boolean;
   /** Rolling summary (tier 3): '' until the first compaction folds messages in. */

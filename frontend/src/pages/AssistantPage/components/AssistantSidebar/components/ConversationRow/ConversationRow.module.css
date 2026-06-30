@@ -49,6 +49,18 @@
   color: #f4f3f0;
 }
 
+/* Yellow dot pinned before the title when a trigger flagged this chat. */
+.attentionDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border-radius: 9999px;
+  background: #f5c518;
+  box-shadow: 0 0 8px rgba(245, 197, 24, 0.6);
+}
+
 .kebab {
   flex-shrink: 0;
   display: inline-flex;

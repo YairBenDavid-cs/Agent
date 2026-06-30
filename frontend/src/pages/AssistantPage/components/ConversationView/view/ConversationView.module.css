@@ -49,6 +49,82 @@
   background: transparent;
 }
 
+.composerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wa-space-2);
+  width: 100%;
+}
+
+/* Consent affordances (confirmation / intent-block) — a centered inline bar. */
+.consent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wa-space-3);
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto var(--wa-space-2);
+  padding: var(--wa-space-3) var(--wa-space-4);
+  box-sizing: border-box;
+  background: var(--wa-panel-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: var(--wa-radius-lg);
+  font-size: 14px;
+  color: var(--wa-text);
+}
+
+.consentText strong {
+  font-weight: 700;
+}
+
+.consentActions {
+  display: flex;
+  gap: var(--wa-space-2);
+}
+
+.consentApprove {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  background: var(--wa-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.consentApprove svg {
+  flex-shrink: 0;
+}
+
+.consentApprove:hover {
+  filter: brightness(1.08);
+}
+
+.consentCancel {
+  border: 1px solid var(--wa-border);
+  background: transparent;
+  color: var(--wa-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.consentCancel:hover {
+  background: var(--wa-bubble-out);
+  color: var(--wa-text);
+}
+
 .stop {
   border: 1px solid var(--wa-border);
   background: var(--wa-row-hover);
@@ -57,4 +133,25 @@
   border-radius: var(--wa-radius-lg);
   cursor: pointer;
   font-size: 13px;
+}
+
+.endSession {
+  border: 1px solid var(--wa-border);
+  background: transparent;
+  color: var(--wa-text-muted);
+  padding: var(--wa-space-1) var(--wa-space-3);
+  border-radius: var(--wa-radius-lg);
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.endSession:hover:not(:disabled) {
+  color: var(--wa-text);
+  border-color: var(--wa-text-muted);
+}
+
+.endSession:disabled {
+  opacity: 0.6;
+  cursor: default;
 }

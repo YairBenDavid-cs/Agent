@@ -30,11 +30,13 @@ import {
   Message,
 } from '../../conversation/domain/conversation.model';
 import { Page } from '../../conversation/domain/conversation.repository.port';
+import { FindBuildConversationQuery } from '../../conversation/application/queries/find-build-conversation.query';
 import { GetConversationQuery } from '../../conversation/application/queries/get-conversation.query';
 import { GetMessagesQuery } from '../../conversation/application/queries/get-messages.query';
 import { ListConversationsQuery } from '../../conversation/application/queries/list-conversations.query';
 import { TriggerContextResolver } from '../../triggers/trigger-context.resolver';
 import { AssistantService, AssistantTurnOutcome } from '../assistant.service';
+import { ConfirmSlotDto } from './dto/confirm-slot.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { SetModeDto } from './dto/set-mode.dto';
 import { StartConversationDto } from './dto/start-conversation.dto';
@@ -92,6 +94,23 @@ export class AssistantController {
         limit ? Number(limit) : 20,
       ),
     );
+  }
+
+  /**
+   * GET /assistant/conversations/build — the in-flight program_build chat the
+   * onboarding handoff opened, or `{ conversation: null }` when none is underway.
+   * The FE polls this after onboarding finish to navigate the user into the
+   * build. MUST stay above `:id` so "build" isn't captured as a conversation id.
+   */
+  @Get('build')
+  async findBuild(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ conversation: Conversation | null }> {
+    const conversation = await this.queryBus.execute<
+      FindBuildConversationQuery,
+      Conversation | null
+    >(new FindBuildConversationQuery(user.userId));
+    return { conversation };
   }
 
   /** GET /assistant/conversations/:id — one conversation's metadata. */
@@ -167,6 +186,40 @@ export class AssistantController {
         timezone: ctx.timezone,
         today: localToday(ctx.timezone),
       },
+    );
+  }
+
+  /**
+   * POST /assistant/conversations/:id/resume — re-greet an in-flight build on
+   * reopen. The phase is derived from live state, so this only posts when the
+   * build sits on an unperformed step (e.g. an aborted kickoff to retry);
+   * otherwise `outcome` is null and the client just renders the transcript.
+   */
+  @Post(':id/resume')
+  async resume(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<{ outcome: AssistantTurnOutcome | null }> {
+    const outcome = await this.assistant.resumeBuild(user.userId, id);
+    return { outcome };
+  }
+
+  /**
+   * POST /assistant/conversations/:id/confirm-slot — confirm the user's calendar
+   * slot pick on a program_build chat. Re-validates the chosen slot against the
+   * live calendar, writes the schedule + creates the Google event, then advances
+   * the build (proposes the next session's slots or locks the week).
+   */
+  @Post(':id/confirm-slot')
+  async confirmSlot(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: ConfirmSlotDto,
+  ): Promise<AssistantTurnOutcome> {
+    return this.assistant.confirmBuildSlot(
+      user.userId,
+      id,
+      dto.scheduledStartUtc,
     );
   }
 

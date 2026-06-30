@@ -693,7 +693,7 @@ export const MOCK_APPROVAL_BATCH: ApprovalBatchView = {
   batchId: MOCK_BATCH_ID,
   programId: MOCK_PROGRAM.id,
   weekIndex: 2,
-  allowedActions: ['approve', 'revise', 'reject'],
+  allowedActions: ['approve', 'reject'],
   status: 'pending',
   kind: 'weekly_plan',
   conversationId: null,

@@ -8,6 +8,10 @@ import {
   LockWeeklyTargetsCommand,
   LockWeeklyTargetsResult,
 } from '../../program/application/commands/lock-weekly-targets.command';
+import {
+  ProposeWeeklyTargetsCommand,
+  ProposeWeeklyTargetsResult,
+} from '../../program/application/commands/propose-weekly-targets.command';
 import { ProgramWeek } from '../../program/domain/program.model';
 import {
   UpsertWeekSessionsCommand,
@@ -30,9 +34,13 @@ import { CoachSeed, SeedContextBuilder } from '../shared/seed/seed-context.build
 import {
   CommitSkeletonArgs,
   commitSkeletonSchema,
+  DraftSessionArgs,
+  draftSessionSchema,
   LockWeeklyTargetsArgs,
   lockWeeklyTargetsSchema,
   PlannedSessionDraft,
+  ProposeWeeklyTargetsArgs,
+  proposeWeeklyTargetsSchema,
   UpsertWeekSessionsArgs,
   upsertWeekSessionsSchema,
 } from './coach.contracts';
@@ -41,11 +49,26 @@ import {
   ReadinessBand,
   sessionLoadProxy,
   validateAgainstWeeklyTargets,
+  validateSessionStructure,
   validateSkeleton,
   validateWeek,
   WeekGuardrailContext,
 } from './coach.guardrails';
 import { COACH_SYSTEM_PROMPT } from './coach.prompt';
+
+/** Inputs the orchestrator hands the Coach to draft the next build session. */
+export interface DraftNextSessionOptions {
+  programId: string;
+  weekIndex: number;
+  weekStartDate: string;
+  timezone: string;
+  /** The week's LOCKED macro budget — the drafted session must fit inside it. */
+  targets: { sessionCount: number; totalVolume: number; keyGoals: string[] };
+  /** Sessions already committed this week, scored for the quota guardrail. */
+  committed: LoadProxyInput[];
+  /** slotKeys already taken by committed sessions (collision guard). */
+  committedSlotKeys: string[];
+}
 
 /** Options for one weekly generation run. */
 export interface GenerateWeekOptions {
@@ -126,6 +149,122 @@ export class CoachService {
     });
   }
 
+  /**
+   * Conversational-build counterpart to Step A: PROPOSE the week's macro budget
+   * without locking it. The non-terminal `propose_weekly_targets` tool stages a
+   * tentative quota (week stays `open`), then the loop continues so the model
+   * composes a short plain-language proposal for the user — returned as
+   * `finalText`. The user accepts (→ {@link lockTargets}) or asks to revise.
+   */
+  async proposeWeeklyTargets(
+    userId: string,
+    runId: string,
+    discipline: EventDiscipline,
+    opts: { weekIndex?: number },
+  ): Promise<AgenticLoopResult<ProposeWeeklyTargetsResult>> {
+    const seed = await this.seeds.buildCoachSeed(userId, discipline);
+    const ctx: AgentToolContext = { userId, runId };
+    const targetWeek = opts.weekIndex ?? seed.currentWeekIndex ?? 0;
+
+    const tools: AnyAgentTool[] = [
+      ...this.readTools.forCoach(),
+      this.proposeWeeklyTargetsTool(seed.programId),
+    ];
+
+    return this.loop.run<ProposeWeeklyTargetsResult>({
+      agentName: 'coach',
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seedMessage:
+        `${seed.seedMessage}\n\n== TASK (Conversational build — propose week targets) ==\n` +
+        `Decide the macro budget for week index ${targetWeek}: how many sessions, ` +
+        `the total native-unit volume (km for running, volume-load for strength), ` +
+        `and the key weekly goals. First call propose_weekly_targets exactly once ` +
+        `with programId "${seed.programId ?? ''}". Then, in plain language, write a ` +
+        `short, warm message (2–4 sentences) to the athlete proposing this first ` +
+        `week — name the session count and the main intents — and ask whether it ` +
+        `looks good or they'd like to adjust. Do NOT lock anything yet.`,
+      tools,
+      ctx,
+    });
+  }
+
+  /**
+   * Lock a week's proposed targets on the user's consent. Thin wrapper over the
+   * `LockWeeklyTargetsCommand` (no LLM run) — the orchestrator passes the values
+   * the user agreed to (read back from the tentative proposal on the week).
+   */
+  async lockTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: { sessionCount: number; totalVolume: number; keyGoals: string[] },
+  ): Promise<LockWeeklyTargetsResult> {
+    return this.commandBus.execute<
+      LockWeeklyTargetsCommand,
+      LockWeeklyTargetsResult
+    >(
+      new LockWeeklyTargetsCommand(
+        userId,
+        programId,
+        weekIndex,
+        targets.sessionCount,
+        targets.totalVolume,
+        targets.keyGoals,
+        new Date().toISOString(),
+      ),
+    );
+  }
+
+  /**
+   * Resolve the user's response to a tentative targets proposal. The coach reads
+   * the proposed quota + the athlete's reply and EITHER locks the targets (they
+   * agreed — possibly with a small tweak, applied first) via the terminal
+   * `lock_weekly_targets` tool, OR re-proposes a revised quota via the
+   * non-terminal `propose_weekly_targets` tool and explains the change
+   * (`finalText`). Both tools are available; the model picks based on intent.
+   */
+  async resolveTargetsConsent(
+    userId: string,
+    runId: string,
+    discipline: EventDiscipline,
+    opts: {
+      weekIndex: number;
+      proposed: { sessionCount: number; totalVolume: number; keyGoals: string[] };
+      userMessage: string;
+    },
+  ): Promise<AgenticLoopResult<LockWeeklyTargetsResult>> {
+    const seed = await this.seeds.buildCoachSeed(userId, discipline);
+    const ctx: AgentToolContext = { userId, runId };
+    const { sessionCount, totalVolume, keyGoals } = opts.proposed;
+
+    const tools: AnyAgentTool[] = [
+      ...this.readTools.forCoach(),
+      this.proposeWeeklyTargetsTool(seed.programId),
+      this.lockWeeklyTargetsTool(seed.programId),
+    ];
+
+    return this.loop.run<LockWeeklyTargetsResult>({
+      agentName: 'coach',
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seedMessage:
+        `${seed.seedMessage}\n\n== TASK (Conversational build — targets consent) ==\n` +
+        `You previously PROPOSED these week-${opts.weekIndex} targets:\n` +
+        `  • sessions: ${sessionCount}\n  • total volume: ${totalVolume}\n` +
+        `  • key goals: ${keyGoals.join(', ') || '(none)'}\n\n` +
+        `The athlete replied:\n"""${opts.userMessage}"""\n\n` +
+        `Decide their intent:\n` +
+        `- If they AGREE / approve / say it looks good → call lock_weekly_targets ` +
+        `with programId "${seed.programId ?? ''}", weekIndex ${opts.weekIndex}, and ` +
+        `the agreed numbers (apply any small tweak they asked for). This finalizes ` +
+        `the week's quota.\n` +
+        `- If they want CHANGES you should reconsider → call propose_weekly_targets ` +
+        `with the revised numbers, then write a short message explaining the update ` +
+        `and asking if it now looks good. Do NOT lock in that case.`,
+      tools,
+      ctx,
+    });
+  }
+
   /** Turn the current skeleton week into concrete tentative sessions. */
   async generateWeek(
     userId: string,
@@ -151,6 +290,59 @@ export class CoachService {
       agentName: 'coach',
       systemPrompt: COACH_SYSTEM_PROMPT,
       seedMessage: `${seed.seedMessage}\n\n== TASK ==\nGenerate concrete planned sessions for week index ${targetWeek}, timezone ${opts.timezone}.${readinessNote}\nCall upsert_week_sessions exactly once with programId "${seed.programId ?? ''}".`,
+      tools,
+      ctx,
+    });
+  }
+
+  /**
+   * Conversational build, Step B (per-session): draft EXACTLY ONE tentative
+   * session — the next not-yet-committed slot — so the athlete reviews it on its
+   * own card before the next is drafted. The single `draft_next_session` terminal
+   * tool validates the draft's structure AND that it fits the LOCKED weekly
+   * targets given the already-committed sessions (quota guardrail), then persists
+   * it tentative. The loop then writes a short plain-language description of the
+   * session as `finalText` for the chat.
+   */
+  async draftNextSession(
+    userId: string,
+    runId: string,
+    discipline: EventDiscipline,
+    opts: DraftNextSessionOptions,
+  ): Promise<AgenticLoopResult<UpsertWeekSessionsResult>> {
+    const seed = await this.seeds.buildCoachSeed(userId, discipline);
+    const ctx: AgentToolContext = { userId, runId };
+    const programId = seed.programId ?? opts.programId;
+
+    const tools: AnyAgentTool[] = [
+      ...this.readTools.forCoach(),
+      this.draftNextSessionTool(opts),
+    ];
+
+    const sessionNumber = opts.committed.length + 1;
+    const committedList =
+      opts.committedSlotKeys.length > 0
+        ? opts.committedSlotKeys.join(', ')
+        : '(none yet)';
+    const goals = opts.targets.keyGoals.join(', ') || '(none specified)';
+
+    return this.loop.run<UpsertWeekSessionsResult>({
+      agentName: 'coach',
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seedMessage:
+        `${seed.seedMessage}\n\n== TASK (Conversational build — draft session ` +
+        `${sessionNumber} of ${opts.targets.sessionCount}) ==\n` +
+        `Week index ${opts.weekIndex} (starts ${opts.weekStartDate}, timezone ` +
+        `${opts.timezone}). The week's LOCKED targets are:\n` +
+        `  • sessions: ${opts.targets.sessionCount}\n` +
+        `  • total volume: ${opts.targets.totalVolume}\n` +
+        `  • key goals: ${goals}\n` +
+        `Already committed slotKeys: ${committedList}.\n\n` +
+        `Draft EXACTLY ONE new session — the next one — that fits the remaining ` +
+        `quota. Call draft_next_session exactly once with programId ` +
+        `"${programId ?? ''}" and a unique slotKey. Then write a short, warm ` +
+        `message (2–3 sentences) describing this session to the athlete and ask ` +
+        `if it looks good to add. Do not draft more than one session.`,
       tools,
       ctx,
     });
@@ -182,6 +374,87 @@ export class CoachService {
             args.totalVolume,
             args.keyGoals,
             new Date().toISOString(),
+          ),
+        );
+      },
+    });
+  }
+
+  private proposeWeeklyTargetsTool(programId: string | null): AnyAgentTool {
+    return defineTool<ProposeWeeklyTargetsArgs, ProposeWeeklyTargetsResult>({
+      name: 'propose_weekly_targets',
+      description:
+        "Stage a TENTATIVE proposal for this week's macro budget (session " +
+        'count + native-unit volume + key goals). Non-terminal: the week stays ' +
+        'open and nothing is locked — after calling this, explain the proposal ' +
+        'to the athlete in plain language and ask if it looks good.',
+      schema: proposeWeeklyTargetsSchema,
+      terminal: false,
+      handler: async (args, c) => {
+        if (!programId) {
+          throw new Error('No active program to propose weekly targets on.');
+        }
+        return this.commandBus.execute<
+          ProposeWeeklyTargetsCommand,
+          ProposeWeeklyTargetsResult
+        >(
+          new ProposeWeeklyTargetsCommand(
+            c.userId,
+            programId,
+            args.weekIndex,
+            args.sessionCount,
+            args.totalVolume,
+            args.keyGoals,
+          ),
+        );
+      },
+    });
+  }
+
+  private draftNextSessionTool(opts: DraftNextSessionOptions): AnyAgentTool {
+    return defineTool<DraftSessionArgs, UpsertWeekSessionsResult>({
+      name: 'draft_next_session',
+      description:
+        'Persist ONE tentative session — the next not-yet-committed slot of the ' +
+        'week. Terminal: ends the run. Must fit inside the locked weekly targets.',
+      schema: draftSessionSchema,
+      terminal: true,
+      handler: async (args, c) => {
+        const violations: string[] = [];
+
+        // Structural detail (real workout, not a title) + locked-quota fit, the
+        // proposed session added to the sessions already committed this week.
+        violations.push(...validateSessionStructure(args.session));
+        violations.push(
+          ...validateAgainstWeeklyTargets(
+            args.session as LoadProxyInput,
+            opts.committed,
+            {
+              sessionCount: opts.targets.sessionCount,
+              totalVolume: opts.targets.totalVolume,
+            },
+          ),
+        );
+        // A new draft must not reuse a committed slotKey (would collide on upsert).
+        if (opts.committedSlotKeys.includes(args.session.slotKey)) {
+          violations.push(
+            `slotKey "${args.session.slotKey}" is already committed; pick a new one.`,
+          );
+        }
+        if (violations.length > 0) {
+          throw new Error(`Guardrail rejected session: ${violations.join(' ')}`);
+        }
+
+        const session = this.toDomainSession(c.userId, args, args.session);
+        return this.commandBus.execute<
+          UpsertWeekSessionsCommand,
+          UpsertWeekSessionsResult
+        >(
+          new UpsertWeekSessionsCommand(
+            c.userId,
+            args.programId,
+            args.weekIndex,
+            [session],
           ),
         );
       },
@@ -320,7 +593,12 @@ export class CoachService {
   /** Map a validated draft → a tentative domain PlannedSession. */
   private toDomainSession(
     userId: string,
-    args: UpsertWeekSessionsArgs,
+    args: {
+      programId: string;
+      weekIndex: number;
+      weekStartDate: string;
+      timezone: string;
+    },
     draft: PlannedSessionDraft,
   ): PlannedSession {
     const scheduledDate = addDaysIso(args.weekStartDate, draft.dayOffset);

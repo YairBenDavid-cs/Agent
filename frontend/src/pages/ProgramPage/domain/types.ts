@@ -12,6 +12,19 @@ export type PlannedStatus =
 export type WeekTheme = 'assessment' | 'base' | 'build' | 'peak' | 'deload' | 'taper';
 export type WeekStatus = 'upcoming' | 'current' | 'done';
 
+// Iterative-generation lock state, from program.model.ts WeekState. `locked`
+// means the week's sessions are committed and can't be edited inline — changes
+// must go through chat (mirrors the backend's locked-week rejection guard).
+export type WeekState = 'open' | 'targets_locked' | 'locked';
+
+// Step-A quota for a week, from program.model.ts WeeklyTargets.
+export interface WeeklyTargets {
+  sessionCount: number;
+  totalVolume: number;
+  keyGoals: string[];
+  lockedAt: string;
+}
+
 export interface GoalSnapshot {
   primaryGoal: string;
   note: string | null;
@@ -27,6 +40,10 @@ export interface ProgramWeek {
   planState: PlanState;
   status: WeekStatus;
   generatedAt: string | null;
+  // Optional: legacy skeletons predate Step A; the backend defaults reads to
+  // 'open' / null, so treat absent as unlocked.
+  weekState?: WeekState;
+  weeklyTargets?: WeeklyTargets | null;
 }
 
 export interface Program {

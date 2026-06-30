@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { Spinner } from '@/shared/ui/Spinner/Spinner';
-import type { Program } from '../domain/types';
+import type { PlannedSession, Program, ProgramWeek } from '../domain/types';
 import { formatDayLabel, themeLabel } from '../domain/format';
 import { useProgram } from '../hooks/useProgram';
 import { TrainCard } from '../components/TrainCard/TrainCard';
@@ -10,6 +10,7 @@ import { WeekReview } from '../components/WeekReview/WeekReview';
 import styles from './ProgramPage.module.css';
 
 export function ProgramPage(): ReactElement {
+  const navigate = useNavigate();
   const {
     loading,
     error,
@@ -28,7 +29,6 @@ export function ProgramPage(): ReactElement {
     actionPending,
     actionError,
     approve,
-    revise,
     reject,
   } = useProgram();
 
@@ -90,6 +90,15 @@ export function ProgramPage(): ReactElement {
     a.scheduledStartUtc.localeCompare(b.scheduledStartUtc),
   );
 
+  // Deep-link a session into a new chat with a prefilled reference. The turn
+  // loads full program context server-side; the prefill is just the anchor the
+  // user can edit before sending.
+  const discussSession = (session: PlannedSession): void => {
+    navigate('/assistant', {
+      state: { prefill: `About my ${session.title} on ${formatDayLabel(session.scheduledDate)} — ` },
+    });
+  };
+
   return (
     <Shell>
       <GoalHeader program={program} />
@@ -128,6 +137,8 @@ export function ProgramPage(): ReactElement {
         </button>
       </nav>
 
+      {week !== null && <WeekMeta week={week} onDiscuss={() => navigate('/assistant')} />}
+
       {pendingBatch ? (
         <WeekReview
           batch={pendingBatch}
@@ -135,7 +146,6 @@ export function ProgramPage(): ReactElement {
           pending={actionPending}
           error={actionError}
           onApprove={approve}
-          onRevise={revise}
           onReject={reject}
         />
       ) : (
@@ -153,7 +163,7 @@ export function ProgramPage(): ReactElement {
           ) : (
             <div className={styles.cardGrid}>
               {sortedSessions.map((s) => (
-                <TrainCard key={s.id} session={s} />
+                <TrainCard key={s.id} session={s} onDiscuss={discussSession} />
               ))}
             </div>
           )}
@@ -178,6 +188,50 @@ function GoalHeader({ program }: { program: Program }): ReactElement {
         The next two weeks are shown — later weeks are sketched and may change.
       </p>
     </header>
+  );
+}
+
+// Compact lock + weekly-targets strip shown under the week nav. The backend
+// commits a week's quota (Step A) into `weeklyTargets` and flips `weekState` to
+// 'locked' once its sessions are final; a locked week can't be edited inline,
+// so we surface a "make changes in chat" CTA instead.
+function WeekMeta({
+  week,
+  onDiscuss,
+}: {
+  week: ProgramWeek;
+  onDiscuss: () => void;
+}): ReactElement | null {
+  const locked = week.weekState === 'locked';
+  const targets = week.weeklyTargets ?? null;
+  if (!locked && targets === null) {
+    return null;
+  }
+
+  return (
+    <div className={styles.weekMeta}>
+      {targets !== null && (
+        <p className={styles.targets}>
+          <span className={styles.targetsStat}>{targets.sessionCount} sessions</span>
+          <span className={styles.targetsDot}>·</span>
+          <span className={styles.targetsStat}>{targets.totalVolume} load</span>
+          {targets.keyGoals.length > 0 && (
+            <>
+              <span className={styles.targetsDot}>·</span>
+              <span className={styles.targetsGoals}>{targets.keyGoals.join(', ')}</span>
+            </>
+          )}
+        </p>
+      )}
+      {locked && (
+        <div className={styles.lockRow}>
+          <span className={styles.lockBadge}>Locked</span>
+          <button type="button" className={styles.lockCta} onClick={onDiscuss}>
+            Make changes in chat
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

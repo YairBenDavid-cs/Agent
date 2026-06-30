@@ -54,4 +54,26 @@ describe('approval-ttl.policy', () => {
       expect(classifyDraftTtl(state, now)).toBe('expire');
     });
   });
+
+  describe('build-session drafts', () => {
+    // A conversational build-session card is an interactive chat step: it never
+    // auto-commits on a clock and never expires — only an explicit approve /
+    // re-draft (or supersession) resolves it.
+    const state = {
+      kind: 'build_session' as const,
+      createdAtUtc: '2026-06-26T09:00:00.000Z',
+      sessionStartUtc: '2026-06-28T17:00:00.000Z',
+    };
+
+    it('keeps the card even long past any session start', () => {
+      expect(classifyDraftTtl(state, '2026-07-30T00:00:00.000Z')).toBe('keep');
+    });
+
+    it('keeps the card even long past the user-draft TTL window', () => {
+      const now = new Date(
+        Date.parse(state.createdAtUtc) + USER_DRAFT_TTL_MS * 10,
+      ).toISOString();
+      expect(classifyDraftTtl(state, now)).toBe('keep');
+    });
+  });
 });

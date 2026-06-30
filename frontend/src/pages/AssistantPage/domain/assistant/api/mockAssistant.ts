@@ -16,6 +16,10 @@ export function mockCreateConversation(): AssistantConversation {
     type: 'assistant',
     title: 'New chat',
     lastMessageAt: new Date().toISOString(),
+    mode: 'ask',
+    origin: 'user',
+    attention: false,
+    pendingCardBatchId: null,
   };
   conversations.set(id, conversation);
   turns.set(id, []);
@@ -29,7 +33,16 @@ export function mockRenameConversation(
   const existing = conversations.get(conversationId);
   const updated: AssistantConversation = existing
     ? { ...existing, title }
-    : { id: conversationId, type: 'assistant', title, lastMessageAt: new Date().toISOString() };
+    : {
+        id: conversationId,
+        type: 'assistant',
+        title,
+        lastMessageAt: new Date().toISOString(),
+        mode: 'ask',
+        origin: 'user',
+        attention: false,
+        pendingCardBatchId: null,
+      };
   conversations.set(conversationId, updated);
   return updated;
 }

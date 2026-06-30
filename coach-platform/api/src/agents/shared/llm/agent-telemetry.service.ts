@@ -7,6 +7,7 @@ import { LlmTokenUsage } from './llm.types';
  * token counts are stripped before they reach the end-user. */
 export const AGENT_LLM_CALL = 'agent.llm_call';
 export const AGENT_WORKFLOW = 'agent.workflow';
+export const AGENT_CONVERSATION = 'agent.conversation';
 
 export interface AgentLlmCallEvent {
   agentName: string;
@@ -24,6 +25,20 @@ export interface AgentWorkflowEvent {
   agentName: string;
   phase: string;
   detail?: string;
+  at: string; // ISO
+}
+
+/**
+ * Pushed when a trigger proactively OPENS a conversation for the user (e.g. the
+ * outcome-clarify path). Lets the chat UI surface the pinned/flagged chat
+ * without polling. Fields are primitives so this sink stays decoupled from the
+ * conversation domain. */
+export interface AgentConversationEvent {
+  userId: string;
+  conversationId: string;
+  title: string | null;
+  origin: 'user' | 'system';
+  attention: boolean;
   at: string; // ISO
 }
 
@@ -62,5 +77,15 @@ export class AgentTelemetryService {
       at: new Date().toISOString(),
     };
     this.events.emit(AGENT_WORKFLOW, event);
+  }
+
+  /** Push a "a conversation was opened for you" beat (trigger-originated chats). */
+  emitConversationOpened(
+    event: Omit<AgentConversationEvent, 'at'> & { at?: string },
+  ): void {
+    this.events.emit(AGENT_CONVERSATION, {
+      ...event,
+      at: event.at ?? new Date().toISOString(),
+    } satisfies AgentConversationEvent);
   }
 }

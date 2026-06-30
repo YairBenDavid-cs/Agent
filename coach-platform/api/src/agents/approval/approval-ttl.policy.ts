@@ -18,7 +18,7 @@
  * Side-effect-free; all "now"/deadline inputs are passed in for testability.
  */
 
-export type DraftKind = 'session_day' | 'user_initiated';
+export type DraftKind = 'session_day' | 'user_initiated' | 'build_session';
 
 export type TtlDecision = 'auto_commit' | 'expire' | 'keep';
 
@@ -46,6 +46,13 @@ export function classifyDraftTtl(
   nowUtc: string,
 ): TtlDecision {
   const now = Date.parse(nowUtc);
+
+  // A conversational build-session card is an interactive step in a live chat,
+  // not a time-bounded draft — it never auto-commits and never expires on a
+  // clock. It is resolved only by an explicit approve / re-draft, or superseded.
+  if (state.kind === 'build_session') {
+    return 'keep';
+  }
 
   if (state.kind === 'session_day') {
     const start = state.sessionStartUtc

@@ -1,0 +1,92 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--wa-chat-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: 999px;
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--wa-text-muted);
+}
+
+.hintDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--wa-text-muted);
+  transition: background 0.2s;
+}
+
+.hint[data-mode='plan'] .hintDot {
+  background: var(--wa-accent);
+}
+
+.option {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  color: var(--wa-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s cubic-bezier(0.2, 0, 0.38, 0.9),
+    color 0.2s cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+
+.option svg {
+  flex-shrink: 0;
+}
+
+.option:hover:not(:disabled) {
+  color: var(--wa-text);
+}
+
+/* The active option is the disabled one (you can't re-select it). */
+.active,
+.active:disabled {
+  font-weight: 700;
+  cursor: default;
+  opacity: 1;
+}
+
+/* Plan active = filled orange (capability on). */
+.active[data-mode='plan'],
+.active[data-mode='plan']:disabled {
+  background: var(--wa-accent);
+  color: #fff;
+}
+
+/* Ask active = neutral fill (read-only). */
+.active[data-mode='ask'],
+.active[data-mode='ask']:disabled {
+  background: #3c3c3a;
+  color: var(--wa-text);
+}
+
+.option:disabled:not(.active) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

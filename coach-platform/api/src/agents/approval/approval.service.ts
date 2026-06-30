@@ -7,6 +7,10 @@ import {
   CommitWeekResult,
 } from '../../planned-sessions/application/commands/commit-week.command';
 import {
+  CommitSessionCommand,
+  CommitSessionResult,
+} from '../../planned-sessions/application/commands/commit-session.command';
+import {
   DiscardTentativeWeekCommand,
   DiscardTentativeWeekResult,
 } from '../../planned-sessions/application/commands/discard-tentative-week.command';
@@ -32,6 +36,7 @@ import {
 import { CalendarSyncService, CalendarSyncSummary } from './calendar-sync.service';
 import { PendingCardBatch } from './domain/pending-card-batch.model';
 import { PendingCardBatchService } from './pending-card-batch.service';
+import { BuildConversationOrchestrator } from '../build/build-conversation.orchestrator';
 
 export interface ApprovalCardBatch {
   programId: string;
@@ -76,6 +81,7 @@ export class ApprovalService {
     private readonly commandBus: CommandBus,
     private readonly calendarSync: CalendarSyncService,
     private readonly batches: PendingCardBatchService,
+    private readonly buildOrchestrator: BuildConversationOrchestrator,
   ) {}
 
   /** Build the card batch for a week, diffed against an optional committed baseline. */
@@ -199,6 +205,16 @@ export class ApprovalService {
     batchId: string,
   ): Promise<ApproveResult> {
     const batch = await this.requirePendingBatch(userId, batchId);
+
+    // Conversational build: a `build_session` card commits exactly the ONE
+    // tentative session it drafted — NOT the whole week. The week stays
+    // `targets_locked` (no week flip) and calendar scheduling is deferred to
+    // BW3, so we don't sync events here. After committing we hand back to the
+    // orchestrator to draft the next session (or wrap up the week).
+    if (batch.kind === 'build_session') {
+      return this.approveBuildSessionBatch(userId, batch);
+    }
+
     const result = await this.approveWeek(
       userId,
       batch.programId,
@@ -213,6 +229,51 @@ export class ApprovalService {
     await this.flushConversationBuffer(userId, batch.conversationId, batch.runId);
 
     return result;
+  }
+
+  /**
+   * Commit a conversational-build session card: flip every tentative session in
+   * the batch's week to `committed` (there is normally exactly one — the freshly
+   * drafted next session), mark the batch approved, and ask the orchestrator to
+   * advance the build. No week flip and no calendar sync here — the week stays
+   * `targets_locked` and slot scheduling is BW3's job.
+   */
+  private async approveBuildSessionBatch(
+    userId: string,
+    batch: PendingCardBatch,
+  ): Promise<ApproveResult> {
+    const week = await this.fetchWeek(userId, batch.programId, batch.weekIndex);
+    const tentative = week.filter((s) => s.planState === 'tentative');
+    const committedAt = new Date().toISOString();
+
+    for (const session of tentative) {
+      await this.commandBus.execute<CommitSessionCommand, CommitSessionResult>(
+        // A drafted build session has no prior committed version to diff against,
+        // so the display diff is empty — it's a first commit, not an edit.
+        new CommitSessionCommand(userId, session.id, {
+          committedAt,
+          changes: [],
+        }),
+      );
+    }
+
+    await this.batches.setStatus(userId, batch.id, 'approved');
+
+    // Hand back to the build choreography: draft the next session or wrap up.
+    if (batch.conversationId) {
+      await this.buildOrchestrator.advanceAfterSessionApproved(
+        userId,
+        batch.conversationId,
+      );
+    }
+
+    this.logger.log(
+      `Approved build session batch ${batch.id} for ${userId}: committed ${tentative.length} session(s).`,
+    );
+    return {
+      committed: tentative.length,
+      calendar: { synced: 0, failed: 0 },
+    };
   }
 
   /**

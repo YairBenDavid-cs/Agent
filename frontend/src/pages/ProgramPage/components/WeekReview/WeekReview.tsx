@@ -1,6 +1,6 @@
-import { useState, type ReactElement } from 'react';
+import { type ReactElement } from 'react';
 import type { PlannedSession } from '../../domain/types';
-import type { ApprovalBatchView, CardRevisionEdit } from '../../api/approvalsApi';
+import type { ApprovalBatchView } from '../../api/approvalsApi';
 import { WorkoutBody } from '../WorkoutBody/WorkoutBody';
 import styles from './WeekReview.module.css';
 
@@ -12,15 +12,14 @@ interface WeekReviewProps {
   pending: boolean;
   error: string | null;
   onApprove: () => void;
-  onRevise: (edits: CardRevisionEdit[]) => void;
   onReject: () => void;
 }
 
 /**
  * The review surface for a freshly-generated tentative week. Each session is a
- * full workout card with a free-text note box; the user's default move is to
- * revise (per-card feedback → the coach re-plans), with approve (commit + sync)
- * and reject (discard) as the other two terminal actions the backend allows.
+ * full workout card; the user approves (commit + sync) or rejects (discard).
+ * Revise was removed in the dual-mode redesign — to change a session, the user
+ * discusses it in Plan-mode chat, which re-plans and produces a fresh draft.
  */
 export function WeekReview({
   batch,
@@ -28,23 +27,12 @@ export function WeekReview({
   pending,
   error,
   onApprove,
-  onRevise,
   onReject,
 }: WeekReviewProps): ReactElement {
-  const [comments, setComments] = useState<Record<string, string>>({});
-
   const sessionById = new Map(sessions.map((s) => [s.id, s]));
-
-  const edits: CardRevisionEdit[] = batch.cards
-    .map((card) => ({
-      plannedSessionId: card.sessionId,
-      freeText: (comments[card.sessionId] ?? '').trim(),
-    }))
-    .filter((edit) => edit.freeText.length > 0);
 
   const canApprove = batch.allowedActions.includes('approve');
   const canReject = batch.allowedActions.includes('reject');
-  const canRevise = batch.allowedActions.includes('revise') && edits.length > 0;
 
   if (batch.status === 'approved') {
     return (
@@ -62,9 +50,8 @@ export function WeekReview({
       <header className={styles.head}>
         <h2 className={styles.title}>Review your week</h2>
         <p className={styles.hint}>
-          Leave a note on any session to tell your coach what to change, then{' '}
-          <strong>Revise</strong>. Happy with it? <strong>Approve</strong> to lock it in and add it
-          to your calendar.
+          Happy with it? <strong>Approve</strong> to lock it in and add it to your calendar. Want
+          changes? Tell your coach in chat and they’ll re-plan the week.
         </p>
       </header>
 
@@ -82,17 +69,6 @@ export function WeekReview({
               </div>
 
               {session && <WorkoutBody session={session} />}
-
-              <textarea
-                className={styles.input}
-                placeholder="Tell your coach what to change about this session…"
-                value={comments[card.sessionId] ?? ''}
-                onChange={(e) =>
-                  setComments((prev) => ({ ...prev, [card.sessionId]: e.target.value }))
-                }
-                disabled={pending}
-                rows={2}
-              />
             </div>
           );
         })}
@@ -103,19 +79,11 @@ export function WeekReview({
       <footer className={styles.actions}>
         <button
           type="button"
-          className={styles.revise}
-          onClick={() => onRevise(edits)}
-          disabled={pending || !canRevise}
-        >
-          {pending ? 'Working…' : 'Revise'}
-        </button>
-        <button
-          type="button"
           className={styles.approve}
           onClick={onApprove}
           disabled={pending || !canApprove}
         >
-          Approve
+          {pending ? 'Working…' : 'Approve'}
         </button>
         {canReject && (
           <button type="button" className={styles.reject} onClick={onReject} disabled={pending}>

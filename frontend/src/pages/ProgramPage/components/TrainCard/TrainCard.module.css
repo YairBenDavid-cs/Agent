@@ -106,3 +106,27 @@
   color: var(--pg-muted);
   text-transform: capitalize;
 }
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.discuss {
+  border: 1px solid var(--pg-card-border);
+  background: #161310;
+  color: #cfc8c1;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: var(--wa-space-2) var(--wa-space-3);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+
+.discuss:hover {
+  border-color: var(--ac-accent);
+  color: var(--ac-accent);
+}

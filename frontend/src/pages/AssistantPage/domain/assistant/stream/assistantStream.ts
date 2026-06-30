@@ -1,11 +1,23 @@
-// The SSE wire contract for the live agent-progress feed, mirrored from the
-// backend's WorkflowStreamController. A single user-wide stream emits `workflow`
-// events ("Coach is evaluating your week…") while a turn runs; the assistant
-// reply itself comes back synchronously from POST .../messages, not over SSE.
+// The SSE wire contract for the live agent stream, mirrored from the backend's
+// WorkflowStreamController. The single user-wide stream is MULTIPLEXED — branch
+// on the SSE event name:
+//  - `workflow`     — agent-progress beats ("Coach is evaluating your week…")
+//                     while a turn runs; the reply itself comes back from POST.
+//  - `conversation` — a trigger proactively opened a chat for the user (e.g. the
+//                     outcome-clarify path), so the UI can surface the
+//                     pinned/flagged conversation without polling.
 export interface WorkflowEventData {
   agentName: string;
   phase: string;
   detail?: string;
+  at: string;
+}
+
+export interface ConversationEventData {
+  conversationId: string;
+  title: string | null;
+  origin: 'user' | 'system';
+  attention: boolean;
   at: string;
 }
 
@@ -30,6 +42,20 @@ export function parseWorkflowEvent(raw: string): WorkflowEventData | null {
       event.detail = data.detail;
     }
     return event;
+  }
+  return null;
+}
+
+export function parseConversationEvent(raw: string): ConversationEventData | null {
+  const data: unknown = safeParse(raw);
+  if (isRecord(data) && typeof data.conversationId === 'string') {
+    return {
+      conversationId: data.conversationId,
+      title: typeof data.title === 'string' ? data.title : null,
+      origin: data.origin === 'system' ? 'system' : 'user',
+      attention: data.attention === true,
+      at: typeof data.at === 'string' ? data.at : '',
+    };
   }
   return null;
 }

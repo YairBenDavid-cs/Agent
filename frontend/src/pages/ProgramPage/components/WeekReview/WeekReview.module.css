@@ -145,18 +145,7 @@
   cursor: not-allowed;
 }
 
-/* Revise — outlined; Approve — solid accent with glow (design order/weights). */
-.revise {
-  background: #161310;
-  color: #e7e1da;
-  border-color: color-mix(in srgb, var(--ac-accent) 40%, #2b2724) !important;
-}
-
-.revise:hover:not(:disabled) {
-  border-color: var(--ac-accent) !important;
-  color: #fff;
-}
-
+/* Approve — solid accent with glow (design weights). */
 .approve {
   background: var(--ac-accent);
   color: #fff;

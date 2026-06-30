@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog/ConfirmDialog';
 import { ToastViewport } from '@/shared/ui/Toast/ToastViewport';
 import { useToasts } from '@/shared/ui/Toast/useToasts';
@@ -10,6 +10,7 @@ import {
   renameAssistantConversation,
 } from '../domain/assistant/api/assistantApi';
 import { useAssistantConversations } from '../domain/assistant/hooks/useAssistantConversations';
+import { useConversationEvents } from '../domain/assistant/hooks/useConversationEvents';
 import { useGarminSync } from '../domain/garmin/useGarminSync';
 import type { PendingPrompt } from '../domain/assistant/types/assistant';
 import { AssistantSidebar } from '../components/AssistantSidebar/view/AssistantSidebar';
@@ -20,7 +21,11 @@ import styles from './AssistantPage.module.css';
 export function AssistantPage(): ReactElement {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { conversations, status, error, upsert, touch, rename, remove } =
+  const location = useLocation();
+  // A "Discuss in chat" deep-link (e.g. from a program card) lands on the start
+  // screen with a prefilled composer. Read it off the router state.
+  const prefill = (location.state as { prefill?: string } | null)?.prefill;
+  const { conversations, status, error, upsert, touch, rename, remove, clearAttention, refetch } =
     useAssistantConversations();
   const { toasts, showToast, dismiss } = useToasts();
   const pendingPromptRef = useRef<PendingPrompt | null>(null);
@@ -69,11 +74,22 @@ export function AssistantPage(): ReactElement {
     [navigate, upsert],
   );
 
+  // A trigger opened a pinned/flagged chat — pull the list so it surfaces
+  // immediately (push path; no polling).
+  useConversationEvents(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
+
   const onReplyComplete = useCallback(
     (conversationId: string): void => {
       touch(conversationId, new Date().toISOString());
+      // The backend clears `attention` on the user's reply — mirror it locally
+      // so the yellow dot disappears without a refetch.
+      clearAttention(conversationId);
     },
-    [touch],
+    [touch, clearAttention],
   );
 
   const onRename = useCallback(
@@ -128,7 +144,9 @@ export function AssistantPage(): ReactElement {
       </aside>
       <main className={styles.main}>
         {id === undefined ? (
-          <StartView onStart={onStart} />
+          // Key on the prefill so a fresh deep-link re-seeds the composer even
+          // if the start screen is already mounted.
+          <StartView key={prefill ?? 'blank'} onStart={onStart} initialText={prefill} />
         ) : (
           <ConversationView
             key={id}

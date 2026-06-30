@@ -12,8 +12,12 @@ function setup() {
       return undefined;
     }),
   };
-  const listener = new OutcomeClarifyListener(commandBus as never);
-  return { listener, commandBus };
+  const telemetry = { emitConversationOpened: jest.fn() };
+  const listener = new OutcomeClarifyListener(
+    commandBus as never,
+    telemetry as never,
+  );
+  return { listener, commandBus, telemetry };
 }
 
 function event(
@@ -57,6 +61,32 @@ describe('OutcomeClarifyListener', () => {
     expect(append!.conversationId).toBe('conv-1');
     expect(append!.role).toBe('assistant');
     expect(append!.meta).toMatchObject({ awaitingConfirmation: true });
+  });
+
+  it('pushes a conversation-opened SSE beat for the live chat UI', async () => {
+    const { listener, telemetry } = setup();
+
+    await listener.handle(event());
+
+    expect(telemetry.emitConversationOpened).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'u1',
+        conversationId: 'conv-1',
+        origin: 'system',
+        attention: true,
+      }),
+    );
+    const arg = telemetry.emitConversationOpened.mock.calls[0][0];
+    expect(arg.title).toBeTruthy();
+  });
+
+  it('does not emit the SSE beat when conversation creation fails', async () => {
+    const { listener, telemetry, commandBus } = setup();
+    commandBus.execute.mockRejectedValueOnce(new Error('db down'));
+
+    await listener.handle(event());
+
+    expect(telemetry.emitConversationOpened).not.toHaveBeenCalled();
   });
 
   it('names a missed-session conversation distinctly', async () => {

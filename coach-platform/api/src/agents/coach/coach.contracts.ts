@@ -84,6 +84,37 @@ export const lockWeeklyTargetsSchema = z.object({
 });
 export type LockWeeklyTargetsArgs = z.infer<typeof lockWeeklyTargetsSchema>;
 
+// ── propose_weekly_targets (conversational build: tentative Step A) ─────────
+//
+// Same shape as the lock, but NON-terminal: it stages a *tentative* proposal
+// (week stays `open`, `lockedAt=null`) so the coach can then explain it in plain
+// language and the user can accept or revise. The lock only happens on consent.
+export const proposeWeeklyTargetsSchema = z.object({
+  programId: z.string(),
+  weekIndex: z.number().int().min(0),
+  sessionCount: z
+    .number()
+    .int()
+    .min(1)
+    .describe('How many sessions this week should hold (proposed quota).'),
+  totalVolume: z
+    .number()
+    .min(0)
+    .describe(
+      'Native-unit weekly volume budget: total kilometres (running) or ' +
+        'total volume-load (strength).',
+    ),
+  keyGoals: z
+    .array(z.string())
+    .default([])
+    .describe('Free-text weekly intents, e.g. "one quality tempo", "long run".'),
+  rationale: z
+    .string()
+    .min(1)
+    .describe('Why this macro budget serves the goal + the week theme.'),
+});
+export type ProposeWeeklyTargetsArgs = z.infer<typeof proposeWeeklyTargetsSchema>;
+
 // ── upsert_week_sessions ───────────────────────────────────────────────────
 
 const runStepSchema = z.object({
@@ -204,3 +235,21 @@ export const upsertWeekSessionsSchema = z.object({
   sessions: z.array(plannedSessionDraftSchema).min(1),
 });
 export type UpsertWeekSessionsArgs = z.infer<typeof upsertWeekSessionsSchema>;
+
+// ── draft_next_session (conversational build: ONE session at a time) ────────
+//
+// Step B of the conversational build, per-session: draft EXACTLY ONE tentative
+// session — the next one not yet committed — so the athlete can review and
+// approve it on its own card before the next is drafted. Must fit inside the
+// LOCKED weekly targets given the sessions already committed (quota guardrail).
+export const draftSessionSchema = z.object({
+  programId: z.string(),
+  weekIndex: z.number().int().min(0),
+  weekStartDate: isoDate.describe('Local start date of the target week.'),
+  timezone: z.string().describe('IANA tz snapshot, e.g. "Europe/Berlin".'),
+  session: plannedSessionDraftSchema.describe(
+    'The single next session to draft (tentative). Its slotKey must be unique ' +
+      'within the week and must not collide with an already-committed session.',
+  ),
+});
+export type DraftSessionArgs = z.infer<typeof draftSessionSchema>;

@@ -3,9 +3,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { BaseTenantRepository } from '../../../common/infrastructure/base-tenant.repository';
 import {
+  BuildContext,
   Conversation,
   ConversationMode,
   ConversationOrigin,
+  ConversationPurpose,
   Message,
   PendingCandidate,
 } from '../domain/conversation.model';
@@ -44,15 +46,25 @@ export class ConversationRepository
       mode?: ConversationMode;
       origin?: ConversationOrigin;
       attention?: boolean;
+      purpose?: ConversationPurpose | null;
+      buildContext?: BuildContext | null;
     } = {},
   ): Promise<Conversation> {
+    // Default mode by origin: a human-opened chat starts read-only (`ask`) so
+    // mutation is a deliberate switch to Plan; a system-opened chat starts in
+    // `plan` because it exists precisely to adjust the week. An explicit
+    // `opts.mode` always wins. (The toConversation read-fallback stays `plan`
+    // for legacy rows that predate the mode field.)
+    const origin = opts.origin ?? 'user';
     const doc = await this.model.create({
       user_id: userId,
       title,
       status: 'active',
-      mode: opts.mode ?? 'plan',
-      origin: opts.origin ?? 'user',
+      mode: opts.mode ?? (origin === 'system' ? 'plan' : 'ask'),
+      origin,
       attention: opts.attention ?? false,
+      purpose: opts.purpose ?? null,
+      build_context: opts.buildContext ?? null,
       summary: '',
       summarized_up_to_seq: 0,
       last_seq: 0,
@@ -89,6 +101,22 @@ export class ConversationRepository
     return doc ? toConversation(doc) : null;
   }
 
+  async findOpenBuildConversation(
+    userId: string,
+  ): Promise<Conversation | null> {
+    // The active program_build chat the onboarding handoff opened. There is at
+    // most one in flight; pick the most-recently-touched active one so a stale
+    // closed build (re-onboarding) never shadows the live one.
+    const doc = (await this.model
+      .findOne(
+        this.scoped(userId, { purpose: 'program_build', status: 'active' }),
+      )
+      .sort({ updated_at: -1, _id: -1 })
+      .lean()
+      .exec()) as ConversationLean | null;
+    return doc ? toConversation(doc) : null;
+  }
+
   async listConversations(
     userId: string,
     opts: { cursor?: string | null; limit: number },
@@ -122,12 +150,18 @@ export class ConversationRepository
     // Atomically reserve the next seq on the conversation, then insert the
     // message with it. The unique {conversation_id, seq} index is the final
     // guard against any duplicate seq under concurrency.
+    //
+    // A user reply also clears the `attention` flag in the same atomic write:
+    // a system-opened chat is flagged for the user to read, and replying IS the
+    // acknowledgement. Harmless for user-origin chats (already false).
+    const update: Record<string, unknown> = { $inc: { last_seq: 1 } };
+    if (msg.role === 'user') {
+      update.$set = { attention: false };
+    }
     const updated = (await this.model
-      .findOneAndUpdate(
-        this.scoped(userId, { _id: conversationId }),
-        { $inc: { last_seq: 1 } },
-        { new: true },
-      )
+      .findOneAndUpdate(this.scoped(userId, { _id: conversationId }), update, {
+        new: true,
+      })
       .lean()
       .exec()) as ConversationLean | null;
     if (!updated) {
@@ -319,6 +353,9 @@ function toConversation(d: ConversationLean): Conversation {
     mode: d.mode ?? 'plan',
     origin: d.origin ?? 'user',
     attention: d.attention ?? false,
+    // Legacy rows predate these; an absent purpose reads as an ordinary chat.
+    purpose: d.purpose ?? null,
+    buildContext: d.build_context ?? null,
     summary: d.summary,
     summarizedUpToSeq: d.summarized_up_to_seq,
     lastSeq: d.last_seq,

@@ -10,8 +10,9 @@ interface UseAssistantComposer {
 export function useAssistantComposer(
   onSend: (text: string) => void,
   disabled: boolean,
+  initialText = '',
 ): UseAssistantComposer {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const canSend = !disabled && text.trim() !== '';
 
   const submit = useCallback((): void => {

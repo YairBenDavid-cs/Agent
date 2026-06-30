@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/shared/api/ApiError';
 import { postAssistantMessage } from '../api/assistantApi';
-import type { AssistantTurn } from '../types/assistant';
+import type { AssistantTurn, AssistantTurnResult } from '../types/assistant';
 import { useTurnHistory, type ThreadStatus } from './useTurnHistory';
 import { useAssistantStream, type StreamPhase } from './useAssistantStream';
 
@@ -23,13 +23,17 @@ interface UseAssistantThread {
 interface UseAssistantThreadOptions {
   initialPrompt?: string | undefined;
   onReplyComplete?: (() => void) | undefined;
+  // Fired with the full turn outcome after the reply lands, so the view can
+  // react to a fired pipeline (refresh the card), an Ask-mode intent block, or
+  // an awaiting-confirmation question.
+  onTurnComplete?: ((result: AssistantTurnResult) => void) | undefined;
 }
 
 export function useAssistantThread(
   conversationId: string,
   options: UseAssistantThreadOptions = {},
 ): UseAssistantThread {
-  const { initialPrompt, onReplyComplete } = options;
+  const { initialPrompt, onReplyComplete, onTurnComplete } = options;
 
   const { status, loadError, turns, append, remove } = useTurnHistory(conversationId);
   const { phase: streamPhase, progressDetail, open, close } = useAssistantStream();
@@ -68,13 +72,16 @@ export function useAssistantThread(
       abortRef.current = controller;
 
       postAssistantMessage(conversationId, trimmed, controller.signal).then(
-        (reply) => {
+        (result) => {
           abortRef.current = null;
           close();
           setPosting(false);
-          append(reply);
+          append(result.turn);
           if (onReplyComplete !== undefined) {
             onReplyComplete();
+          }
+          if (onTurnComplete !== undefined) {
+            onTurnComplete(result);
           }
         },
         (err: unknown) => {
@@ -90,7 +97,7 @@ export function useAssistantThread(
         },
       );
     },
-    [conversationId, posting, append, remove, open, close, onReplyComplete],
+    [conversationId, posting, append, remove, open, close, onReplyComplete, onTurnComplete],
   );
 
   const stop = useCallback((): void => {

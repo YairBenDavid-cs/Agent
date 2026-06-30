@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
+import { ApiError } from '../../common/errors/api-error';
 import { EventDiscipline } from '../../personalization/domain/preference-event.model';
 import { AppendMessageCommand } from '../conversation/application/commands/append-message.command';
 import { ConversationContextService } from '../conversation/application/conversation-context.service';
@@ -27,6 +28,7 @@ import {
   stripStructuredArtifacts,
 } from './assistant.salvage';
 import { DelegationService } from './delegation';
+import { BuildConversationOrchestrator } from '../build/build-conversation.orchestrator';
 
 /** Appended to an ASK-mode reply when the user asked for a change we won't make. */
 const ASK_MODE_BLOCKED_HINT =
@@ -87,6 +89,7 @@ export class AssistantService {
     private readonly commandBus: CommandBus,
     private readonly queue: PipelineQueue,
     private readonly conversationContext: ConversationContextService,
+    private readonly buildOrchestrator: BuildConversationOrchestrator,
     @Inject(CONVERSATION_REPOSITORY)
     private readonly conversations: ConversationRepositoryPort,
   ) {}
@@ -103,6 +106,27 @@ export class AssistantService {
     await this.commandBus.execute(
       new AppendMessageCommand(userId, conversationId, 'user', message),
     );
+
+    // 1a. Build-conversation routing. A `program_build` chat is a deterministic
+    //     state machine (propose targets → lock → draft → schedule), not a free
+    //     assistant turn — hand it to the orchestrator. A non-null result means
+    //     the orchestrator handled (and persisted) the turn; null means the live
+    //     phase isn't orchestrated yet, so fall through to the ordinary assistant.
+    const convo = await this.conversations.findConversation(
+      userId,
+      conversationId,
+    );
+    if (convo?.purpose === 'program_build') {
+      const built = await this.buildOrchestrator.handleTurn({
+        userId,
+        conversationId,
+        message,
+        discipline: opts.discipline,
+      });
+      if (built) {
+        return this.buildOutcome(conversationId, built);
+      }
+    }
 
     const seed = await this.seeds.buildCoachSeed(userId, opts.discipline);
 
@@ -242,6 +266,79 @@ export class AssistantService {
       pipelineRun,
       conversationId,
       assistantMessageId,
+    };
+  }
+
+  /**
+   * Map an orchestrator-handled build turn onto the assistant outcome the
+   * controller returns. The orchestrator already persisted both the reply and
+   * any state transition; this turn captures no preferences and fires no
+   * pipeline, so those fields are inert. `awaitingConfirmation` is threaded
+   * through so the UI keeps the consent affordance up at a build gate.
+   */
+  /**
+   * Confirm a slot pick on a `program_build` conversation: hands the chosen
+   * instant to the orchestrator (re-validate → schedule → calendar write →
+   * advance) and shapes the resulting build turn as a normal turn outcome. Throws
+   * when the conversation isn't a resolvable build.
+   */
+  async confirmBuildSlot(
+    userId: string,
+    conversationId: string,
+    scheduledStartUtc: string,
+  ): Promise<AssistantTurnOutcome> {
+    const built = await this.buildOrchestrator.confirmSlot(
+      userId,
+      conversationId,
+      scheduledStartUtc,
+    );
+    if (!built) {
+      throw ApiError.badRequest(
+        'This conversation is not an active program build.',
+      );
+    }
+    return this.buildOutcome(conversationId, built);
+  }
+
+  /**
+   * Re-greet an in-flight `program_build` conversation on reopen (BW4). Hands off
+   * to the orchestrator, which re-derives the phase and only posts when the build
+   * sits on an unperformed action step (resume is otherwise free). Returns the
+   * turn outcome when a message was posted, or null when nothing was needed / the
+   * conversation isn't a build.
+   */
+  async resumeBuild(
+    userId: string,
+    conversationId: string,
+  ): Promise<AssistantTurnOutcome | null> {
+    const convo = await this.conversations.findConversation(
+      userId,
+      conversationId,
+    );
+    if (convo?.purpose !== 'program_build') {
+      return null;
+    }
+    const built = await this.buildOrchestrator.resumeBuild(
+      userId,
+      conversationId,
+    );
+    return built ? this.buildOutcome(conversationId, built) : null;
+  }
+
+  private buildOutcome(
+    conversationId: string,
+    built: { reply: string; assistantMessageId: string; awaitingConfirmation: boolean },
+  ): AssistantTurnOutcome {
+    return {
+      lane: 'white',
+      reply: built.reply,
+      capturedCount: 0,
+      inferred: false,
+      awaitingConfirmation: built.awaitingConfirmation,
+      intentBlocked: false,
+      pipelineRun: null,
+      conversationId,
+      assistantMessageId: built.assistantMessageId,
     };
   }
 

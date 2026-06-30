@@ -8,6 +8,7 @@ import {
   StartConversationCommand,
   StartConversationResult,
 } from '../conversation/application/commands/start-conversation.command';
+import { AgentTelemetryService } from '../shared/llm/agent-telemetry.service';
 import {
   OUTCOME_CLARIFY_NEEDED,
   OutcomeClarifyNeededEvent,
@@ -35,18 +36,22 @@ import {
 export class OutcomeClarifyListener {
   private readonly logger = new Logger(OutcomeClarifyListener.name);
 
-  constructor(private readonly commandBus: CommandBus) {}
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly telemetry: AgentTelemetryService,
+  ) {}
 
   @OnEvent(OUTCOME_CLARIFY_NEEDED)
   async handle(event: OutcomeClarifyNeededEvent): Promise<void> {
     const { userId, plannedSessionId, status, reasonCode } = event.payload;
     try {
+      const title = this.name(status, reasonCode);
       const { conversationId } =
         await this.commandBus.execute<
           StartConversationCommand,
           StartConversationResult
         >(
-          new StartConversationCommand(userId, this.name(status, reasonCode), {
+          new StartConversationCommand(userId, title, {
             origin: 'system',
             mode: 'plan',
             attention: true,
@@ -62,6 +67,17 @@ export class OutcomeClarifyListener {
           { awaitingConfirmation: true },
         ),
       );
+
+      // Push the opened chat to any live SSE stream so the UI surfaces the
+      // pinned/flagged conversation without polling.
+      this.telemetry.emitConversationOpened({
+        userId,
+        conversationId,
+        title,
+        origin: 'system',
+        attention: true,
+      });
+
       this.logger.log(
         `Outcome clarify delivered for ${plannedSessionId} → conversation ${conversationId}.`,
       );

@@ -31,6 +31,19 @@ export interface ProgramRepositoryPort {
   ): Promise<void>;
 
   /**
+   * Stage a *tentative* Step-A proposal on one week: stamp its `weeklyTargets`
+   * with `lockedAt=null` while leaving `weekState='open'`. This is the
+   * conversational-build pre-lock state — the coach proposes a quota the user
+   * can still revise. Overwrites any prior tentative proposal on the same week.
+   */
+  proposeWeeklyTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: Omit<WeeklyTargets, 'lockedAt'>,
+  ): Promise<void>;
+
+  /**
    * Freeze Step A on one week: stamp its `weeklyTargets` quota and flip
    * `weekState` to 'targets_locked'. Targeted update on the matching week entry.
    */

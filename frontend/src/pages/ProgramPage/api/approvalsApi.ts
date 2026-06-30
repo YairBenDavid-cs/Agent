@@ -4,12 +4,13 @@ import { MOCK_APPROVAL_BATCH, MOCK_PENDING_BATCHES } from './mockData';
 
 // Frontend mirror of the backend approval contracts (agents/approval). A
 // generated week is a batch of per-session cards the user acts on as a unit:
-// approve (commit + calendar sync), revise (per-card feedback → re-plan), or
-// reject (discard the draft). Card content is rebuilt live server-side; this
-// client only carries the wire shapes the review UI renders.
+// approve (commit + calendar sync) or reject (discard the draft). Revise was
+// removed in the dual-mode redesign — targeted changes flow through Plan-mode
+// chat instead. Card content is rebuilt live server-side; this client only
+// carries the wire shapes the review UI renders.
 
 export type CardDiffStatus = 'new' | 'modified' | 'unchanged' | 'removed';
-export type ApprovalAction = 'approve' | 'revise' | 'reject';
+export type ApprovalAction = 'approve' | 'reject';
 export type CardBatchStatus =
   | 'pending'
   | 'approved'
@@ -53,14 +54,10 @@ export interface PendingCardBatch {
   status: CardBatchStatus;
 }
 
-export interface CardRevisionEdit {
-  plannedSessionId: string;
-  freeText: string;
-}
-
 export interface ApproveResult {
   committed: number;
-  calendar: { created: number; updated: number; deleted: number; skipped: number };
+  // Source: agents/approval/calendar-sync.service.ts CalendarSyncSummary.
+  calendar: { synced: number; failed: number };
 }
 
 // GET /assistant/approvals — the caller's pending card batches.
@@ -85,26 +82,11 @@ export async function fetchApprovalBatch(batchId: string): Promise<ApprovalBatch
 export async function approveBatch(batchId: string): Promise<ApproveResult> {
   if (MOCK_API) {
     await delay();
-    return { committed: 0, calendar: { created: 0, updated: 0, deleted: 0, skipped: 0 } };
+    return { committed: 0, calendar: { synced: 0, failed: 0 } };
   }
   return request<ApproveResult>(`/assistant/approvals/${encodeURIComponent(batchId)}/approve`, {
     method: 'POST',
   });
-}
-
-// POST /assistant/approvals/:batchId/revise — per-card edits → fresh re-plan.
-export async function reviseBatch(
-  batchId: string,
-  edits: CardRevisionEdit[],
-): Promise<{ revisionBatchId: string | null }> {
-  if (MOCK_API) {
-    await delay();
-    return { revisionBatchId: null };
-  }
-  return request<{ revisionBatchId: string | null }>(
-    `/assistant/approvals/${encodeURIComponent(batchId)}/revise`,
-    { method: 'POST', body: { edits } },
-  );
 }
 
 // POST /assistant/approvals/:batchId/reject — discard draft, keep committed.

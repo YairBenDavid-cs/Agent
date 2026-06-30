@@ -3,7 +3,7 @@ import { GetActiveProgramQuery } from '../../../program/application/queries/get-
 import { GetTrainingProfileQuery } from '../../../training/application/queries/get-training-profile.query';
 import { GetUserQuery } from '../../../users/application/queries/get-user.query';
 import { TrainingProfileCreatedEvent } from '../../../training/application/events/training-profile-created.event';
-import { Pipeline } from '../../orchestrator/pipeline.types';
+import { StartConversationCommand } from '../../conversation/application/commands/start-conversation.command';
 import { OnboardingGenerationListener } from '../onboarding-generation.listener';
 
 const USER = 'user-1';
@@ -43,14 +43,18 @@ const builtProgram = (id = 'built-prog') => ({
 
 interface Harness {
   listener: OnboardingGenerationListener;
-  enqueue: jest.Mock;
+  startBuild: jest.Mock;
   commandExecute: jest.Mock;
 }
 
 function makeListener(activeProgram: unknown): Harness {
-  const commandExecute = jest
-    .fn()
-    .mockResolvedValue({ programId: 'new-prog' });
+  // Commands: CreateProgram → { programId }, StartConversation → { conversationId }.
+  const commandExecute = jest.fn((command: unknown) => {
+    if (command instanceof StartConversationCommand) {
+      return Promise.resolve({ conversationId: 'convo-1' });
+    }
+    return Promise.resolve({ programId: 'new-prog' });
+  });
 
   const queryBus = {
     execute: (query: unknown) => {
@@ -69,78 +73,95 @@ function makeListener(activeProgram: unknown): Harness {
 
   const commandBus = { execute: commandExecute };
   const resolver = { resolve: jest.fn().mockResolvedValue(RESOLVED_CTX) };
-  const enqueue = jest.fn().mockResolvedValue(null);
-  const queue = { enqueue };
+  const startBuild = jest.fn().mockResolvedValue(undefined);
+  const orchestrator = { startBuild };
 
   const listener = new OnboardingGenerationListener(
     queryBus as never,
     commandBus as never,
     resolver as never,
-    queue as never,
+    orchestrator as never,
   );
-  return { listener, enqueue, commandExecute };
+  return { listener, startBuild, commandExecute };
 }
 
 const fire = (l: OnboardingGenerationListener) =>
   l.handle(new TrainingProfileCreatedEvent({ userId: USER }));
 
+/** Pull the StartConversationCommand the listener dispatched, if any. */
+function startConvoCall(commandExecute: jest.Mock): StartConversationCommand | undefined {
+  const call = commandExecute.mock.calls.find(
+    (c) => c[0] instanceof StartConversationCommand,
+  );
+  return call?.[0] as StartConversationCommand | undefined;
+}
+
 describe('OnboardingGenerationListener', () => {
   it('skips when the user already has a built program', async () => {
-    const { listener, enqueue, commandExecute } = makeListener(builtProgram());
+    const { listener, startBuild, commandExecute } = makeListener(builtProgram());
 
     await fire(listener);
 
-    expect(commandExecute).not.toHaveBeenCalled(); // no seed
-    expect(enqueue).not.toHaveBeenCalled(); // no generation
+    expect(commandExecute).not.toHaveBeenCalled(); // no seed, no conversation
+    expect(startBuild).not.toHaveBeenCalled(); // no build kicked off
   });
 
-  it('seeds a program and enqueues generation for a first-time user', async () => {
-    const { listener, enqueue, commandExecute } = makeListener({
+  it('seeds a program and opens a program_build conversation for a first-time user', async () => {
+    const { listener, startBuild, commandExecute } = makeListener({
       hasProgram: false,
       program: null,
     });
 
     await fire(listener);
 
-    expect(commandExecute).toHaveBeenCalledTimes(1);
+    // CreateProgram (seed) + StartConversation.
     expect(commandExecute.mock.calls[0][0]).toBeInstanceOf(CreateProgramCommand);
-    expect(enqueue).toHaveBeenCalledTimes(1);
-    const job = enqueue.mock.calls[0][0];
-    expect(job.pipeline).toBe(Pipeline.PROGRAM_GENERATION);
-    expect(job.ctx.userId).toBe(USER);
+    const start = startConvoCall(commandExecute);
+    expect(start).toBeInstanceOf(StartConversationCommand);
+    expect(start?.opts).toMatchObject({
+      mode: 'plan',
+      origin: 'system',
+      attention: true,
+      purpose: 'program_build',
+      buildContext: { programId: 'new-prog', weekIndex: 0 },
+    });
+
+    expect(startBuild).toHaveBeenCalledTimes(1);
+    expect(startBuild.mock.calls[0][0]).toMatchObject({
+      userId: USER,
+      conversationId: 'convo-1',
+      programId: 'new-prog',
+      discipline: 'running',
+      weekIndex: 0,
+    });
   });
 
-  it('resumes generation on a bare seed without re-seeding', async () => {
-    const { listener, enqueue, commandExecute } = makeListener(
+  it('resumes the build on a bare seed without re-seeding', async () => {
+    const { listener, startBuild, commandExecute } = makeListener(
       unbuiltProgram('seed-prog'),
     );
 
     await fire(listener);
 
-    expect(commandExecute).not.toHaveBeenCalled(); // reuse the existing seed
-    expect(enqueue).toHaveBeenCalledTimes(1);
-    expect(enqueue.mock.calls[0][0].pipeline).toBe(Pipeline.PROGRAM_GENERATION);
+    // No CreateProgram — reuse the existing seed.
+    expect(
+      commandExecute.mock.calls.some((c) => c[0] instanceof CreateProgramCommand),
+    ).toBe(false);
+    const start = startConvoCall(commandExecute);
+    expect(start?.opts.buildContext).toEqual({
+      programId: 'seed-prog',
+      weekIndex: 0,
+    });
+    expect(startBuild).toHaveBeenCalledTimes(1);
+    expect(startBuild.mock.calls[0][0].programId).toBe('seed-prog');
   });
 
-  it('uses a unique runId so an interrupted run does not dedupe the resume', async () => {
-    const a = makeListener(unbuiltProgram());
-    const b = makeListener(unbuiltProgram());
-
-    await fire(a.listener);
-    await fire(b.listener);
-
-    const runIdA = a.enqueue.mock.calls[0][0].ctx.runId as string;
-    const runIdB = b.enqueue.mock.calls[0][0].ctx.runId as string;
-    expect(runIdA).toContain('program-gen:onboarding:');
-    expect(runIdA).not.toBe(runIdB);
-  });
-
-  it('does not throw when generation wiring fails (fire-and-forget)', async () => {
-    const { listener, enqueue } = makeListener({
+  it('does not throw when build wiring fails (fire-and-forget)', async () => {
+    const { listener, startBuild } = makeListener({
       hasProgram: false,
       program: null,
     });
-    enqueue.mockRejectedValueOnce(new Error('queue down'));
+    startBuild.mockRejectedValueOnce(new Error('coach down'));
 
     await expect(fire(listener)).resolves.toBeUndefined();
   });

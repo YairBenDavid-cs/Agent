@@ -5,7 +5,7 @@ import { CardBatchStatus } from '../domain/pending-card-batch.model';
 
 export type PendingCardBatchDocument = HydratedDocument<PendingCardBatchDoc>;
 
-const KINDS: DraftKind[] = ['session_day', 'user_initiated'];
+const KINDS: DraftKind[] = ['session_day', 'user_initiated', 'build_session'];
 const STATUSES: CardBatchStatus[] = [
   'pending',
   'approved',

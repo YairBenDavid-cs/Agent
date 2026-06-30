@@ -95,11 +95,15 @@ describe('ApprovalService.approveByBatch — action-point buffer flush', () => {
       return {};
     });
 
+    const buildOrchestrator = {
+      advanceAfterSessionApproved: jest.fn().mockResolvedValue(null),
+    };
     const service = new ApprovalService(
       queryBus as never,
       commandBus as never,
       calendarSync as never,
       batches as never,
+      buildOrchestrator as never,
     );
     return { service, commandBus };
   }

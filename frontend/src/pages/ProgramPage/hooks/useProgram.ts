@@ -12,9 +12,7 @@ import {
   fetchPendingApprovals,
   regenerateProgram,
   rejectBatch,
-  reviseBatch,
   type ApprovalBatchView,
-  type CardRevisionEdit,
 } from '../api/approvalsApi';
 
 interface ProgramState {
@@ -37,7 +35,6 @@ interface ProgramState {
   actionPending: boolean;
   actionError: string | null;
   approve: () => Promise<void>;
-  revise: (edits: CardRevisionEdit[]) => Promise<void>;
   reject: () => Promise<void>;
 }
 
@@ -316,14 +313,6 @@ export function useProgram(): ProgramState {
     await runAction(() => approveBatch(pendingBatch.batchId), false);
   }, [pendingBatch, runAction]);
 
-  const revise = useCallback(
-    async (edits: CardRevisionEdit[]) => {
-      if (!pendingBatch || edits.length === 0) return;
-      await runAction(() => reviseBatch(pendingBatch.batchId, edits), true);
-    },
-    [pendingBatch, runAction],
-  );
-
   const reject = useCallback(async () => {
     if (!pendingBatch) return;
     await runAction(() => rejectBatch(pendingBatch.batchId), false);
@@ -347,7 +336,6 @@ export function useProgram(): ProgramState {
     actionPending,
     actionError,
     approve,
-    revise,
     reject,
   };
 }

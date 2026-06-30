@@ -115,6 +115,9 @@ export function ConversationRow({
         className={styles.title}
         onClick={() => onSelect(conversation.id)}
       >
+        {conversation.attention && (
+          <span className={styles.attentionDot} aria-label="Needs your attention" />
+        )}
         {conversation.title}
       </button>
       <button
