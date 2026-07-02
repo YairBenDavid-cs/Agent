@@ -28,6 +28,8 @@ interface ApiConversation {
   origin: 'user' | 'system';
   attention: boolean;
   pendingCardBatchId: string | null;
+  purpose: 'program_build' | null;
+  buildContext: { programId: string; weekIndex: number } | null;
 }
 
 interface ApiMessage {
@@ -73,6 +75,32 @@ function toAssistantConversation(c: ApiConversation): AssistantConversation {
     origin: c.origin,
     attention: c.attention,
     pendingCardBatchId: c.pendingCardBatchId,
+    purpose: c.purpose ?? null,
+    buildContext: c.buildContext ?? null,
+  };
+}
+
+// Map a synchronous turn outcome (POST .../messages | confirm-slot | resume) onto
+// the chat surface's AssistantTurnResult. The slotProposal/buildRetry meta is NOT
+// on this body — it lives on the persisted message, so build callers refetch the
+// transcript after the turn to read it.
+function toTurnResult(outcome: AssistantTurnOutcome): AssistantTurnResult {
+  return {
+    turn: {
+      id: outcome.assistantMessageId,
+      conversationId: outcome.conversationId,
+      role: 'assistant' as const,
+      text: outcome.reply,
+      createdAt: new Date().toISOString(),
+      meta: {
+        lane: outcome.lane,
+        awaitingConfirmation: outcome.awaitingConfirmation,
+      },
+    },
+    conversationId: outcome.conversationId,
+    intentBlocked: outcome.intentBlocked,
+    awaitingConfirmation: outcome.awaitingConfirmation,
+    pipelineRun: outcome.pipelineRun,
   };
 }
 
@@ -207,21 +235,47 @@ export function postAssistantMessage(
     signal !== undefined
       ? request<AssistantTurnOutcome>(path, { method: 'POST', body: { message: text }, signal })
       : request<AssistantTurnOutcome>(path, { method: 'POST', body: { message: text } });
-  return result.then((outcome) => ({
-    turn: {
-      id: outcome.assistantMessageId,
-      conversationId: outcome.conversationId,
-      role: 'assistant' as const,
-      text: outcome.reply,
-      createdAt: new Date().toISOString(),
-      meta: {
-        lane: outcome.lane,
-        awaitingConfirmation: outcome.awaitingConfirmation,
-      },
-    },
-    conversationId: outcome.conversationId,
-    intentBlocked: outcome.intentBlocked,
-    awaitingConfirmation: outcome.awaitingConfirmation,
-    pipelineRun: outcome.pipelineRun,
-  }));
+  return result.then(toTurnResult);
+}
+
+// GET /assistant/conversations/build — the in-flight program_build chat opened by
+// the onboarding handoff, or null when none is underway. The onboarding finish
+// step polls this to discover the conversation and navigate the user into it.
+// Build is backend-driven (no mock) — under MOCK_API there's nothing to find.
+export function getBuildConversation(): Promise<AssistantConversation | null> {
+  if (MOCK_API) {
+    return Promise.resolve(null);
+  }
+  return request<{ conversation: ApiConversation | null }>(
+    '/assistant/conversations/build',
+  ).then((res) => (res.conversation ? toAssistantConversation(res.conversation) : null));
+}
+
+// POST /assistant/conversations/:id/confirm-slot — confirm the user's slot pick on
+// a program_build chat. Re-validates + schedules + advances the build server-side,
+// returning the next turn (which may carry the next slotProposal, on the message).
+export function confirmBuildSlot(
+  conversationId: string,
+  scheduledStartUtc: string,
+): Promise<AssistantTurnResult> {
+  return request<AssistantTurnOutcome>(
+    `/assistant/conversations/${conversationId}/confirm-slot`,
+    { method: 'POST', body: { scheduledStartUtc } },
+  ).then(toTurnResult);
+}
+
+// POST /assistant/conversations/:id/resume — re-greet an in-flight build on reopen.
+// The server derives the live phase; it only posts when the build sits on an
+// unperformed step. Null `outcome` means nothing was posted (just render the
+// transcript). Build is backend-driven, so this is a no-op under MOCK_API.
+export function resumeBuild(
+  conversationId: string,
+): Promise<AssistantTurnResult | null> {
+  if (MOCK_API) {
+    return Promise.resolve(null);
+  }
+  return request<{ outcome: AssistantTurnOutcome | null }>(
+    `/assistant/conversations/${conversationId}/resume`,
+    { method: 'POST', body: {} },
+  ).then((res) => (res.outcome ? toTurnResult(res.outcome) : null));
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '@/shared/api/ApiError';
+import { getBuildConversation } from '@/pages/AssistantPage/domain/assistant/api/assistantApi';
 import { submitOnboarding } from '../api/submitOnboarding';
 import { buildPayload } from '../domain/buildPayload';
 import {
@@ -136,6 +137,31 @@ function clearPersistedDraft(): void {
   sessionStorage.removeItem(STEP_KEY);
 }
 
+// The server opens the program_build chat asynchronously (a listener on the
+// training-profile event seeds the program, then opens the chat). Poll briefly
+// for it after submit so we can land the user directly in the build. Resolves
+// with the conversation id, or null if it doesn't appear within the window.
+const BUILD_POLL_MS = 1500;
+const BUILD_POLL_ATTEMPTS = 14; // ~21s — generous headroom for the kickoff.
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+async function pollForBuildConversation(): Promise<string | null> {
+  for (let attempt = 0; attempt < BUILD_POLL_ATTEMPTS; attempt += 1) {
+    try {
+      const conversation = await getBuildConversation();
+      if (conversation !== null) {
+        return conversation.id;
+      }
+    } catch {
+      // Transient — keep polling until the window lapses.
+    }
+    await delay(BUILD_POLL_MS);
+  }
+  return null;
+}
+
 /** Safe lookup — stepIndex is always in range, but the compiler can't prove it. */
 function stepAt(index: number): StepMeta {
   const meta = STEPS[index];
@@ -190,12 +216,18 @@ export function useOnboarding(): UseOnboarding {
     setSubmitting(true);
     setError(null);
     submitOnboarding(buildPayload(draft)).then(
-      () => {
-        // Profile created — the server now auto-generates the first program.
-        // Drop the persisted wizard state and head to the program view, where
-        // the user watches generation progress and reviews the built week.
+      async () => {
+        // Profile created. The server opens a `program_build` chat where the coach
+        // walks the user through their first week (no autonomous generation). Drop
+        // the persisted wizard state, then poll for that chat and land the user in
+        // it. If it doesn't appear in time, fall back to the program view.
         clearPersistedDraft();
-        navigate('/program', { replace: true, state: { fromOnboarding: true } });
+        const conversationId = await pollForBuildConversation();
+        if (conversationId !== null) {
+          navigate(`/assistant/${conversationId}`, { replace: true });
+        } else {
+          navigate('/program', { replace: true, state: { fromOnboarding: true } });
+        }
       },
       (err: unknown) => {
         setError(

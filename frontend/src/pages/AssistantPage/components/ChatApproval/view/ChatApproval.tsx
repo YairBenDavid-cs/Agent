@@ -1,11 +1,17 @@
 import type { ReactElement } from 'react';
 import type { ApprovalBatchView, ApprovalCard } from '@/pages/ProgramPage/api/approvalsApi';
 import type { ConversationMode } from '@/pages/AssistantPage/domain/assistant/types/assistant';
+import type { PlannedSession } from '@/pages/ProgramPage/domain/types';
+import { WorkoutBody } from '@/pages/ProgramPage/components/WorkoutBody/WorkoutBody';
 import { CheckIcon } from '@/shared/ui/icons/CheckIcon';
 import styles from './ChatApproval.module.css';
 
 interface ChatApprovalProps {
   batch: ApprovalBatchView;
+  // Full prescriptions for build_session cards, keyed by sessionId. When a card
+  // matches, we render the same workout body as the program page; otherwise we
+  // fall back to the compact line.
+  sessionsById: Map<string, PlannedSession>;
   mode: ConversationMode;
   actionPending: boolean;
   actionError: string | null;
@@ -60,12 +66,22 @@ function cardsToShow(batch: ApprovalBatchView): ApprovalCard[] {
   return changed.length > 0 ? changed : batch.cards;
 }
 
-function CardBody({ cards }: { cards: ApprovalCard[] }): ReactElement {
+function CardBody({
+  cards,
+  sessionsById,
+}: {
+  cards: ApprovalCard[];
+  sessionsById: Map<string, PlannedSession>;
+}): ReactElement {
   return (
     <div className={styles.cards}>
       {cards.map((card, i) => {
         const removed = card.diffStatus === 'removed';
         const day = weekday(card.scheduledDate);
+        // A build_session card whose full prescription we resolved renders the
+        // same workout body as the program page; a removed card or an unmatched
+        // one (week_review / mock / race) keeps the compact line.
+        const session = removed ? undefined : sessionsById.get(card.sessionId);
         return (
           <div key={card.sessionId} className={styles.card}>
             <div className={styles.cardEyebrow}>
@@ -82,6 +98,7 @@ function CardBody({ cards }: { cards: ApprovalCard[] }): ReactElement {
               {card.scheduledDate} · {card.startTime} · {card.intensityLabel} ·{' '}
               {card.estDurationMin} min
             </span>
+            {session && <WorkoutBody session={session} className={styles.workout} />}
             {card.coachNotes && <p className={styles.notes}>{card.coachNotes}</p>}
             {card.placementNote && <p className={styles.placement}>{card.placementNote}</p>}
           </div>
@@ -104,6 +121,7 @@ function CardBody({ cards }: { cards: ApprovalCard[] }): ReactElement {
  */
 export function ChatApproval({
   batch,
+  sessionsById,
   mode,
   actionPending,
   actionError,
@@ -122,7 +140,7 @@ export function ChatApproval({
     return (
       <div className={styles.panel}>
         <Header status="Superseded" />
-        <CardBody cards={cards} />
+        <CardBody cards={cards} sessionsById={sessionsById} />
         <div className={styles.footer}>
           <p className={styles.superseded}>This plan was superseded by a newer one.</p>
           <button type="button" className={styles.refresh} onClick={onRefresh}>
@@ -142,7 +160,7 @@ export function ChatApproval({
   return (
     <div className={styles.panel}>
       <Header status={status} />
-      <CardBody cards={cards} />
+      <CardBody cards={cards} sessionsById={sessionsById} />
 
       {isPending && actionError && <p className={styles.error}>{actionError}</p>}
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MutableRefObject, ReactElement } from 'react';
 import { Spinner } from '@/shared/ui/Spinner/Spinner';
@@ -16,6 +16,7 @@ import { TurnList } from '../../TurnList/view/TurnList';
 import { AssistantComposer } from '../../AssistantComposer/view/AssistantComposer';
 import { ChatApproval } from '../../ChatApproval/view/ChatApproval';
 import { ModeToggle } from '../../ModeToggle/ModeToggle';
+import { SlotProposal } from '../../SlotProposal/SlotProposal';
 import styles from './ConversationView.module.css';
 
 interface ConversationViewProps {
@@ -53,22 +54,24 @@ export function ConversationView({
     onResolved: refresh,
   });
 
-  // The turn-level signals that drive the consent affordances. Reset whenever a
-  // new turn starts so a stale block/confirmation never lingers.
+  const isBuild = conversation?.purpose === 'program_build';
+
+  // Ask-mode intent block is a per-turn signal (not persisted on the message), so
+  // it's React state reset on each new turn. Confirmation / slot / retry
+  // affordances are derived from the transcript below so they survive reload.
   const [intentBlocked, setIntentBlocked] = useState(false);
-  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
 
   const onTurnComplete = useCallback(
     (result: AssistantTurnResult): void => {
       setIntentBlocked(result.intentBlocked);
-      setAwaitingConfirmation(result.awaitingConfirmation);
       // A fired pipeline may have produced (or superseded) a card batch — and
-      // clears `attention` server-side. Re-derive the conversation either way.
-      if (result.pipelineRun !== null || result.intentBlocked) {
+      // clears `attention` server-side. Re-derive the conversation either way. A
+      // build turn always re-derives (it may have opened/closed a session card).
+      if (result.pipelineRun !== null || result.intentBlocked || isBuild) {
         refresh();
       }
     },
-    [refresh],
+    [refresh, isBuild],
   );
 
   const {
@@ -82,12 +85,36 @@ export function ConversationView({
     send,
     stop,
     retry,
-  } = useAssistantThread(conversationId, { initialPrompt, onReplyComplete, onTurnComplete });
+    confirmSlot,
+    resume,
+  } = useAssistantThread(conversationId, {
+    initialPrompt,
+    onReplyComplete,
+    onTurnComplete,
+    isBuild,
+  });
+
+  // Re-greet an in-flight build on open. The server derives the live phase and
+  // only posts when it sits on an unperformed step (decision 12); otherwise it's
+  // a no-op and we just render the transcript. Once per conversation open.
+  const resumedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isBuild && status === 'ready' && resumedRef.current !== conversationId) {
+      resumedRef.current = conversationId;
+      resume();
+    }
+  }, [isBuild, status, conversationId, resume]);
+
+  // Derive the live build affordances from the latest assistant turn's meta, so
+  // they survive a transcript reload / reopen (the meta lives on the message).
+  const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
+  const slotProposal = lastAssistant?.meta?.slotProposal ?? null;
+  const buildRetry = lastAssistant?.meta?.buildRetry === true;
+  const awaitingConfirmation = lastAssistant?.meta?.awaitingConfirmation === true;
 
   const onSend = useCallback(
     (text: string): void => {
       setIntentBlocked(false);
-      setAwaitingConfirmation(false);
       send(text);
     },
     [send],
@@ -109,7 +136,6 @@ export function ConversationView({
 
   const onConfirm = useCallback(
     (apply: boolean): void => {
-      setAwaitingConfirmation(false);
       onSend(apply ? CONFIRM_YES : CONFIRM_NO);
     },
     [onSend],
@@ -142,6 +168,7 @@ export function ConversationView({
       {approval.batch !== null && (
         <ChatApproval
           batch={approval.batch}
+          sessionsById={approval.sessionsById}
           mode={mode}
           actionPending={approval.actionPending}
           actionError={approval.actionError}
@@ -152,20 +179,46 @@ export function ConversationView({
         />
       )}
 
-      {awaitingConfirmation && !isBusy && (
+      {slotProposal !== null && !isBusy && (
+        <SlotProposal
+          candidates={slotProposal.candidates}
+          disabled={isBusy}
+          onPick={confirmSlot}
+        />
+      )}
+
+      {buildRetry && !isBusy && (
         <div className={styles.consent}>
-          <span className={styles.consentText}>Apply this change?</span>
-          <div className={styles.consentActions}>
-            <button type="button" className={styles.consentApprove} onClick={() => onConfirm(true)}>
-              <CheckIcon />
-              Approve &amp; apply
-            </button>
-            <button type="button" className={styles.consentCancel} onClick={() => onConfirm(false)}>
-              Cancel
-            </button>
-          </div>
+          <span className={styles.consentText}>
+            I couldn’t reach your coach. Want me to try again?
+          </span>
+          <button type="button" className={styles.consentApprove} onClick={resume}>
+            <CheckIcon />
+            Retry
+          </button>
         </div>
       )}
+
+      {/* Generic yes/no consent (e.g. lock weekly targets). Suppressed when a card,
+          slot picker, or retry already owns the decision. */}
+      {awaitingConfirmation &&
+        !isBusy &&
+        approval.batch === null &&
+        slotProposal === null &&
+        !buildRetry && (
+          <div className={styles.consent}>
+            <span className={styles.consentText}>Apply this change?</span>
+            <div className={styles.consentActions}>
+              <button type="button" className={styles.consentApprove} onClick={() => onConfirm(true)}>
+                <CheckIcon />
+                Approve &amp; apply
+              </button>
+              <button type="button" className={styles.consentCancel} onClick={() => onConfirm(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
       {intentBlocked && !isBusy && (
         <div className={styles.consent}>

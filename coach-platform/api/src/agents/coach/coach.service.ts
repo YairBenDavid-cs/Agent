@@ -54,7 +54,7 @@ import {
   validateWeek,
   WeekGuardrailContext,
 } from './coach.guardrails';
-import { COACH_SYSTEM_PROMPT } from './coach.prompt';
+import { COACH_SYSTEM_PROMPT, INTERVIEW_DOCTRINE } from './coach.prompt';
 
 /** Inputs the orchestrator hands the Coach to draft the next build session. */
 export interface DraftNextSessionOptions {
@@ -175,14 +175,18 @@ export class CoachService {
       agentName: 'coach',
       systemPrompt: COACH_SYSTEM_PROMPT,
       seedMessage:
-        `${seed.seedMessage}\n\n== TASK (Conversational build — propose week targets) ==\n` +
-        `Decide the macro budget for week index ${targetWeek}: how many sessions, ` +
+        `${seed.seedMessage}\n\n${INTERVIEW_DOCTRINE}\n\n` +
+        `== TASK (Conversational build — propose week targets) ==\n` +
+        `Settle the macro budget for week index ${targetWeek}: how many sessions, ` +
         `the total native-unit volume (km for running, volume-load for strength), ` +
-        `and the key weekly goals. First call propose_weekly_targets exactly once ` +
-        `with programId "${seed.programId ?? ''}". Then, in plain language, write a ` +
-        `short, warm message (2–4 sentences) to the athlete proposing this first ` +
-        `week — name the session count and the main intents — and ask whether it ` +
-        `looks good or they'd like to adjust. Do NOT lock anything yet.`,
+        `and the key weekly goals.\n` +
+        `Per the interview style: if a decision-relevant detail is genuinely ` +
+        `unknown, ask ONE question (with your recommended answer + the data reason) ` +
+        `and STOP without calling any tool. Otherwise, call propose_weekly_targets ` +
+        `exactly once with programId "${seed.programId ?? ''}", then write a short, ` +
+        `warm message (2–4 sentences) proposing this first week — name the session ` +
+        `count and the main intents — and ask whether it looks good or they'd like ` +
+        `to adjust. Do NOT lock anything yet.`,
       tools,
       ctx,
     });
@@ -330,7 +334,8 @@ export class CoachService {
       agentName: 'coach',
       systemPrompt: COACH_SYSTEM_PROMPT,
       seedMessage:
-        `${seed.seedMessage}\n\n== TASK (Conversational build — draft session ` +
+        `${seed.seedMessage}\n\n${INTERVIEW_DOCTRINE}\n\n` +
+        `== TASK (Conversational build — draft session ` +
         `${sessionNumber} of ${opts.targets.sessionCount}) ==\n` +
         `Week index ${opts.weekIndex} (starts ${opts.weekStartDate}, timezone ` +
         `${opts.timezone}). The week's LOCKED targets are:\n` +
@@ -338,11 +343,14 @@ export class CoachService {
         `  • total volume: ${opts.targets.totalVolume}\n` +
         `  • key goals: ${goals}\n` +
         `Already committed slotKeys: ${committedList}.\n\n` +
-        `Draft EXACTLY ONE new session — the next one — that fits the remaining ` +
-        `quota. Call draft_next_session exactly once with programId ` +
-        `"${programId ?? ''}" and a unique slotKey. Then write a short, warm ` +
-        `message (2–3 sentences) describing this session to the athlete and ask ` +
-        `if it looks good to add. Do not draft more than one session.`,
+        `Per the interview style: if a detail that would change THIS session is ` +
+        `genuinely unknown, ask ONE question (with your recommended answer + the ` +
+        `data reason) and STOP without calling any tool. Otherwise, draft EXACTLY ` +
+        `ONE new session — the next one — that fits the remaining quota: call ` +
+        `draft_next_session exactly once with programId "${programId ?? ''}" and a ` +
+        `unique slotKey, then write a short, warm message (2–3 sentences) ` +
+        `describing this session to the athlete and ask if it looks good to add. ` +
+        `Do not draft more than one session.`,
       tools,
       ctx,
     });

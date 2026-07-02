@@ -21,6 +21,7 @@ export function ProgramPage(): ReactElement {
     sessions,
     sessionsLoading,
     selectWeek,
+    buildConversationId,
     generating,
     progressText,
     genError,
@@ -103,6 +104,10 @@ export function ProgramPage(): ReactElement {
     <Shell>
       <GoalHeader program={program} />
 
+      {buildConversationId !== null && (
+        <BuildBanner onOpen={() => navigate(`/assistant/${buildConversationId}`)} />
+      )}
+
       <nav className={styles.weekNav}>
         <button
           type="button"
@@ -170,6 +175,26 @@ export function ProgramPage(): ReactElement {
         </>
       )}
     </Shell>
+  );
+}
+
+// Surfaced while the coach is building the current week turn-by-turn in a
+// `program_build` chat. The page live-refreshes as each session is committed and
+// scheduled, but the build itself happens in the conversation — so we point the
+// user there to keep it moving.
+function BuildBanner({ onOpen }: { onOpen: () => void }): ReactElement {
+  return (
+    <div className={styles.buildBanner}>
+      <div className={styles.buildText}>
+        <span className={styles.buildTitle}>Your coach is building this week with you</span>
+        <span className={styles.buildSub}>
+          Sessions appear here as you confirm them in chat.
+        </span>
+      </div>
+      <button type="button" className={styles.buildCta} onClick={onOpen}>
+        Open chat
+      </button>
+    </div>
   );
 }
 

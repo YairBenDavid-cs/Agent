@@ -20,6 +20,8 @@ export function mockCreateConversation(): AssistantConversation {
     origin: 'user',
     attention: false,
     pendingCardBatchId: null,
+    purpose: null,
+    buildContext: null,
   };
   conversations.set(id, conversation);
   turns.set(id, []);
@@ -42,6 +44,8 @@ export function mockRenameConversation(
         origin: 'user',
         attention: false,
         pendingCardBatchId: null,
+        purpose: null,
+        buildContext: null,
       };
   conversations.set(conversationId, updated);
   return updated;

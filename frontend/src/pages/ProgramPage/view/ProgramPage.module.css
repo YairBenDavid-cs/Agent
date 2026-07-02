@@ -324,6 +324,52 @@
   color: var(--ac-accent);
 }
 
+/* Build-in-progress banner — coach is building this week turn-by-turn in chat. */
+.buildBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wa-space-3);
+  padding: var(--wa-space-3) var(--wa-space-4);
+  background: color-mix(in srgb, var(--ac-accent) 10%, var(--pg-card-grad));
+  border: 1px solid var(--pg-accent-pill-border);
+  border-radius: 16px;
+}
+
+.buildText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.buildTitle {
+  font-weight: 700;
+  color: #fff;
+}
+
+.buildSub {
+  font-size: 0.85rem;
+  color: var(--pg-muted);
+}
+
+.buildCta {
+  flex: 0 0 auto;
+  border: 1px solid var(--ac-accent);
+  background: var(--ac-accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: var(--wa-space-2) var(--wa-space-4);
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.buildCta:hover {
+  filter: brightness(1.08);
+}
+
 /* Session cards in a responsive auto-fit grid — matches the design. */
 .cardGrid {
   display: grid;

@@ -31,6 +31,22 @@ export async function fetchCalendarRange(
   return request<PlannedSession[]>(`/planned-sessions${query}`);
 }
 
+// GET /planned-sessions/week/:index?programId= — every planned session for one
+// program week, including the full running/strength prescription. Used to enrich
+// a build_session approval card in chat with the same workout body the program
+// page renders.
+export async function fetchProgramWeekSessions(
+  programId: string,
+  weekIndex: number,
+): Promise<PlannedSession[]> {
+  if (MOCK_API) {
+    await delay();
+    return MOCK_PLANNED_SESSIONS;
+  }
+  const query = `?programId=${encodeURIComponent(programId)}`;
+  return request<PlannedSession[]>(`/planned-sessions/week/${weekIndex}${query}`);
+}
+
 function delay(ms = 300): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

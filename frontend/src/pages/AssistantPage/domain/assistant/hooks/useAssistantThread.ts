@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/shared/api/ApiError';
-import { postAssistantMessage } from '../api/assistantApi';
+import {
+  confirmBuildSlot,
+  postAssistantMessage,
+  resumeBuild,
+} from '../api/assistantApi';
 import type { AssistantTurn, AssistantTurnResult } from '../types/assistant';
 import { useTurnHistory, type ThreadStatus } from './useTurnHistory';
 import { useAssistantStream, type StreamPhase } from './useAssistantStream';
@@ -18,6 +22,10 @@ interface UseAssistantThread {
   send: (text: string) => void;
   stop: () => void;
   retry: () => void;
+  // Build-flow actions (no-ops on ordinary chats). `confirmSlot` picks a proposed
+  // calendar slot; `resume` re-greets an in-flight build (used on reopen + retry).
+  confirmSlot: (scheduledStartUtc: string) => void;
+  resume: () => void;
 }
 
 interface UseAssistantThreadOptions {
@@ -27,15 +35,20 @@ interface UseAssistantThreadOptions {
   // react to a fired pipeline (refresh the card), an Ask-mode intent block, or
   // an awaiting-confirmation question.
   onTurnComplete?: ((result: AssistantTurnResult) => void) | undefined;
+  // A program_build conversation: turns persist slotProposal/buildRetry meta on
+  // the message, so the thread reloads the transcript after a turn instead of
+  // optimistically appending the (meta-less) reply.
+  isBuild?: boolean | undefined;
 }
 
 export function useAssistantThread(
   conversationId: string,
   options: UseAssistantThreadOptions = {},
 ): UseAssistantThread {
-  const { initialPrompt, onReplyComplete, onTurnComplete } = options;
+  const { initialPrompt, onReplyComplete, onTurnComplete, isBuild = false } = options;
 
-  const { status, loadError, turns, append, remove } = useTurnHistory(conversationId);
+  const { status, loadError, turns, append, remove, reload } =
+    useTurnHistory(conversationId);
   const { phase: streamPhase, progressDetail, open, close } = useAssistantStream();
 
   const lastPromptRef = useRef<string | null>(null);
@@ -76,7 +89,14 @@ export function useAssistantThread(
           abortRef.current = null;
           close();
           setPosting(false);
-          append(result.turn);
+          // Build turns carry their slotProposal/buildRetry meta on the persisted
+          // message (not the POST body), so reload from the server to render the
+          // authoritative transcript. Ordinary chats append the reply directly.
+          if (isBuild) {
+            reload();
+          } else {
+            append(result.turn);
+          }
           if (onReplyComplete !== undefined) {
             onReplyComplete();
           }
@@ -97,8 +117,79 @@ export function useAssistantThread(
         },
       );
     },
-    [conversationId, posting, append, remove, open, close, onReplyComplete, onTurnComplete],
+    [
+      conversationId,
+      posting,
+      append,
+      remove,
+      open,
+      close,
+      reload,
+      isBuild,
+      onReplyComplete,
+      onTurnComplete,
+    ],
   );
+
+  // Confirm a proposed calendar slot. Like `send` but the user input is a pick,
+  // not text, so there's no optimistic turn — we reload once the server advances.
+  const confirmSlot = useCallback(
+    (scheduledStartUtc: string): void => {
+      if (posting) {
+        return;
+      }
+      setSendError(null);
+      setPosting(true);
+      open();
+      confirmBuildSlot(conversationId, scheduledStartUtc).then(
+        (result) => {
+          close();
+          setPosting(false);
+          reload();
+          if (onReplyComplete !== undefined) {
+            onReplyComplete();
+          }
+          if (onTurnComplete !== undefined) {
+            onTurnComplete(result);
+          }
+        },
+        (err: unknown) => {
+          close();
+          setPosting(false);
+          setSendError(
+            err instanceof ApiError ? err.message : 'Could not confirm that time.',
+          );
+        },
+      );
+    },
+    [conversationId, posting, open, close, reload, onReplyComplete, onTurnComplete],
+  );
+
+  // Re-greet an in-flight build (reopen + buildRetry). The server only posts when
+  // the build sits on an unperformed step; either way we reload the transcript.
+  const resume = useCallback((): void => {
+    if (posting) {
+      return;
+    }
+    setSendError(null);
+    setPosting(true);
+    open();
+    resumeBuild(conversationId).then(
+      (result) => {
+        close();
+        setPosting(false);
+        reload();
+        if (result !== null && onTurnComplete !== undefined) {
+          onTurnComplete(result);
+        }
+      },
+      () => {
+        close();
+        setPosting(false);
+        // Resume is best-effort; a failure just leaves the transcript as-is.
+      },
+    );
+  }, [conversationId, posting, open, close, reload, onTurnComplete]);
 
   const stop = useCallback((): void => {
     if (abortRef.current !== null) {
@@ -145,5 +236,7 @@ export function useAssistantThread(
     send,
     stop,
     retry,
+    confirmSlot,
+    resume,
   };
 }

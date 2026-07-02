@@ -4,6 +4,7 @@ import {
   assistantStreamUrl,
   parseWorkflowEvent,
 } from '@/pages/AssistantPage/domain/assistant/stream/assistantStream';
+import { getBuildConversation } from '@/pages/AssistantPage/domain/assistant/api/assistantApi';
 import type { Program, PlannedSession, ProgramWeek } from '../domain/types';
 import { fetchActiveProgram, fetchCalendarRange } from '../api/programApi';
 import {
@@ -25,6 +26,9 @@ interface ProgramState {
   sessions: PlannedSession[];
   sessionsLoading: boolean;
   selectWeek: (index: number) => void;
+  // The in-flight conversational build chat for the current week, if any. The
+  // page surfaces a CTA into it and live-refreshes while it's underway.
+  buildConversationId: string | null;
   // Generation (first-time build / re-plan in flight).
   generating: boolean;
   progressText: string;
@@ -66,14 +70,11 @@ export function useProgram(): ProgramState {
   const [program, setProgram] = useState<Program | null>(null);
   const [hasProgram, setHasProgram] = useState(false);
   const [weekIndex, setWeekIndex] = useState(0);
-  const [programLoaded, setProgramLoaded] = useState(false);
 
   const [sessions, setSessions] = useState<PlannedSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessionsReady, setSessionsReady] = useState(false);
 
   const [pendingBatch, setPendingBatch] = useState<ApprovalBatchView | null>(null);
-  const [batchReady, setBatchReady] = useState(false);
 
   const [generating, setGenerating] = useState(false);
   const [progressText, setProgressText] = useState('');
@@ -96,7 +97,6 @@ export function useProgram(): ProgramState {
         if (!active) return;
         setHasProgram(res.hasProgram);
         setProgram(res.program);
-        setProgramLoaded(true);
         if (res.program && !weekTouched.current) {
           setWeekIndex(res.program.currentWeekIndex);
         }
@@ -121,12 +121,10 @@ export function useProgram(): ProgramState {
   useEffect(() => {
     if (!weekStart || !weekEnd) {
       setSessions([]);
-      setSessionsReady(false);
       return;
     }
     let active = true;
     setSessionsLoading(true);
-    setSessionsReady(false);
     fetchCalendarRange(weekStart, weekEnd)
       .then((res) => {
         if (active) setSessions(res);
@@ -137,7 +135,6 @@ export function useProgram(): ProgramState {
       .finally(() => {
         if (active) {
           setSessionsLoading(false);
-          setSessionsReady(true);
         }
       });
     return () => {
@@ -151,11 +148,9 @@ export function useProgram(): ProgramState {
   useEffect(() => {
     if (!programId) {
       setPendingBatch(null);
-      setBatchReady(false);
       return;
     }
     let active = true;
-    setBatchReady(false);
     fetchPendingApprovals()
       .then(async (batches) => {
         const match = batches.find(
@@ -166,9 +161,6 @@ export function useProgram(): ProgramState {
       })
       .catch(() => {
         if (active) setPendingBatch(null);
-      })
-      .finally(() => {
-        if (active) setBatchReady(true);
       });
     return () => {
       active = false;
@@ -176,41 +168,43 @@ export function useProgram(): ProgramState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programId, weekIndex, reloadKey]);
 
-  // ── Enter "generating" only when the current week hasn't been built yet ──
-  // A week the coach has already generated (`generatedAt` set) is a valid resting
-  // state even when it carries no trains and no draft — that's just an empty/preview
-  // week, not a build in progress. Gating on `generatedAt === null` keeps week
-  // navigation from re-arming the spinner on an already-generated empty week.
-  const viewingCurrentWeek = program !== null && weekIndex === program.currentWeekIndex;
-  const currentWeekUngenerated = week !== null && week.generatedAt === null;
+  // ── Detect an in-flight conversational build ──
+  // A freshly-onboarded user's first week is built turn-by-turn in a
+  // `program_build` chat (not autonomously). Discover that chat so the page can
+  // surface a CTA into it and live-refresh as the coach commits/schedules each
+  // session. Re-checked on every reload so it clears once the build is gone.
+  const [buildConversationId, setBuildConversationId] = useState<string | null>(null);
   useEffect(() => {
-    if (
-      programLoaded &&
-      hasProgram &&
-      viewingCurrentWeek &&
-      currentWeekUngenerated &&
-      sessionsReady &&
-      batchReady &&
-      sessions.length === 0 &&
-      pendingBatch === null &&
-      genError === null &&
-      !generating
-    ) {
-      setPollCount(0);
-      setGenerating(true);
+    if (MOCK_API) {
+      return;
     }
-  }, [
-    programLoaded,
-    hasProgram,
-    viewingCurrentWeek,
-    currentWeekUngenerated,
-    sessionsReady,
-    batchReady,
-    sessions.length,
-    pendingBatch,
-    genError,
-    generating,
-  ]);
+    let active = true;
+    getBuildConversation()
+      .then((c) => {
+        if (active) setBuildConversationId(c?.id ?? null);
+      })
+      .catch(() => {
+        if (active) setBuildConversationId(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadKey]);
+
+  // The build targets the current week; it's done once that week locks.
+  const currentWeek =
+    program?.weeks.find((w) => w.weekIndex === program.currentWeekIndex) ?? null;
+  const buildInProgress =
+    buildConversationId !== null && currentWeek !== null && currentWeek.weekState !== 'locked';
+
+  // ── Live-refresh while a build is underway (incremental render) ──
+  useEffect(() => {
+    if (!buildInProgress) {
+      return;
+    }
+    const interval = setInterval(() => reload(), POLL_MS);
+    return () => clearInterval(interval);
+  }, [buildInProgress, reload]);
 
   // ── Exit "generating" once a reviewable draft has appeared ──
   useEffect(() => {
@@ -328,6 +322,7 @@ export function useProgram(): ProgramState {
     sessions,
     sessionsLoading,
     selectWeek,
+    buildConversationId: buildInProgress ? buildConversationId : null,
     generating,
     progressText,
     genError,

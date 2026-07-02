@@ -6,6 +6,16 @@
 export type ConversationMode = 'plan' | 'ask';
 export type ConversationOrigin = 'user' | 'system';
 
+// One candidate calendar slot the coach offers for a build session. Mirrors the
+// backend SlotCandidate (slot-proposer.ts); `scheduledStartUtc` is the id echoed
+// back to confirm the pick.
+export interface SlotCandidate {
+  scheduledDate: string; // 'YYYY-MM-DD'
+  startTime: string; // 'HH:mm'
+  endTime: string; // 'HH:mm'
+  scheduledStartUtc: string; // ISO instant
+}
+
 // from conversation.model.ts — Message.meta. All optional; the backend stamps
 // only what a given turn produced.
 export interface MessageMeta {
@@ -14,7 +24,24 @@ export interface MessageMeta {
   pipelineRunId?: string;
   cardBatchId?: string;
   awaitingConfirmation?: boolean;
+  // Build flow (program_build conversations). `buildRetry`: the coach/planner run
+  // aborted — show a retry affordance. `slotProposal`: an outstanding calendar
+  // slot pick for one session, rendered as selectable chips.
+  buildRetry?: boolean;
+  slotProposal?: {
+    plannedSessionId: string;
+    candidates: SlotCandidate[];
+  };
 }
+
+// The program + week a `program_build` conversation is building. Mirrors the
+// backend BuildContext (conversation.model.ts).
+export interface BuildContext {
+  programId: string;
+  weekIndex: number;
+}
+
+export type ConversationPurpose = 'program_build';
 
 export interface AssistantConversation {
   id: string;
@@ -29,6 +56,10 @@ export interface AssistantConversation {
   attention: boolean;
   // The card batch awaiting review for this conversation, if any.
   pendingCardBatchId: string | null;
+  // `program_build` routes turns through the build state machine; null = ordinary
+  // chat. `buildContext` is the program + week it builds (null otherwise).
+  purpose: ConversationPurpose | null;
+  buildContext: BuildContext | null;
 }
 
 export type AssistantTurnRole = 'user' | 'assistant';

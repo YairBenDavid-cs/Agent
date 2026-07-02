@@ -123,6 +123,23 @@
   color: var(--wa-text-muted);
 }
 
+/* The full running/strength prescription (shared WorkoutBody) inset to align
+   with the card's text column. WorkoutBody reads the program surface's orange
+   accent + warm-dark tokens, which live on ProgramPage's `.page`; redeclare them
+   here so the same renderer looks right inside a chat bubble. */
+.workout {
+  --ac-accent: #f2611c;
+  --pg-section-pill: #1d1814;
+  --pg-accent-pill-border: color-mix(in srgb, var(--ac-accent) 20%, #2a2420);
+  --pg-accent-soft: color-mix(in srgb, var(--ac-accent) 70%, transparent);
+  --pg-step-bg: #0e0b09;
+  --pg-step-border: color-mix(in srgb, var(--ac-accent) 13%, #221e1a);
+  --pg-muted: #9a938c;
+  --pg-muted2: #857e77;
+
+  padding-left: 27px;
+}
+
 .placement {
   margin: 0;
   padding-left: 27px;
