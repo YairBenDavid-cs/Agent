@@ -31,15 +31,24 @@ function week(
   };
 }
 
-function setup(opts: { week: ProgramWeek | null }) {
+function setup(opts: {
+  week: ProgramWeek | null;
+  sessions?: Array<{ planState: 'committed' | 'tentative' }>;
+}) {
   const repository = {
     findById: jest.fn(() =>
       Promise.resolve(opts.week ? { weeks: [opts.week] } : { weeks: [] }),
     ),
     reviseWeeklyTargets: jest.fn(() => Promise.resolve()),
   };
-  const handler = new ReviseWeeklyTargetsHandler(repository as never);
-  return { handler, repository };
+  const plannedSessions = {
+    findByWeek: jest.fn(() => Promise.resolve(opts.sessions ?? [])),
+  };
+  const handler = new ReviseWeeklyTargetsHandler(
+    repository as never,
+    plannedSessions as never,
+  );
+  return { handler, repository, plannedSessions };
 }
 
 const cmd = new ReviseWeeklyTargetsCommand(
@@ -83,13 +92,11 @@ describe('ReviseWeeklyTargetsHandler', () => {
     expect(res).toEqual({ revised: true, weekIndex: 2 });
   });
 
-  it('revises the quota in place on a fully locked week', async () => {
+  it('rejects a fully locked week (historical record, closed to mutation)', async () => {
     const { handler, repository } = setup({ week: week('locked') });
 
-    const res = await handler.execute(cmd);
-
-    expect(repository.reviseWeeklyTargets).toHaveBeenCalled();
-    expect(res).toEqual({ revised: true, weekIndex: 2 });
+    await expect(handler.execute(cmd)).rejects.toThrow(/fully locked/);
+    expect(repository.reviseWeeklyTargets).not.toHaveBeenCalled();
   });
 
   it('rejects an open week (nothing locked yet to revise)', async () => {
@@ -106,5 +113,55 @@ describe('ReviseWeeklyTargetsHandler', () => {
 
     await expect(handler.execute(cmd)).rejects.toThrow(/week not found/i);
     expect(repository.reviseWeeklyTargets).not.toHaveBeenCalled();
+  });
+
+  describe('direct_target_change on a targets_locked week with committed sessions', () => {
+    const directChangeCmd = new ReviseWeeklyTargetsCommand(
+      'u1',
+      'p1',
+      2,
+      3,
+      30,
+      ['lower volume'],
+      'athlete asked to lower this week\'s volume',
+      'direct_target_change',
+    );
+
+    it('rejects when at least one session is already committed', async () => {
+      const { handler, repository } = setup({
+        week: week('targets_locked'),
+        sessions: [{ planState: 'tentative' }, { planState: 'committed' }],
+      });
+
+      await expect(handler.execute(directChangeCmd)).rejects.toThrow(
+        /already has committed sessions/,
+      );
+      expect(repository.reviseWeeklyTargets).not.toHaveBeenCalled();
+    });
+
+    it('allows the reflow when no session is committed yet', async () => {
+      const { handler, repository } = setup({
+        week: week('targets_locked'),
+        sessions: [{ planState: 'tentative' }, { planState: 'tentative' }],
+      });
+
+      const res = await handler.execute(directChangeCmd);
+
+      expect(repository.reviseWeeklyTargets).toHaveBeenCalled();
+      expect(res).toEqual({ revised: true, weekIndex: 2 });
+    });
+
+    it('does not check committed sessions for a session_edit cascade', async () => {
+      const { handler, repository, plannedSessions } = setup({
+        week: week('targets_locked'),
+        sessions: [{ planState: 'committed' }],
+      });
+
+      const res = await handler.execute(cmd); // triggeredBy: 'session_edit'
+
+      expect(plannedSessions.findByWeek).not.toHaveBeenCalled();
+      expect(repository.reviseWeeklyTargets).toHaveBeenCalled();
+      expect(res).toEqual({ revised: true, weekIndex: 2 });
+    });
   });
 });

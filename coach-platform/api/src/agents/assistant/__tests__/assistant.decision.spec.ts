@@ -1,5 +1,5 @@
 import { Pipeline } from '../../orchestrator/pipeline.types';
-import { AssistantTurn, CapturedSignal } from '../assistant.contracts';
+import { AssistantTurn, CapturedSignal, WeekEdit } from '../assistant.contracts';
 import { decideActions, selectPipeline } from '../assistant.decision';
 
 const TODAY = '2026-06-28';
@@ -23,6 +23,21 @@ function turn(overrides: Partial<AssistantTurn> = {}): AssistantTurn {
     reply: 'ok',
     captured: [],
     clarifyingQuestion: null,
+    weekEdit: null,
+    ...overrides,
+  };
+}
+
+function weekEdit(overrides: Partial<WeekEdit> = {}): WeekEdit {
+  return {
+    weekIndex: 3,
+    kind: 'session_content_edit',
+    plannedSessionId: 'sess-1',
+    requestedChangeDescription: 'make Friday run 15km instead of 10km',
+    newTargets: null,
+    breachesLockedTargets: false,
+    confirmed: true,
+    rationale: 'athlete request',
     ...overrides,
   };
 }
@@ -173,5 +188,137 @@ describe('assistant.decision', () => {
 
     const noTarget = decideActions(turn({ captured: [signal()] }), TODAY);
     expect(noTarget.writes[0].target).toBeNull();
+  });
+
+  describe('week edit', () => {
+    it('confirmed session_content_edit fires SESSION_CONTENT_REPLAN with the resolved weekIndex', () => {
+      const a = decideActions(turn({ weekEdit: weekEdit() }), TODAY);
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      expect(a.weekEditContext).toEqual({
+        weekIndex: 3,
+        sessionEdit: {
+          plannedSessionId: 'sess-1',
+          requestedChangeDescription: 'make Friday run 15km instead of 10km',
+          revisedTargets: null,
+        },
+      });
+      expect(a.awaitingConfirmation).toBe(false);
+      expect(a.writes).toEqual([]);
+    });
+
+    it('confirmed session_content_edit with a breach carries revisedTargets through', () => {
+      const newTargets = { sessionCount: 5, totalVolume: 45, keyGoals: ['base'] };
+      const a = decideActions(
+        turn({
+          weekEdit: weekEdit({ breachesLockedTargets: true, newTargets }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      expect(a.weekEditContext?.sessionEdit?.revisedTargets).toEqual(newTargets);
+    });
+
+    it('confirmed target_revision fires TARGET_REVISION_REPLAN with newTargets + reason', () => {
+      const newTargets = { sessionCount: 4, totalVolume: 30, keyGoals: [] };
+      const a = decideActions(
+        turn({
+          weekEdit: weekEdit({
+            kind: 'target_revision',
+            plannedSessionId: null,
+            newTargets,
+            rationale: 'lower volume this week',
+          }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.TARGET_REVISION_REPLAN);
+      expect(a.weekEditContext).toEqual({
+        weekIndex: 3,
+        targetRevision: { newTargets, reason: 'lower volume this week' },
+      });
+    });
+
+    it('unconfirmed week edit (breach pending go-ahead) writes and fires nothing, awaits confirmation', () => {
+      const a = decideActions(
+        turn({
+          lane: 'gray',
+          reply: 'That would put you over budget — want me to rebuild the week?',
+          weekEdit: weekEdit({ confirmed: false, breachesLockedTargets: true }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.writes).toEqual([]);
+      expect(a.awaitingConfirmation).toBe(true);
+    });
+
+    it('unconfirmed week edit on an otherwise-black turn still blocks firing and the cascading write', () => {
+      const a = decideActions(
+        turn({
+          captured: [signal()],
+          weekEdit: weekEdit({ confirmed: false, breachesLockedTargets: true }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.writes).toEqual([]);
+      expect(a.awaitingConfirmation).toBe(true);
+    });
+
+    it('malformed confirmed edit (missing plannedSessionId) fails closed: fires nothing', () => {
+      const a = decideActions(
+        turn({ weekEdit: weekEdit({ plannedSessionId: null }) }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.weekEditContext).toBeNull();
+    });
+
+    it('malformed confirmed target_revision (missing newTargets) fails closed: fires nothing', () => {
+      const a = decideActions(
+        turn({
+          weekEdit: weekEdit({
+            kind: 'target_revision',
+            plannedSessionId: null,
+            newTargets: null,
+          }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.weekEditContext).toBeNull();
+    });
+
+    it('a confirmed week edit outranks a weaker captured-signal pipeline in the same turn', () => {
+      const a = decideActions(
+        turn({
+          captured: [signal({ tagType: 'disliked_time', scope: 'global' })], // TIMING_REPLACE
+          weekEdit: weekEdit(), // SESSION_CONTENT_REPLAN, higher precedence
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      expect(a.weekEditContext?.weekIndex).toBe(3);
+    });
+
+    it('a safety signal still outranks a confirmed session-content week edit', () => {
+      const a = decideActions(
+        turn({
+          captured: [signal({ tagType: 'injury_or_illness' })], // SAFETY_REPLAN
+          weekEdit: weekEdit(), // SESSION_CONTENT_REPLAN, lower precedence
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.SAFETY_REPLAN);
+      expect(a.weekEditContext).toBeNull();
+    });
+
+    it('ask mode blocks a confirmed week edit and flags intentBlocked', () => {
+      const a = decideActions(turn({ weekEdit: weekEdit() }), TODAY, 'ask');
+      expect(a.pipeline).toBeNull();
+      expect(a.weekEditContext).toBeNull();
+      expect(a.writes).toEqual([]);
+      expect(a.intentBlocked).toBe(true);
+    });
   });
 });

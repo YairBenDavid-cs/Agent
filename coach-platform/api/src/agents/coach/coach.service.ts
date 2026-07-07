@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import {
   CommitSkeletonCommand,
@@ -12,17 +12,35 @@ import {
   ProposeWeeklyTargetsCommand,
   ProposeWeeklyTargetsResult,
 } from '../../program/application/commands/propose-weekly-targets.command';
+import {
+  ReviseWeeklyTargetsCommand,
+  ReviseWeeklyTargetsResult,
+} from '../../program/application/commands/revise-weekly-targets.command';
 import { ProgramWeek } from '../../program/domain/program.model';
+import {
+  PROGRAM_REPOSITORY,
+  ProgramRepositoryPort,
+} from '../../program/domain/program.repository.port';
 import {
   UpsertWeekSessionsCommand,
   UpsertWeekSessionsResult,
 } from '../../planned-sessions/application/commands/upsert-week-sessions.command';
 import {
+  UpsertSessionContentCommand,
+  UpsertSessionContentResult,
+} from '../../planned-sessions/application/commands/upsert-session-content.command';
+import {
   PlannedOutcome,
   PlannedSession,
   RunningPlan,
+  SessionDiff,
   StrengthPlan,
 } from '../../planned-sessions/domain/planned-session.model';
+import {
+  PLANNED_SESSION_REPOSITORY,
+  PlannedSessionRepositoryPort,
+  SessionContent,
+} from '../../planned-sessions/domain/planned-session.repository.port';
 import { EventDiscipline } from '../../personalization/domain/preference-event.model';
 import { AgentToolContext, AnyAgentTool, defineTool } from '../shared/llm/agent-tool';
 import {
@@ -41,10 +59,13 @@ import {
   PlannedSessionDraft,
   ProposeWeeklyTargetsArgs,
   proposeWeeklyTargetsSchema,
+  ReviseSessionContentArgs,
+  reviseSessionContentSchema,
   UpsertWeekSessionsArgs,
   upsertWeekSessionsSchema,
 } from './coach.contracts';
 import {
+  detectWeeklyTargetBreach,
   LoadProxyInput,
   ReadinessBand,
   sessionLoadProxy,
@@ -53,6 +74,7 @@ import {
   validateSkeleton,
   validateWeek,
   WeekGuardrailContext,
+  WeeklyTargetsCheck,
 } from './coach.guardrails';
 import { COACH_SYSTEM_PROMPT, INTERVIEW_DOCTRINE } from './coach.prompt';
 
@@ -80,6 +102,16 @@ export interface GenerateWeekOptions {
   readiness?: ReadinessBand | null;
 }
 
+/** Inputs the orchestrator hands the Coach to reactively revise one session. */
+export interface ReviseSessionContentOptions {
+  programId: string;
+  weekIndex: number;
+  timezone: string;
+  plannedSessionId: string;
+  /** Plain-language description of what the athlete asked to change. */
+  requestedChangeDescription: string;
+}
+
 /**
  * The Coach agent. Runs `generateProgram` (skeleton) and `generateWeek`
  * (concrete sessions) as bounded tool-using loops, each pre-seeded with the
@@ -94,6 +126,10 @@ export class CoachService {
     private readonly seeds: SeedContextBuilder,
     private readonly readTools: ReadToolRegistry,
     private readonly commandBus: CommandBus,
+    @Inject(PROGRAM_REPOSITORY)
+    private readonly programs: ProgramRepositoryPort,
+    @Inject(PLANNED_SESSION_REPOSITORY)
+    private readonly plannedSessions: PlannedSessionRepositoryPort,
   ) {}
 
   /** Lay down / regenerate the ~12-week periodization skeleton. */
@@ -215,6 +251,38 @@ export class CoachService {
         targets.totalVolume,
         targets.keyGoals,
         new Date().toISOString(),
+      ),
+    );
+  }
+
+  /**
+   * Revise a week's already-locked macro budget IN PLACE. Thin wrapper over the
+   * `ReviseWeeklyTargetsCommand` (no LLM run) — reachable only from the
+   * deterministic orchestrator, after either a direct target-change request or
+   * a confirmed session-edit breach. `weekState` is untouched; the prior quota
+   * is preserved in `revisionHistory`.
+   */
+  async reviseWeeklyTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: { sessionCount: number; totalVolume: number; keyGoals: string[] },
+    triggeredBy: 'session_edit' | 'direct_target_change',
+    reason: string,
+  ): Promise<ReviseWeeklyTargetsResult> {
+    return this.commandBus.execute<
+      ReviseWeeklyTargetsCommand,
+      ReviseWeeklyTargetsResult
+    >(
+      new ReviseWeeklyTargetsCommand(
+        userId,
+        programId,
+        weekIndex,
+        targets.sessionCount,
+        targets.totalVolume,
+        targets.keyGoals,
+        reason,
+        triggeredBy,
       ),
     );
   }
@@ -356,6 +424,74 @@ export class CoachService {
     });
   }
 
+  /**
+   * Reactive edit (Flow A): rewrite ONE existing session's prescription per an
+   * explicit athlete request (e.g. "make Friday's run 15km"). Reachable only
+   * from the deterministic orchestrator's `SESSION_CONTENT_REPLAN` pipeline —
+   * never a tool the Assistant's own model can call. Re-fetches the target
+   * session, its week siblings, and the week's locked targets server-side
+   * (defense in depth: never trusts the caller's view of any of these), so the
+   * terminal tool's breach check is always against the current committed state.
+   */
+  async reviseSessionContent(
+    userId: string,
+    runId: string,
+    discipline: EventDiscipline,
+    opts: ReviseSessionContentOptions,
+  ): Promise<AgenticLoopResult<UpsertSessionContentResult>> {
+    const seed = await this.seeds.buildCoachSeed(userId, discipline);
+    const ctx: AgentToolContext = { userId, runId };
+
+    const [existing, weekSessions, program] = await Promise.all([
+      this.plannedSessions.findById(userId, opts.plannedSessionId),
+      this.plannedSessions.findByWeek(userId, opts.programId, opts.weekIndex),
+      this.programs.findById(userId, opts.programId),
+    ]);
+    if (!existing) {
+      throw new Error(`Planned session ${opts.plannedSessionId} not found.`);
+    }
+
+    const week = program?.weeks.find((w) => w.weekIndex === opts.weekIndex);
+    if (week?.weekState === 'locked') {
+      throw new Error(
+        `Week ${opts.weekIndex} is locked; this is a historical record and cannot be edited.`,
+      );
+    }
+    const targets: WeeklyTargetsCheck | null = week?.weeklyTargets ?? null;
+    const fixedOthers: LoadProxyInput[] = weekSessions.filter(
+      (s) => s.id !== opts.plannedSessionId,
+    );
+
+    const tools: AnyAgentTool[] = [
+      ...this.readTools.forCoach(),
+      this.reviseSessionContentTool(opts.plannedSessionId, existing, fixedOthers, targets),
+    ];
+
+    const targetsNote = targets
+      ? `This week's locked targets: ${targets.sessionCount} sessions, ` +
+        `${targets.totalVolume} total volume. Your revised prescription must ` +
+        `fit alongside the ${fixedOthers.length} other session(s) already in ` +
+        `the week, or the edit will be rejected.\n`
+      : '';
+
+    return this.loop.run<UpsertSessionContentResult>({
+      agentName: 'coach',
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seedMessage:
+        `${seed.seedMessage}\n\n== TASK (Reactive edit — revise one session) ==\n` +
+        `Week index ${opts.weekIndex}, timezone ${opts.timezone}. The athlete ` +
+        `asked to change this session (plannedSessionId "${opts.plannedSessionId}"` +
+        `, slotKey "${existing.slotKey}"):\n"""${opts.requestedChangeDescription}"""\n\n` +
+        `Current prescription:\n${JSON.stringify(existing, null, 0)}\n\n` +
+        targetsNote +
+        `Call revise_session_content exactly once with the FULL updated ` +
+        `prescription (not just the changed fields) and the list of fields that ` +
+        `changed (before/after) for the display diff.`,
+      tools,
+      ctx,
+    });
+  }
+
   // ── terminal write tools ──────────────────────────────────────────────────
 
   private lockWeeklyTargetsTool(programId: string | null): AnyAgentTool {
@@ -463,6 +599,94 @@ export class CoachService {
             args.programId,
             args.weekIndex,
             [session],
+          ),
+        );
+      },
+    });
+  }
+
+  /**
+   * Terminal tool for {@link reviseSessionContent}. Re-validates structure AND,
+   * when the week has locked targets, the projected fit against the OTHER
+   * sessions already in the week (`fixedOthers`, fetched server-side) before
+   * writing — defense in depth even though the caller should only reach this
+   * pipeline once the athlete has already confirmed any breach.
+   */
+  private reviseSessionContentTool(
+    plannedSessionId: string,
+    existing: PlannedSession,
+    fixedOthers: LoadProxyInput[],
+    targets: WeeklyTargetsCheck | null,
+  ): AnyAgentTool {
+    return defineTool<ReviseSessionContentArgs, UpsertSessionContentResult>({
+      name: 'revise_session_content',
+      description:
+        "Overwrite this ONE existing session's prescription per the athlete's " +
+        'requested change. Terminal: ends the run. Rejected if it would breach ' +
+        "the week's locked targets — the weekly targets must already be " +
+        'revised (by the orchestrator, on athlete confirmation) before this can ' +
+        'be called with a larger prescription.',
+      schema: reviseSessionContentSchema,
+      terminal: true,
+      handler: async (args, c) => {
+        const draftShape: PlannedSessionDraft = {
+          ...args.session,
+          slotKey: existing.slotKey,
+          dayOffset: 0,
+        };
+        const violations = validateSessionStructure(draftShape);
+
+        if (targets) {
+          const breach = detectWeeklyTargetBreach(
+            args.session as LoadProxyInput,
+            fixedOthers,
+            targets,
+          );
+          if (breach.breaches) {
+            violations.push(
+              `This change pushes the week to ${breach.projectedSessionCount} ` +
+                `session(s) / ${breach.projectedVolume.toFixed(1)} volume, over ` +
+                `the locked budget by ${breach.overBy.sessionCount} session(s) ` +
+                `/ ${breach.overBy.volume.toFixed(1)} volume. The weekly ` +
+                `targets must be revised first.`,
+            );
+          }
+        }
+
+        if (violations.length > 0) {
+          throw new Error(
+            `Guardrail rejected session edit: ${violations.join(' ')}`,
+          );
+        }
+
+        const content: SessionContent = {
+          title: args.session.title,
+          estDurationMin: args.session.estDurationMin,
+          intensityLabel: args.session.intensityLabel,
+          coachNotes: args.session.coachNotes,
+          running:
+            args.session.type === 'running' && args.session.running
+              ? (args.session.running as unknown as RunningPlan)
+              : null,
+          strength:
+            args.session.type === 'strength' && args.session.strength
+              ? (args.session.strength as unknown as StrengthPlan)
+              : null,
+        };
+        const lastDiff: SessionDiff = {
+          committedAt: new Date().toISOString(),
+          changes: args.changes,
+        };
+
+        return this.commandBus.execute<
+          UpsertSessionContentCommand,
+          UpsertSessionContentResult
+        >(
+          new UpsertSessionContentCommand(
+            c.userId,
+            plannedSessionId,
+            content,
+            lastDiff,
           ),
         );
       },

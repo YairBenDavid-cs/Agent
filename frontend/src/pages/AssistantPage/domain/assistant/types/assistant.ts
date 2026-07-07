@@ -106,3 +106,13 @@ export interface PendingPrompt {
   id: string;
   text: string;
 }
+
+// The user's pending "plan next week" schedule, mirrored from the backend
+// (agents/build/scheduled-build/domain/scheduled-week-build.model.ts). The
+// sidebar only ever shows `pending` tasks — terminal ones are dropped server-side.
+export interface ScheduledWeekBuild {
+  id: string;
+  targetWeekIndex: number;
+  scheduledForUtc: string;
+  status: 'pending' | 'executed' | 'cancelled' | 'failed';
+}

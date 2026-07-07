@@ -142,8 +142,17 @@ export class BuildConversationOrchestrator {
 
     try {
       const runId = `build:propose:${userId}:${programId}:${randomUUID()}`;
-      // Lay down the skeleton if it isn't there yet, then propose targets.
-      await this.coach.generateProgram(userId, runId, discipline);
+      // Lay down the skeleton only the first time — a bare seed has just the
+      // one placeholder week. Every later week's build reuses the existing
+      // skeleton (regenerating it would wipe already-locked weeks' state; see
+      // commitSkeletonTool) and just proposes targets, like a regular week.
+      const active = await this.queryBus.execute<
+        GetActiveProgramQuery,
+        ActiveProgramResponse
+      >(new GetActiveProgramQuery(userId));
+      if ((active.program?.weeks.length ?? 0) <= 1) {
+        await this.coach.generateProgram(userId, runId, discipline);
+      }
       const proposal = await this.coach.proposeWeeklyTargets(
         userId,
         runId,

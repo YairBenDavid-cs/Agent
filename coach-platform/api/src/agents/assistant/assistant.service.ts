@@ -200,7 +200,7 @@ export class AssistantService {
 
     // In ASK mode, a mutation request wrote/fired nothing — append a hint that
     // the user must switch to Plan mode for the change to take effect.
-    const reply = actions.intentBlocked
+    let reply = actions.intentBlocked
       ? `${actions.reply}${ASK_MODE_BLOCKED_HINT}`
       : actions.reply;
 
@@ -222,19 +222,49 @@ export class AssistantService {
       );
     }
 
+    // A confirmed week edit races a `program_build` conversation on the SAME
+    // program+week: both write `weekState`/`weeklyTargets` through their own
+    // state machine. Rather than risk a torn write, refuse this turn's edit
+    // with a clear message — the two flows are never allowed to interleave.
+    let firingPipeline = actions.pipeline;
+    if (firingPipeline && actions.weekEditContext) {
+      const activeBuild = await this.conversations.findOpenBuildConversation(
+        userId,
+      );
+      const racesActiveBuild =
+        activeBuild?.buildContext?.programId === opts.programId &&
+        activeBuild?.buildContext?.weekIndex === actions.weekEditContext.weekIndex;
+      if (racesActiveBuild) {
+        firingPipeline = null;
+        reply =
+          `${reply}\n\n_(Week ${actions.weekEditContext.weekIndex + 1} is still ` +
+          'being built in another conversation — finish that first, then ask ' +
+          'again.)_';
+      }
+    }
+
     let pipelineRun: PipelineRunResult | null = null;
-    if (actions.pipeline) {
+    if (firingPipeline) {
       pipelineRun = await this.queue.enqueue({
-        pipeline: actions.pipeline,
+        pipeline: firingPipeline,
         ctx: {
           userId,
           runId,
           discipline: opts.discipline,
           timezone: opts.timezone,
           weekWindow: opts.weekWindow,
-          weekIndex: seed.currentWeekIndex ?? undefined,
+          // A confirmed week edit names its OWN week explicitly — it must win
+          // over the current week, or "change week 4's goal" could only ever
+          // touch week 4 when it happens to be the current one.
+          weekIndex: actions.weekEditContext?.weekIndex ?? seed.currentWeekIndex ?? undefined,
           programId: opts.programId,
           conversationId,
+          ...(actions.weekEditContext?.sessionEdit
+            ? { sessionEdit: actions.weekEditContext.sessionEdit }
+            : {}),
+          ...(actions.weekEditContext?.targetRevision
+            ? { targetRevision: actions.weekEditContext.targetRevision }
+            : {}),
         },
       });
     }
@@ -253,7 +283,7 @@ export class AssistantService {
     );
 
     this.logger.log(
-      `Assistant turn ${runId}: mode=${mode} lane=${actions.lane} writes=${actions.writes.length} fired=${actions.pipeline ?? 'none'}${actions.intentBlocked ? ' intentBlocked' : ''}`,
+      `Assistant turn ${runId}: mode=${mode} lane=${actions.lane} writes=${actions.writes.length} fired=${firingPipeline ?? 'none'}${actions.intentBlocked ? ' intentBlocked' : ''}`,
     );
 
     return {

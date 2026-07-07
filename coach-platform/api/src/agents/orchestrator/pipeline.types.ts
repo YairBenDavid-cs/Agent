@@ -21,6 +21,41 @@ export enum Pipeline {
   PROGRAM_GENERATION = 'program_generation',
   /** 6. No current-week impact: write event + rebuild projection, no agents. */
   WRITE_ONLY = 'write_only',
+  /**
+   * 7. Reactive single-session edit: (optionally, if the athlete already
+   * confirmed a breach) Coach revises the week's locked targets → Coach
+   * redrafts the one session → Planner re-place.
+   */
+  SESSION_CONTENT_REPLAN = 'session_content_replan',
+  /**
+   * 8. Direct weekly-goal change: Coach revises the week's locked targets →
+   * Coach reflows the week's (still-tentative) sessions → Planner re-place.
+   */
+  TARGET_REVISION_REPLAN = 'target_revision_replan',
+}
+
+/** Payload for {@link Pipeline.SESSION_CONTENT_REPLAN}. */
+export interface SessionEditRequest {
+  plannedSessionId: string;
+  /** Plain-language description of the change, fed to the Coach as intent. */
+  requestedChangeDescription: string;
+  /**
+   * Present only when the edit breaches the week's locked targets AND the
+   * athlete has already confirmed these replacement numbers. Absent for a
+   * non-breaching edit — no target cascade needed.
+   */
+  revisedTargets?: {
+    sessionCount: number;
+    totalVolume: number;
+    keyGoals: string[];
+  } | null;
+}
+
+/** Payload for {@link Pipeline.TARGET_REVISION_REPLAN}. */
+export interface TargetRevisionRequest {
+  newTargets: { sessionCount: number; totalVolume: number; keyGoals: string[] };
+  /** Why the athlete/coach is changing the budget (persisted on the revision). */
+  reason: string;
 }
 
 /** Everything a pipeline run needs. Assembled deterministically by the caller. */
@@ -46,6 +81,10 @@ export interface PipelineRunContext {
    * code-scheduled runs (the `fetch` cron has no conversation).
    */
   conversationId?: string | null;
+  /** Set only when `pipeline === SESSION_CONTENT_REPLAN`. */
+  sessionEdit?: SessionEditRequest;
+  /** Set only when `pipeline === TARGET_REVISION_REPLAN`. */
+  targetRevision?: TargetRevisionRequest;
 }
 
 export interface PipelineRunResult {

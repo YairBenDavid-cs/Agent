@@ -88,6 +88,67 @@ export const capturedSignalSchema = z.object({
 });
 export type CapturedSignal = z.infer<typeof capturedSignalSchema>;
 
+/**
+ * A direct edit to a program week's macro budget, or to one session's content,
+ * that (if it breaches the week's locked targets) may cascade into a target
+ * revision. Distinct from `CapturedSignal` (durable preference events) — this
+ * is a one-shot structural edit resolved against a specific `weekIndex` /
+ * `plannedSessionId`, never assumed to be "the current week".
+ */
+export const weekEditSchema = z.object({
+  weekIndex: z
+    .number()
+    .int()
+    .min(0)
+    .describe(
+      "The program week this edit targets, resolved via get_week / " +
+        "query_planned_sessions — NEVER assumed to be the current week.",
+    ),
+  kind: z.enum(['session_content_edit', 'target_revision']),
+  plannedSessionId: z
+    .string()
+    .nullable()
+    .describe('Required for session_content_edit; null for target_revision.'),
+  requestedChangeDescription: z
+    .string()
+    .min(1)
+    .describe(
+      "Plain-language description of what the athlete asked to change, fed " +
+        "to the Coach as intent (e.g. \"make Friday's run 15km instead of 10km\").",
+    ),
+  newTargets: z
+    .object({
+      sessionCount: z.number().int().min(1),
+      totalVolume: z.number().min(0),
+      keyGoals: z.array(z.string()).default([]),
+    })
+    .nullable()
+    .default(null)
+    .describe(
+      'Required for target_revision (the proposed replacement budget). For ' +
+        'session_content_edit, set ONLY when breachesLockedTargets is true — ' +
+        'these become the new locked numbers once confirmed.',
+    ),
+  breachesLockedTargets: z
+    .boolean()
+    .describe(
+      "Whether this edit, as requested, would exceed the week's currently " +
+        'locked targets (sessionCount or total volume).',
+    ),
+  confirmed: z
+    .boolean()
+    .describe(
+      'True once the athlete has explicitly agreed to proceed, including any ' +
+        'cascade. False means a breach was detected and `clarifyingQuestion` is ' +
+        'asking for the go-ahead — write and fire NOTHING this turn.',
+    ),
+  rationale: z
+    .string()
+    .min(1)
+    .describe('Why this edit (and any cascade) serves the goal.'),
+});
+export type WeekEdit = z.infer<typeof weekEditSchema>;
+
 export const assistantTurnSchema = z.object({
   lane: z.enum(ASSISTANT_LANES),
   /** The user-facing message: an answer (white), a reflection (black), or a question (gray). */
@@ -103,5 +164,10 @@ export const assistantTurnSchema = z.object({
    * When set, `captured` must be empty (we await the reply, write nothing).
    */
   clarifyingQuestion: z.string().nullable().default(null),
+  /**
+   * Set when the user is asking to directly change a week's goal or a single
+   * session's content. Null for ordinary preference/query turns.
+   */
+  weekEdit: weekEditSchema.nullable().default(null),
 });
 export type AssistantTurn = z.infer<typeof assistantTurnSchema>;

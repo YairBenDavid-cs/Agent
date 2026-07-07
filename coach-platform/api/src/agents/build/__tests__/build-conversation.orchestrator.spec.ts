@@ -93,6 +93,10 @@ describe('BuildConversationOrchestrator', () => {
       scheduledStartUtc: string;
     }>;
     slotViolations?: string[];
+    // Full control over the active program's week list (defaults to the
+    // single resolved week). Used to simulate a program whose skeleton
+    // already has later weeks laid down.
+    programWeeks?: () => ProgramWeek[];
   }) {
     const appended: string[] = [];
     let messageSeq = 0;
@@ -119,7 +123,7 @@ describe('BuildConversationOrchestrator', () => {
               id: PROGRAM_ID,
               discipline: 'running',
               currentWeekIndex: 0,
-              weeks: [resolvedWeek],
+              weeks: opts.programWeeks ? opts.programWeeks() : [resolvedWeek],
             },
           };
         }
@@ -141,6 +145,10 @@ describe('BuildConversationOrchestrator', () => {
       resolveTargetsConsent: jest
         .fn()
         .mockResolvedValue({ finalText: 'How about 4 runs instead?' }),
+      generateProgram: jest.fn().mockResolvedValue({ finalText: 'Skeleton laid down.' }),
+      proposeWeeklyTargets: jest
+        .fn()
+        .mockResolvedValue({ finalText: 'Here are this week’s targets.' }),
       ...(opts.coachOverrides ?? {}),
     };
     const candidates =
@@ -503,5 +511,55 @@ describe('BuildConversationOrchestrator', () => {
     // proposeSlotsForSession is called twice: not at all before validate here,
     // but once for the re-proposal after the stale check.
     expect(planner.proposeSlotsForSession).toHaveBeenCalled();
+  });
+
+  describe('startBuild', () => {
+    it('lays down the skeleton on the very first build (bare seed, one placeholder week)', async () => {
+      const { orchestrator, coach, appended } = makeOrchestrator({
+        sessions: [],
+        programWeeks: () => [week({ weekIndex: 0 })],
+      });
+
+      await orchestrator.startBuild({
+        userId: 'u1',
+        conversationId: 'c1',
+        title: 'Week 1 planning',
+        programId: PROGRAM_ID,
+        discipline: 'running',
+        weekIndex: 0,
+      });
+
+      expect(coach.generateProgram).toHaveBeenCalledTimes(1);
+      expect(coach.proposeWeeklyTargets).toHaveBeenCalledTimes(1);
+      expect(appended).toContain('Here are this week’s targets.');
+    });
+
+    it('never regenerates the skeleton once later weeks already exist — proposes targets only', async () => {
+      const { orchestrator, coach } = makeOrchestrator({
+        sessions: [],
+        programWeeks: () => [
+          week({ weekIndex: 0, status: 'done' }),
+          week({ weekIndex: 1, status: 'current', weekState: 'open', weeklyTargets: null }),
+        ],
+      });
+
+      await orchestrator.startBuild({
+        userId: 'u1',
+        conversationId: 'c1',
+        title: 'Week 2 planning',
+        programId: PROGRAM_ID,
+        discipline: 'running',
+        weekIndex: 1,
+      });
+
+      expect(coach.generateProgram).not.toHaveBeenCalled();
+      expect(coach.proposeWeeklyTargets).toHaveBeenCalledTimes(1);
+      expect(coach.proposeWeeklyTargets).toHaveBeenCalledWith(
+        'u1',
+        expect.any(String),
+        'running',
+        { weekIndex: 1 },
+      );
+    });
   });
 });

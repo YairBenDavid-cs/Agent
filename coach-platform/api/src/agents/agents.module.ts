@@ -4,6 +4,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConversationModule } from './conversation/conversation.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { UsersModule } from '../users/users.module';
+import { ProgramModule } from '../program/program.module';
+import { PlannedSessionsModule } from '../planned-sessions/planned-sessions.module';
 import { AssistantController } from './assistant/interface/assistant.controller';
 import { WorkflowStreamController } from './assistant/interface/workflow-stream.controller';
 import { ApprovalController } from './approval/interface/approval.controller';
@@ -41,6 +43,17 @@ import { AgentsTriggerController } from './triggers/interface/agents-trigger.con
 import { CalendarSyncService } from './approval/calendar-sync.service';
 import { ApprovalService } from './approval/approval.service';
 import { ApprovalTtlService } from './approval/approval-ttl.service';
+import { ScheduledWeekBuildController } from './build/scheduled-build/interface/scheduled-week-build.controller';
+import { SCHEDULED_WEEK_BUILD_REPOSITORY } from './build/scheduled-build/domain/scheduled-week-build.repository.port';
+import { ScheduledWeekBuildRepository } from './build/scheduled-build/infrastructure/scheduled-week-build.repository';
+import {
+  ScheduledWeekBuildDoc,
+  ScheduledWeekBuildSchema,
+} from './build/scheduled-build/infrastructure/scheduled-week-build.schema';
+import { ScheduleWeekBuildHandler } from './build/scheduled-build/application/commands/schedule-week-build.handler';
+import { CancelScheduledWeekBuildHandler } from './build/scheduled-build/application/commands/cancel-scheduled-week-build.handler';
+import { ListScheduledWeekBuildsHandler } from './build/scheduled-build/application/queries/list-scheduled-week-builds.handler';
+import { ScheduledWeekBuildScheduler } from './build/scheduled-build/scheduled-week-build.scheduler';
 
 /**
  * Top-level agent layer: the LLM reasoning tier that sits ON TOP of the existing
@@ -59,8 +72,11 @@ import { ApprovalTtlService } from './approval/approval-ttl.service';
     ConversationModule,
     IntegrationsModule,
     UsersModule,
+    ProgramModule,
+    PlannedSessionsModule,
     MongooseModule.forFeature([
       { name: PendingCardBatchDoc.name, schema: PendingCardBatchSchema },
+      { name: ScheduledWeekBuildDoc.name, schema: ScheduledWeekBuildSchema },
     ]),
   ],
   controllers: [
@@ -68,9 +84,18 @@ import { ApprovalTtlService } from './approval/approval-ttl.service';
     WorkflowStreamController,
     ApprovalController,
     AgentsTriggerController,
+    ScheduledWeekBuildController,
   ],
   providers: [
     { provide: PENDING_CARD_BATCH_REPOSITORY, useClass: PendingCardBatchRepository },
+    {
+      provide: SCHEDULED_WEEK_BUILD_REPOSITORY,
+      useClass: ScheduledWeekBuildRepository,
+    },
+    ScheduleWeekBuildHandler,
+    CancelScheduledWeekBuildHandler,
+    ListScheduledWeekBuildsHandler,
+    ScheduledWeekBuildScheduler,
     PreferenceDistillationService,
     FlushConversationPreferencesHandler,
     PendingCardBatchService,

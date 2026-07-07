@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
 import { MongooseModule } from '@nestjs/mongoose';
+import { PlannedSessionsModule } from '../planned-sessions/planned-sessions.module';
+import { AdvanceCurrentWeekHandler } from './application/commands/advance-current-week.handler';
 import { CommitSkeletonHandler } from './application/commands/commit-skeleton.handler';
 import { CreateProgramHandler } from './application/commands/create-program.handler';
 import { LockWeeklyTargetsHandler } from './application/commands/lock-weekly-targets.handler';
@@ -15,6 +17,7 @@ import { ProgramController } from './interface/program.controller';
 const CommandHandlers = [
   CreateProgramHandler,
   CommitSkeletonHandler,
+  AdvanceCurrentWeekHandler,
   LockWeeklyTargetsHandler,
   ProposeWeeklyTargetsHandler,
   ReviseWeeklyTargetsHandler,
@@ -27,6 +30,7 @@ const QueryHandlers = [GetActiveProgramHandler];
     MongooseModule.forFeature([
       { name: ProgramDoc.name, schema: ProgramSchema },
     ]),
+    PlannedSessionsModule,
   ],
   controllers: [ProgramController],
   providers: [

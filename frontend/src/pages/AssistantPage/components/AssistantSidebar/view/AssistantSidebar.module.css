@@ -88,9 +88,11 @@
   transform-origin: left center;
   padding: 4px 8px;
   border-radius: var(--wa-radius-md);
-  background: var(--wa-text);
-  color: var(--wa-panel-bg);
+  background: #0c0c0c;
+  color: var(--wa-accent);
+  border: 1px solid var(--wa-accent);
   font-size: 12px;
+  font-weight: 600;
   line-height: 1.4;
   white-space: nowrap;
   pointer-events: none;

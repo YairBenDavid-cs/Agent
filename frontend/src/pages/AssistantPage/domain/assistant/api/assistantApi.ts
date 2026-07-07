@@ -7,6 +7,7 @@ import type {
   ConversationMode,
   MessageMeta,
   PipelineRunResult,
+  ScheduledWeekBuild,
 } from '../types/assistant';
 import {
   mockCreateConversation,
@@ -278,4 +279,28 @@ export function resumeBuild(
     `/assistant/conversations/${conversationId}/resume`,
     { method: 'POST', body: {} },
   ).then((res) => (res.outcome ? toTurnResult(res.outcome) : null));
+}
+
+// POST /assistant/scheduled-week-builds — schedule the next week's "plan next
+// week" build to fire at `scheduledForUtc`. Backend-driven; no MOCK_API path.
+export function scheduleWeekBuild(scheduledForUtc: string): Promise<ScheduledWeekBuild> {
+  return request<{ id: string; targetWeekIndex: number; scheduledForUtc: string }>(
+    '/assistant/scheduled-week-builds',
+    { method: 'POST', body: { scheduledForUtc } },
+  ).then((res) => ({ ...res, status: 'pending' as const }));
+}
+
+// GET /assistant/scheduled-week-builds — the caller's pending schedule, if any.
+export function listScheduledWeekBuilds(): Promise<ScheduledWeekBuild[]> {
+  if (MOCK_API) {
+    return Promise.resolve([]);
+  }
+  return request<ScheduledWeekBuild[]>('/assistant/scheduled-week-builds');
+}
+
+// DELETE /assistant/scheduled-week-builds/:id — cancel a still-pending schedule.
+export function cancelScheduledWeekBuild(id: string): Promise<void> {
+  return request<{ cancelled: boolean }>(`/assistant/scheduled-week-builds/${id}`, {
+    method: 'DELETE',
+  }).then(() => undefined);
 }

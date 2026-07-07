@@ -67,6 +67,14 @@ export class OrchestratorSaga {
         case Pipeline.TIMING_REPLACE:
           await this.runTimingReplace(ctx, result);
           break;
+
+        case Pipeline.SESSION_CONTENT_REPLAN:
+          await this.runSessionContentReplan(ctx, result);
+          break;
+
+        case Pipeline.TARGET_REVISION_REPLAN:
+          await this.runTargetRevisionReplan(ctx, result);
+          break;
       }
     } catch (err) {
       result.status = 'aborted';
@@ -171,6 +179,94 @@ export class OrchestratorSaga {
     ctx: PipelineRunContext,
     result: PipelineRunResult,
   ): Promise<void> {
+    await this.place(ctx, result);
+  }
+
+  /**
+   * 7: (optional) revise the week's locked targets, if the athlete already
+   * confirmed the breach → Coach redrafts the one edited session → place.
+   * Only reached once the deterministic decision layer has already resolved
+   * `weekIndex`/confirmation — this never runs off a raw LLM tool call.
+   */
+  private async runSessionContentReplan(
+    ctx: PipelineRunContext,
+    result: PipelineRunResult,
+  ): Promise<void> {
+    const edit = ctx.sessionEdit;
+    if (!edit) {
+      throw new Error('SESSION_CONTENT_REPLAN requires ctx.sessionEdit.');
+    }
+    if (!ctx.programId || ctx.weekIndex === undefined) {
+      throw new Error(
+        'SESSION_CONTENT_REPLAN requires ctx.programId and ctx.weekIndex.',
+      );
+    }
+
+    if (edit.revisedTargets) {
+      result.stages.push('coach.reviseWeeklyTargets');
+      await this.coach.reviseWeeklyTargets(
+        ctx.userId,
+        ctx.programId,
+        ctx.weekIndex,
+        edit.revisedTargets,
+        'session_edit',
+        `Session edit "${edit.plannedSessionId}": ${edit.requestedChangeDescription}`,
+      );
+    }
+
+    result.stages.push('coach.reviseSessionContent');
+    this.requireTerminal(
+      await this.coach.reviseSessionContent(ctx.userId, ctx.runId, ctx.discipline, {
+        programId: ctx.programId,
+        weekIndex: ctx.weekIndex,
+        timezone: ctx.timezone,
+        plannedSessionId: edit.plannedSessionId,
+        requestedChangeDescription: edit.requestedChangeDescription,
+      }),
+      'coach.reviseSessionContent',
+    );
+
+    await this.place(ctx, result);
+  }
+
+  /**
+   * 8: revise the week's locked targets directly → Coach reflows the week's
+   * still-tentative sessions to fit the new budget → place. Committed sessions
+   * are never touched (`replaceTentativeWeek` only overwrites tentative slots).
+   */
+  private async runTargetRevisionReplan(
+    ctx: PipelineRunContext,
+    result: PipelineRunResult,
+  ): Promise<void> {
+    const revision = ctx.targetRevision;
+    if (!revision) {
+      throw new Error('TARGET_REVISION_REPLAN requires ctx.targetRevision.');
+    }
+    if (!ctx.programId || ctx.weekIndex === undefined) {
+      throw new Error(
+        'TARGET_REVISION_REPLAN requires ctx.programId and ctx.weekIndex.',
+      );
+    }
+
+    result.stages.push('coach.reviseWeeklyTargets');
+    await this.coach.reviseWeeklyTargets(
+      ctx.userId,
+      ctx.programId,
+      ctx.weekIndex,
+      revision.newTargets,
+      'direct_target_change',
+      revision.reason,
+    );
+
+    result.stages.push('coach.generateWeek');
+    this.requireTerminal(
+      await this.coach.generateWeek(ctx.userId, ctx.runId, ctx.discipline, {
+        weekIndex: ctx.weekIndex,
+        timezone: ctx.timezone,
+      }),
+      'coach.generateWeek',
+    );
+
     await this.place(ctx, result);
   }
 

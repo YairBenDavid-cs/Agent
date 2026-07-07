@@ -253,3 +253,26 @@ export const draftSessionSchema = z.object({
   ),
 });
 export type DraftSessionArgs = z.infer<typeof draftSessionSchema>;
+
+// ── revise_session_content (reactive edit: ONE existing session) ────────────
+//
+// The content-edit sibling of `draft_next_session`: overwrite an EXISTING
+// train's prescription per the athlete's requested change. Never touches
+// slotKey/dayOffset (schedule/identity are unchanged) — only the content the
+// Coach owns. `changes` is the display diff shown in chat.
+const sessionDiffChangeSchema = z.object({
+  field: z.string().describe('Human label, e.g. "totalDistanceKm".'),
+  before: z.union([z.string(), z.number(), z.null()]),
+  after: z.union([z.string(), z.number(), z.null()]),
+});
+
+export const reviseSessionContentSchema = z.object({
+  session: plannedSessionDraftSchema
+    .omit({ slotKey: true, dayOffset: true })
+    .describe('The FULL updated prescription — every field, not only what changed.'),
+  changes: z
+    .array(sessionDiffChangeSchema)
+    .min(1)
+    .describe('Field-level before/after pairs for the display diff.'),
+});
+export type ReviseSessionContentArgs = z.infer<typeof reviseSessionContentSchema>;

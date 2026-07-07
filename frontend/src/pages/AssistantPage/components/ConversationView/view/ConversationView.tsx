@@ -112,12 +112,36 @@ export function ConversationView({
   const buildRetry = lastAssistant?.meta?.buildRetry === true;
   const awaitingConfirmation = lastAssistant?.meta?.awaitingConfirmation === true;
 
+  // A resolved (approved/declined) or talked-past card shouldn't linger in the
+  // transcript — once the user has moved on, one way or another, hide it. It's
+  // keyed by batchId so a genuinely new suggestion (different id) still shows.
+  const [hiddenBatchId, setHiddenBatchId] = useState<string | null>(null);
+  const showApprovalCard = approval.batch !== null && approval.batch.batchId !== hiddenBatchId;
+
+  const dismissApprovalCard = useCallback((): void => {
+    if (approval.batch !== null) setHiddenBatchId(approval.batch.batchId);
+  }, [approval.batch]);
+
+  const onApproveCard = useCallback((): void => {
+    dismissApprovalCard();
+    approval.approve();
+  }, [dismissApprovalCard, approval]);
+
+  const onRejectCard = useCallback((): void => {
+    dismissApprovalCard();
+    approval.reject();
+  }, [dismissApprovalCard, approval]);
+
   const onSend = useCallback(
     (text: string): void => {
       setIntentBlocked(false);
+      // Sending a plain message instead of Approve/Decline is itself a way of
+      // moving past the card — don't block the chat waiting for a decision,
+      // just drop the card and answer whatever was asked.
+      dismissApprovalCard();
       send(text);
     },
-    [send],
+    [send, dismissApprovalCard],
   );
 
   const onChangeMode = useCallback(
@@ -166,15 +190,15 @@ export function ConversationView({
       <div className={styles.scrollArea}>
         <TurnList turns={turns} phase={phase} progress={progress} />
 
-        {approval.batch !== null && (
+        {showApprovalCard && approval.batch !== null && (
           <ChatApproval
             batch={approval.batch}
             sessionsById={approval.sessionsById}
             mode={mode}
             actionPending={approval.actionPending}
             actionError={approval.actionError}
-            onApprove={approval.approve}
-            onReject={approval.reject}
+            onApprove={onApproveCard}
+            onReject={onRejectCard}
             onSwitchToPlan={() => onChangeMode('plan')}
             onRefresh={approval.refresh}
           />
@@ -204,7 +228,7 @@ export function ConversationView({
             slot picker, or retry already owns the decision. */}
         {awaitingConfirmation &&
           !isBusy &&
-          approval.batch === null &&
+          !showApprovalCard &&
           slotProposal === null &&
           !buildRetry && (
             <div className={styles.consent}>
