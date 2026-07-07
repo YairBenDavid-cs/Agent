@@ -1,0 +1,1090 @@
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { randomUUID } from 'crypto';
+import { EventDiscipline } from '../../personalization/domain/preference-event.model';
+import {
+  AppendMessageCommand,
+  AppendMessageResult,
+} from '../conversation/application/commands/append-message.command';
+import { SetPendingCardBatchCommand } from '../conversation/application/commands/set-pending-card-batch.command';
+import {
+  CONVERSATION_REPOSITORY,
+  ConversationRepositoryPort,
+} from '../conversation/domain/conversation.repository.port';
+import { MessageMeta } from '../conversation/domain/conversation.model';
+import { GetActiveProgramQuery } from '../../program/application/queries/get-active-program.query';
+import { ActiveProgramResponse } from '../../program/application/dto/program.response';
+import { ProgramWeek } from '../../program/domain/program.model';
+import {
+  CommitSkeletonCommand,
+  CommitSkeletonResult,
+} from '../../program/application/commands/commit-skeleton.command';
+import { GetWeekQuery } from '../../planned-sessions/application/queries/get-week.query';
+import { PlannedSessionResponse } from '../../planned-sessions/application/dto/planned-session.response';
+import {
+  UpsertSessionScheduleCommand,
+  UpsertSessionScheduleResult,
+} from '../../planned-sessions/application/commands/upsert-session-schedule.command';
+import { GetUserQuery } from '../../users/application/queries/get-user.query';
+import { UserResponse } from '../../users/application/dto/user.response';
+import { CoachService } from '../coach/coach.service';
+import { PlannerService } from '../planner/planner.service';
+import {
+  CalendarSyncService,
+  SyncableSession,
+} from '../approval/calendar-sync.service';
+import { SlotCandidate } from './slot-proposer';
+import { PendingCardBatchService } from '../approval/pending-card-batch.service';
+import { AgentTelemetryService } from '../shared/llm/agent-telemetry.service';
+import {
+  BuildPhase,
+  BuildSnapshot,
+  resolveBuildPhase,
+} from './build-phase.resolver';
+
+/** The outcome of a build-conversation turn the orchestrator handled itself. */
+export interface BuildTurnResult {
+  /** The user-facing assistant reply persisted this turn. */
+  reply: string;
+  /** The persisted assistant message id. */
+  assistantMessageId: string;
+  /** True when the turn ended awaiting the user's decision (consent gate). */
+  awaitingConfirmation: boolean;
+  /**
+   * The approval card this turn opened, when the turn's decision is owned by a
+   * card rather than a yes/no consent gate. Lets the client render the card
+   * immediately off the turn response, without waiting for a conversation
+   * refetch. Null when no card was opened this turn.
+   */
+  pendingCardBatchId: string | null;
+}
+
+/** Fallback copy when a Coach run produces no usable text. */
+const FALLBACK_PROPOSAL =
+  "I've sketched your first week. Take a look on your program page — does this " +
+  'look like a good starting point, or would you like to adjust anything?';
+const FALLBACK_LOCK_CONFIRM =
+  "Great — your week's targets are locked in. Next I'll draft your sessions one " +
+  'at a time so you can review each.';
+const FALLBACK_COACH_UNAVAILABLE =
+  "Sorry — I couldn't reach your coach just now. Reply and I'll try again.";
+const FALLBACK_SESSION_DRAFT =
+  "I've drafted your next session — take a look at the card and let me know if " +
+  'it looks good to add, or tell me what to change.';
+/** Posted once every session is committed; BW3 takes over for scheduling. */
+const SESSIONS_COMPLETE_HANDOFF =
+  "That's every session drafted and locked in for the week. Next we'll find a " +
+  'time on your calendar for each one.';
+/** Posted when no clash-free calendar slot exists for the session being placed. */
+const NO_SLOTS_AVAILABLE =
+  "I couldn't find a free, clash-free time for this session in your calendar " +
+  'this week. Free up a window (or adjust your availability) and reply, and ' +
+  "I'll look again.";
+/** Posted once every session is scheduled and the week is locked. */
+const BUILD_COMPLETE =
+  "All set — every session for your first week is on the calendar. You're ready " +
+  'to go. You can review the full week on your program page.';
+
+/**
+ * Routes turns on a `program_build` conversation through the build state
+ * machine. Deterministic choreography: it resolves the live phase
+ * ({@link resolveBuildPhase}) and dispatches the matching Coach action with a
+ * human-in-the-loop gate between phases. The phase is derived from program /
+ * week / session state every turn, so a returning user resumes correctly with
+ * no stored step pointer.
+ *
+ * BW1 implements the TARGETS phases (propose → consent → lock). DRAFT_SESSION /
+ * slot phases are added by BW2/BW3; until then a turn in those phases returns
+ * null so the caller falls back to the ordinary assistant.
+ */
+@Injectable()
+export class BuildConversationOrchestrator {
+  private readonly logger = new Logger(BuildConversationOrchestrator.name);
+
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
+    private readonly coach: CoachService,
+    private readonly planner: PlannerService,
+    private readonly calendarSync: CalendarSyncService,
+    private readonly telemetry: AgentTelemetryService,
+    private readonly batches: PendingCardBatchService,
+    @Inject(CONVERSATION_REPOSITORY)
+    private readonly conversations: ConversationRepositoryPort,
+  ) {}
+
+  /**
+   * Kick off a fresh build inside an already-created `program_build`
+   * conversation: post a "building…" placeholder, lay down the periodization
+   * skeleton, propose week-1 targets, and post the proposal as the first real
+   * assistant message. Surfaces the chat over SSE so the UI can navigate to it.
+   */
+  async startBuild(args: {
+    userId: string;
+    conversationId: string;
+    title: string | null;
+    programId: string;
+    discipline: EventDiscipline;
+    weekIndex: number;
+  }): Promise<void> {
+    const { userId, conversationId, title, programId, discipline, weekIndex } =
+      args;
+
+    // Surface the opened chat immediately so the FE can land the user in it
+    // while Step A runs (the "coach is thinking" state).
+    this.telemetry.emitConversationOpened({
+      userId,
+      conversationId,
+      title,
+      origin: 'system',
+      attention: true,
+    });
+
+    try {
+      const runId = `build:propose:${userId}:${programId}:${randomUUID()}`;
+      // Lay down the skeleton if it isn't there yet, then propose targets.
+      await this.coach.generateProgram(userId, runId, discipline);
+      const proposal = await this.coach.proposeWeeklyTargets(
+        userId,
+        runId,
+        discipline,
+        { weekIndex },
+      );
+      const text = proposal.finalText?.trim() || FALLBACK_PROPOSAL;
+      await this.append(userId, conversationId, text, {
+        awaitingConfirmation: true,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Build kickoff failed for ${userId} (program ${programId}): ${String(err)}`,
+      );
+      await this.append(userId, conversationId, FALLBACK_COACH_UNAVAILABLE, {
+        awaitingConfirmation: true,
+        buildRetry: true,
+      });
+    }
+  }
+
+  /**
+   * Handle one user turn on a build conversation. Returns a {@link BuildTurnResult}
+   * when the orchestrator acted, or `null` when the current phase isn't handled
+   * yet (caller should fall back to the ordinary assistant turn).
+   */
+  async handleTurn(args: {
+    userId: string;
+    conversationId: string;
+    message: string;
+    discipline: EventDiscipline;
+  }): Promise<BuildTurnResult | null> {
+    const { userId, conversationId, message, discipline } = args;
+    const convo = await this.conversations.findConversation(
+      userId,
+      conversationId,
+    );
+    const buildContext = convo?.buildContext ?? null;
+    if (!buildContext) {
+      return null;
+    }
+
+    const load = await this.loadBuild(
+      userId,
+      conversationId,
+      buildContext.programId,
+      buildContext.weekIndex,
+      convo?.pendingCardBatchId ?? null,
+    );
+    if (!load) {
+      return null;
+    }
+    const { snapshot, sessions } = load;
+
+    const phase = resolveBuildPhase(snapshot);
+    this.logger.log(
+      `build turn: conversation=${conversationId} phase=${phase}`,
+    );
+
+    switch (phase) {
+      case 'PROPOSE_TARGETS':
+        return this.runPropose(userId, conversationId, discipline, buildContext.weekIndex);
+      case 'AWAIT_TARGETS_CONSENT':
+        return this.runTargetsConsent(
+          userId,
+          conversationId,
+          discipline,
+          snapshot.week,
+          buildContext.programId,
+          message,
+        );
+      case 'DRAFT_SESSION':
+        return this.runDraftSession(
+          userId,
+          conversationId,
+          discipline,
+          buildContext.programId,
+          snapshot,
+          sessions,
+        );
+      case 'AWAIT_SESSION_CONSENT':
+        // A reply while a session card is open is an adjustment request: re-draft
+        // the session (superseding the open card). Explicit approval is the card
+        // button, which commits + advances via the approval flow.
+        return this.runDraftSession(
+          userId,
+          conversationId,
+          discipline,
+          buildContext.programId,
+          snapshot,
+          sessions,
+          message,
+        );
+      case 'PROPOSE_SLOTS':
+        // No proposal on the table yet → compute + offer slots for the next
+        // unscheduled session.
+        return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+      case 'AWAIT_SLOT_CONSENT':
+        // A free-text reply while slots are on the table means "none of these" —
+        // re-propose a fresh set. The actual pick comes through confirmSlot.
+        return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+      case 'COMPLETE':
+        // Everything is scheduled; flip the week to locked (if needed) and
+        // confirm. Idempotent — a locked week just re-confirms.
+        return this.runComplete(
+          userId,
+          conversationId,
+          buildContext.programId,
+          snapshot,
+        );
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Advance the build after a session card is approved (called by the approval
+   * flow once the session is committed). Re-resolves the phase from fresh state:
+   * if more sessions remain → draft + card the next; if all are committed → post
+   * the scheduling hand-off. Returns the posted reply text (or null if nothing
+   * was posted, e.g. a stale/no-longer-build conversation).
+   */
+  async advanceAfterSessionApproved(
+    userId: string,
+    conversationId: string,
+  ): Promise<string | null> {
+    const convo = await this.conversations.findConversation(
+      userId,
+      conversationId,
+    );
+    const buildContext = convo?.buildContext ?? null;
+    if (!buildContext) {
+      return null;
+    }
+    // The approved card's batch is terminal now; clear the conversation pointer
+    // so the snapshot sees no outstanding gate and the resolver can advance.
+    await this.clearPendingBatch(userId, conversationId);
+
+    const load = await this.loadBuild(
+      userId,
+      conversationId,
+      buildContext.programId,
+      buildContext.weekIndex,
+      null,
+    );
+    if (!load) {
+      return null;
+    }
+    const { snapshot, sessions } = load;
+    const discipline = await this.resolveDiscipline(userId);
+    const phase = resolveBuildPhase(snapshot);
+    this.logger.log(
+      `build advance: conversation=${conversationId} phase=${phase}`,
+    );
+
+    if (phase === 'DRAFT_SESSION') {
+      const res = await this.runDraftSession(
+        userId,
+        conversationId,
+        discipline,
+        buildContext.programId,
+        snapshot,
+        sessions,
+      );
+      return res.reply;
+    }
+    // Every session committed — post the scheduling hand-off, then immediately
+    // offer the first slot so the chat moves straight into scheduling.
+    await this.append(userId, conversationId, SESSIONS_COMPLETE_HANDOFF, {
+      awaitingConfirmation: false,
+    });
+    const slots = await this.runProposeSlots(
+      userId,
+      conversationId,
+      snapshot,
+      sessions,
+    );
+    return slots.reply;
+  }
+
+  /**
+   * BW4 — re-greet a build on reopen. The phase is always derived from live
+   * program / week / session state (no stored pointer), so resume is free: if the
+   * conversation already ends at the current phase's consent gate (an `AWAIT_*`
+   * phase), this is a no-op. Only when the build sits on an UNPERFORMED action
+   * phase — a kickoff that aborted, or a step whose message was never posted — do
+   * we re-run that action so the chat never dead-ends. Idempotent: drafting picks
+   * the next uncommitted slot and slot proposals recompute, so a resume never
+   * double-writes. Returns the posted reply, or null when nothing was needed.
+   */
+  async resumeBuild(
+    userId: string,
+    conversationId: string,
+  ): Promise<BuildTurnResult | null> {
+    const convo = await this.conversations.findConversation(
+      userId,
+      conversationId,
+    );
+    const buildContext = convo?.buildContext ?? null;
+    if (!buildContext) {
+      return null;
+    }
+    const load = await this.loadBuild(
+      userId,
+      conversationId,
+      buildContext.programId,
+      buildContext.weekIndex,
+      convo?.pendingCardBatchId ?? null,
+    );
+    if (!load) {
+      return null;
+    }
+    const { snapshot, sessions } = load;
+    const phase = resolveBuildPhase(snapshot);
+    this.logger.log(
+      `build resume: conversation=${conversationId} phase=${phase}`,
+    );
+
+    let result: BuildTurnResult | null;
+    switch (phase) {
+      case 'PROPOSE_TARGETS': {
+        const discipline = await this.resolveDiscipline(userId);
+        result = await this.runPropose(
+          userId,
+          conversationId,
+          discipline,
+          buildContext.weekIndex,
+        );
+        break;
+      }
+      case 'DRAFT_SESSION': {
+        const discipline = await this.resolveDiscipline(userId);
+        result = await this.runDraftSession(
+          userId,
+          conversationId,
+          discipline,
+          buildContext.programId,
+          snapshot,
+          sessions,
+        );
+        break;
+      }
+      case 'PROPOSE_SLOTS':
+        result = await this.runProposeSlots(
+          userId,
+          conversationId,
+          snapshot,
+          sessions,
+        );
+        break;
+      case 'COMPLETE':
+        result = await this.runComplete(
+          userId,
+          conversationId,
+          buildContext.programId,
+          snapshot,
+        );
+        break;
+      default:
+        // AWAIT_TARGETS_CONSENT / AWAIT_SESSION_CONSENT / AWAIT_SLOT_CONSENT —
+        // the gate message is already in the transcript; resume is free.
+        return null;
+    }
+
+    // Re-surface the chat (pinned + flagged) so a returning user is drawn back
+    // into the in-flight build (decision 12 — reuse attention).
+    this.telemetry.emitConversationOpened({
+      userId,
+      conversationId,
+      title: convo?.title ?? null,
+      origin: 'system',
+      attention: true,
+    });
+    return result;
+  }
+
+  // ── phase handlers ──────────────────────────────────────────────────────
+
+  /** (Re)propose week targets — used if a turn arrives before a proposal exists. */
+  private async runPropose(
+    userId: string,
+    conversationId: string,
+    discipline: EventDiscipline,
+    weekIndex: number,
+  ): Promise<BuildTurnResult> {
+    const runId = `build:propose:${userId}:${randomUUID()}`;
+    try {
+      const proposal = await this.coach.proposeWeeklyTargets(
+        userId,
+        runId,
+        discipline,
+        { weekIndex },
+      );
+      const text = proposal.finalText?.trim() || FALLBACK_PROPOSAL;
+      return this.handled(userId, conversationId, text, true);
+    } catch (err) {
+      this.logger.error(`runPropose failed for ${userId}: ${String(err)}`);
+      return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
+    }
+  }
+
+  /** Interpret the user's reply to a targets proposal: lock or re-propose. */
+  private async runTargetsConsent(
+    userId: string,
+    conversationId: string,
+    discipline: EventDiscipline,
+    week: ProgramWeek,
+    programId: string,
+    message: string,
+  ): Promise<BuildTurnResult> {
+    const targets = week.weeklyTargets;
+    if (!targets) {
+      // Shouldn't happen (resolver guarantees a proposal here) — re-propose.
+      return this.runPropose(userId, conversationId, discipline, week.weekIndex);
+    }
+
+    const runId = `build:consent:${userId}:${randomUUID()}`;
+    try {
+      const res = await this.coach.resolveTargetsConsent(userId, runId, discipline, {
+        weekIndex: week.weekIndex,
+        proposed: {
+          sessionCount: targets.sessionCount,
+          totalVolume: targets.totalVolume,
+          keyGoals: targets.keyGoals,
+        },
+        userMessage: message,
+      });
+
+      if (res.terminalTool === 'lock_weekly_targets') {
+        // Locked. Confirm, then immediately draft the first session in the same
+        // turn so the build moves straight on without waiting for another user
+        // message (mirrors advanceAfterSessionApproved — a passed gate always
+        // auto-continues to the next step).
+        await this.append(userId, conversationId, FALLBACK_LOCK_CONFIRM, {
+          awaitingConfirmation: false,
+        });
+        return this.continueAfterTargetsLocked(
+          userId,
+          conversationId,
+          discipline,
+          programId,
+          week.weekIndex,
+        );
+      }
+
+      // Re-proposed (or plain reply) — surface the coach's message, keep waiting.
+      const text = res.finalText?.trim() || FALLBACK_PROPOSAL;
+      return this.handled(userId, conversationId, text, true);
+    } catch (err) {
+      this.logger.error(`runTargetsConsent failed for ${userId}: ${String(err)}`);
+      return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
+    }
+  }
+
+  /**
+   * Continue the build immediately after the week's targets are locked: re-load
+   * fresh state (the week is now `targets_locked`) and draft the first session,
+   * so locking targets flows straight into the first session card without the
+   * user having to send another message. Mirrors {@link advanceAfterSessionApproved}.
+   */
+  private async continueAfterTargetsLocked(
+    userId: string,
+    conversationId: string,
+    discipline: EventDiscipline,
+    programId: string,
+    weekIndex: number,
+  ): Promise<BuildTurnResult> {
+    const load = await this.loadBuild(
+      userId,
+      conversationId,
+      programId,
+      weekIndex,
+      null,
+    );
+    if (!load) {
+      // Couldn't reload — the lock confirmation is already posted; surface a
+      // recoverable failure so a reply re-runs the (now DRAFT_SESSION) phase.
+      return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
+    }
+    const { snapshot, sessions } = load;
+    const phase = resolveBuildPhase(snapshot);
+    this.logger.log(
+      `targets-locked advance: conversation=${conversationId} phase=${phase}`,
+    );
+    if (phase === 'DRAFT_SESSION') {
+      return this.runDraftSession(
+        userId,
+        conversationId,
+        discipline,
+        programId,
+        snapshot,
+        sessions,
+      );
+    }
+    // Defensive: a zero-session quota (or already-committed sessions) leaves
+    // nothing to draft — move straight to scheduling.
+    return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+  }
+
+  /**
+   * Draft (or re-draft) the next session and open a 1-session card for it. The
+   * Coach writes exactly one tentative session bounded by the locked targets +
+   * already-committed sessions; we then record a `build_session` card batch tied
+   * to this conversation (superseding any open one) and post the coach's message.
+   * `adjustment`, when present, is the user's requested change to re-draft around.
+   */
+  private async runDraftSession(
+    userId: string,
+    conversationId: string,
+    discipline: EventDiscipline,
+    programId: string,
+    snapshot: BuildSnapshot,
+    sessions: PlannedSessionResponse[],
+    adjustment?: string,
+  ): Promise<BuildTurnResult> {
+    const targets = snapshot.week.weeklyTargets;
+    if (!targets) {
+      // Resolver guarantees locked targets here; be defensive.
+      return this.handled(userId, conversationId, FALLBACK_COACH_UNAVAILABLE, false);
+    }
+
+    const committed = sessions.filter((s) => s.planState === 'committed');
+    const timezone = await this.resolveTimezone(userId);
+    const runId = `build:draft:${userId}:${randomUUID()}`;
+
+    try {
+      const res = await this.coach.draftNextSession(userId, runId, discipline, {
+        programId,
+        weekIndex: snapshot.week.weekIndex,
+        weekStartDate: snapshot.week.startDate,
+        timezone,
+        targets: {
+          sessionCount: targets.sessionCount,
+          totalVolume: targets.totalVolume,
+          keyGoals: targets.keyGoals,
+        },
+        committed,
+        committedSlotKeys: committed.map((s) => s.slotKey),
+      });
+
+      // Interview-first: the coach may ask a clarifying question instead of
+      // drafting (no terminal write). In that case no session was written, so
+      // don't open a card — just post the question and stay in DRAFT_SESSION
+      // awaiting the answer (the next reply re-enters this handler).
+      if (res.terminalTool !== 'draft_next_session') {
+        const question = res.finalText?.trim();
+        if (question) {
+          void adjustment;
+          return this.handled(userId, conversationId, question, true);
+        }
+        return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
+      }
+
+      // Open / refresh the per-session card and link it to this conversation.
+      const batch = await this.batches.record({
+        userId,
+        programId,
+        weekIndex: snapshot.week.weekIndex,
+        kind: 'build_session',
+        runId,
+        conversationId,
+      });
+      await this.commandBus.execute(
+        new SetPendingCardBatchCommand(userId, conversationId, batch.id),
+      );
+
+      const text = res.finalText?.trim() || FALLBACK_SESSION_DRAFT;
+      // `adjustment` is implicitly honoured by the coach via the prior turn's
+      // transcript; we keep the signature for clarity and future prompt threading.
+      void adjustment;
+      // A drafted session's decision is owned by its card, NOT a yes/no consent
+      // gate — so it does not raise `awaitingConfirmation`. It advertises the
+      // card id so the client can render the card straight off this response.
+      return this.handled(userId, conversationId, text, false, batch.id);
+    } catch (err) {
+      this.logger.error(`runDraftSession failed for ${userId}: ${String(err)}`);
+      return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
+    }
+  }
+
+  /**
+   * Propose calendar slots for the next committed-but-unscheduled session. Picks
+   * the earliest such session, asks the Planner for clash-free candidates (live
+   * calendar minus busy + hard windows), and posts them as an assistant message
+   * carrying `meta.slotProposal` so the UI renders pickable chips. When no slot
+   * fits, posts a "free up a window" prompt instead.
+   */
+  private async runProposeSlots(
+    userId: string,
+    conversationId: string,
+    snapshot: BuildSnapshot,
+    sessions: PlannedSessionResponse[],
+  ): Promise<BuildTurnResult> {
+    const next = sessions.find(
+      (s) => s.planState === 'committed' && s.calendarSync?.eventId == null,
+    );
+    if (!next) {
+      // Nothing left to place — flip to complete.
+      return this.runComplete(
+        userId,
+        conversationId,
+        sessions[0]?.programId ?? '',
+        snapshot,
+      );
+    }
+
+    const week = snapshot.week;
+    const timezone = next.timezone || (await this.resolveTimezone(userId));
+    try {
+      const candidates = await this.planner.proposeSlotsForSession(userId, {
+        weekWindow: { from: week.startDate, to: week.endDate },
+        timezone,
+        durationMin: next.estDurationMin,
+        preferredDate: next.scheduledDate,
+      });
+      if (candidates.length === 0) {
+        return this.handled(userId, conversationId, NO_SLOTS_AVAILABLE, true);
+      }
+
+      const text = this.formatSlotProposal(next.title, candidates);
+      const assistantMessageId = await this.append(
+        userId,
+        conversationId,
+        text,
+        {
+          awaitingConfirmation: true,
+          slotProposal: {
+            plannedSessionId: next.id,
+            candidates: candidates.map((c) => ({
+              scheduledDate: c.scheduledDate,
+              startTime: c.startTime,
+              endTime: c.endTime,
+              scheduledStartUtc: c.scheduledStartUtc,
+            })),
+          },
+        },
+      );
+      return {
+        reply: text,
+        assistantMessageId,
+        awaitingConfirmation: true,
+        pendingCardBatchId: null,
+      };
+    } catch (err) {
+      this.logger.error(`runProposeSlots failed for ${userId}: ${String(err)}`);
+      return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
+    }
+  }
+
+  /**
+   * Confirm a user's slot pick: re-validate it against the LIVE calendar (a slot
+   * can go stale between propose and pick), write the schedule onto the session,
+   * create the Google event, then advance — propose the next session's slots, or
+   * lock the week if this was the last. A stale pick re-proposes fresh slots.
+   * Returns null when the conversation isn't a resolvable build.
+   */
+  async confirmSlot(
+    userId: string,
+    conversationId: string,
+    scheduledStartUtc: string,
+  ): Promise<BuildTurnResult | null> {
+    const convo = await this.conversations.findConversation(
+      userId,
+      conversationId,
+    );
+    const buildContext = convo?.buildContext ?? null;
+    if (!buildContext) {
+      return null;
+    }
+    const load = await this.loadBuild(
+      userId,
+      conversationId,
+      buildContext.programId,
+      buildContext.weekIndex,
+      convo?.pendingCardBatchId ?? null,
+    );
+    if (!load) {
+      return null;
+    }
+    const { snapshot, sessions } = load;
+
+    const proposal = await this.latestSlotProposal(userId, conversationId);
+    if (!proposal) {
+      // No proposal on the table — recompute (resumes correctly post-restart).
+      return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+    }
+    const session = sessions.find((s) => s.id === proposal.plannedSessionId);
+    const chosen = proposal.candidates.find(
+      (c) => c.scheduledStartUtc === scheduledStartUtc,
+    );
+    if (!session || !chosen) {
+      // The pick doesn't match an open candidate — re-propose to resync.
+      return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+    }
+
+    const week = snapshot.week;
+    const timezone = session.timezone || (await this.resolveTimezone(userId));
+    const slot: SlotCandidate = {
+      scheduledDate: chosen.scheduledDate,
+      startTime: chosen.startTime,
+      endTime: chosen.endTime,
+      scheduledStartUtc: chosen.scheduledStartUtc,
+    };
+
+    // Re-validate against the live calendar; a clash now means the slot went
+    // stale, so re-propose a fresh set rather than writing a conflicting event.
+    const violations = await this.planner.validateSlot(
+      userId,
+      { weekWindow: { from: week.startDate, to: week.endDate }, timezone },
+      slot,
+    );
+    if (violations.length > 0) {
+      this.logger.log(
+        `confirmSlot: stale slot for session ${session.id} (${violations.join(' ')}); re-proposing`,
+      );
+      return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+    }
+
+    // Write the schedule (app-side), then create the owned Google event.
+    await this.commandBus.execute<
+      UpsertSessionScheduleCommand,
+      UpsertSessionScheduleResult
+    >(
+      new UpsertSessionScheduleCommand(userId, session.id, {
+        scheduledDate: slot.scheduledDate,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        timezone,
+        scheduledStartUtc: slot.scheduledStartUtc,
+      }),
+    );
+    const syncable: SyncableSession = {
+      id: session.id,
+      title: session.title,
+      coachNotes: session.coachNotes,
+      scheduledStartUtc: slot.scheduledStartUtc,
+      estDurationMin: session.estDurationMin,
+      timezone,
+      calendarSync: session.calendarSync,
+    };
+    await this.calendarSync.syncWeek(userId, [syncable]);
+
+    // Advance: re-load fresh state and either propose the next session's slots
+    // or finish the build (lock the week).
+    const after = await this.loadBuild(
+      userId,
+      conversationId,
+      buildContext.programId,
+      buildContext.weekIndex,
+      null,
+    );
+    if (!after) {
+      return null;
+    }
+    const phase = resolveBuildPhase(after.snapshot);
+    this.logger.log(
+      `confirmSlot advance: conversation=${conversationId} phase=${phase}`,
+    );
+    if (phase === 'PROPOSE_SLOTS') {
+      return this.runProposeSlots(
+        userId,
+        conversationId,
+        after.snapshot,
+        after.sessions,
+      );
+    }
+    return this.runComplete(
+      userId,
+      conversationId,
+      buildContext.programId,
+      after.snapshot,
+    );
+  }
+
+  /**
+   * Finish the build: flip the week to `locked` (idempotent — a locked week is
+   * left as-is) and post the completion message. The lock is performed by
+   * re-committing the skeleton with this week's `weekState` set to `locked`,
+   * preserving its frozen targets.
+   */
+  private async runComplete(
+    userId: string,
+    conversationId: string,
+    programId: string,
+    snapshot: BuildSnapshot,
+  ): Promise<BuildTurnResult> {
+    if ((snapshot.week.weekState ?? 'open') !== 'locked' && programId) {
+      try {
+        await this.lockBuildWeek(userId, programId, snapshot.week.weekIndex);
+      } catch (err) {
+        this.logger.error(`lockBuildWeek failed for ${userId}: ${String(err)}`);
+      }
+    }
+    return this.handled(userId, conversationId, BUILD_COMPLETE, false);
+  }
+
+  /**
+   * Flip a single week to `locked` by re-committing the skeleton with that
+   * week's `weekState` updated. Reuses {@link CommitSkeletonCommand} (the only
+   * write path that persists `weekState`); the rest of the weeks pass through
+   * unchanged so their state + targets are preserved.
+   */
+  private async lockBuildWeek(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+  ): Promise<void> {
+    const active = await this.queryBus.execute<
+      GetActiveProgramQuery,
+      ActiveProgramResponse
+    >(new GetActiveProgramQuery(userId));
+    const program = active.program;
+    if (!program || program.id !== programId) {
+      return;
+    }
+    const weeks: ProgramWeek[] = program.weeks.map((w) =>
+      w.weekIndex === weekIndex ? { ...w, weekState: 'locked' } : w,
+    );
+    await this.commandBus.execute<CommitSkeletonCommand, CommitSkeletonResult>(
+      new CommitSkeletonCommand(
+        userId,
+        programId,
+        weeks,
+        program.currentWeekIndex,
+      ),
+    );
+  }
+
+  /** Render a short, warm slot proposal naming the session + candidate times. */
+  private formatSlotProposal(
+    sessionTitle: string,
+    candidates: SlotCandidate[],
+  ): string {
+    const lines = candidates
+      .map(
+        (c, i) =>
+          `${i + 1}. ${this.formatSlotLabel(c)}`,
+      )
+      .join('\n');
+    return (
+      `Let's find a time for "${sessionTitle}". Here are a few open slots — ` +
+      `pick the one that works:\n${lines}`
+    );
+  }
+
+  /** Human-readable "Mon Jul 6, 07:00–08:00" label for one candidate. */
+  private formatSlotLabel(c: SlotCandidate): string {
+    const weekday = new Date(`${c.scheduledDate}T00:00:00.000Z`).toLocaleDateString(
+      'en-US',
+      { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' },
+    );
+    return `${weekday}, ${c.startTime}–${c.endTime}`;
+  }
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+
+  /** Resolve the phase a build conversation is in (used by callers/tests). */
+  resolvePhase(snapshot: BuildSnapshot): BuildPhase {
+    return resolveBuildPhase(snapshot);
+  }
+
+  /** Clear the conversation's open card-batch pointer. */
+  private async clearPendingBatch(
+    userId: string,
+    conversationId: string,
+  ): Promise<void> {
+    await this.commandBus.execute(
+      new SetPendingCardBatchCommand(userId, conversationId, null),
+    );
+  }
+
+  /** The active program's discipline (used when the caller didn't supply it). */
+  private async resolveDiscipline(userId: string): Promise<EventDiscipline> {
+    const active = await this.queryBus.execute<
+      GetActiveProgramQuery,
+      ActiveProgramResponse
+    >(new GetActiveProgramQuery(userId));
+    return active.program?.discipline ?? 'running';
+  }
+
+  /** The user's IANA timezone for placeholder scheduling (Planner overwrites). */
+  private async resolveTimezone(userId: string): Promise<string> {
+    const user = await this.queryBus.execute<GetUserQuery, UserResponse>(
+      new GetUserQuery(userId),
+    );
+    return user.timezone ?? 'UTC';
+  }
+
+  /**
+   * Load everything a turn needs: the resolver snapshot AND the rich
+   * `PlannedSessionResponse[]` (the snapshot only carries the resolver's minimal
+   * session shape, but drafting + scheduling need slotKey / schedule / calendar
+   * fields). Returns null when the build's program/week can't be resolved.
+   */
+  private async loadBuild(
+    userId: string,
+    conversationId: string,
+    programId: string,
+    weekIndex: number,
+    pendingCardBatchId: string | null,
+  ): Promise<{ snapshot: BuildSnapshot; sessions: PlannedSessionResponse[] } | null> {
+    const active = await this.queryBus.execute<
+      GetActiveProgramQuery,
+      ActiveProgramResponse
+    >(new GetActiveProgramQuery(userId));
+    const program = active.program;
+    if (!program || program.id !== programId) {
+      return null;
+    }
+    const week = program.weeks.find((w) => w.weekIndex === weekIndex);
+    if (!week) {
+      return null;
+    }
+    const sessions = await this.queryBus.execute<
+      GetWeekQuery,
+      PlannedSessionResponse[]
+    >(new GetWeekQuery(userId, programId, weekIndex));
+
+    // Resolve the conversation's open card batch (if any) so the resolver can
+    // gate on an outstanding per-session decision. Only a `pending` batch gates.
+    const pendingBatch = pendingCardBatchId
+      ? await this.batches.get(userId, pendingCardBatchId)
+      : null;
+
+    // A slot proposal is outstanding iff the latest assistant slotProposal targets
+    // a session that still has no calendar event (BW3 — derived, not stored).
+    const slotProposalOutstanding = await this.isSlotProposalOutstanding(
+      userId,
+      conversationId,
+      sessions,
+    );
+
+    return {
+      snapshot: { week, sessions, pendingBatch, slotProposalOutstanding },
+      sessions,
+    };
+  }
+
+  /**
+   * Whether the most recent assistant slot proposal is still awaiting a pick:
+   * true when its target session exists and has not been scheduled yet. Reads a
+   * small window of recent messages (newest first) for the latest `slotProposal`.
+   */
+  private async isSlotProposalOutstanding(
+    userId: string,
+    conversationId: string,
+    sessions: PlannedSessionResponse[],
+  ): Promise<boolean> {
+    const proposal = await this.latestSlotProposal(userId, conversationId);
+    if (!proposal) {
+      return false;
+    }
+    const target = sessions.find((s) => s.id === proposal.plannedSessionId);
+    return target != null && target.calendarSync?.eventId == null;
+  }
+
+  /** The latest assistant message's `slotProposal` meta, or null if none recent. */
+  private async latestSlotProposal(
+    userId: string,
+    conversationId: string,
+  ): Promise<NonNullable<MessageMeta['slotProposal']> | null> {
+    const page = await this.conversations.listMessages(userId, conversationId, {
+      limit: 20,
+      order: 'desc',
+    });
+    for (const msg of page.items) {
+      if (msg.role === 'assistant' && msg.meta?.slotProposal) {
+        return msg.meta.slotProposal;
+      }
+    }
+    return null;
+  }
+
+  private async handled(
+    userId: string,
+    conversationId: string,
+    reply: string,
+    awaitingConfirmation: boolean,
+    pendingCardBatchId: string | null = null,
+  ): Promise<BuildTurnResult> {
+    const assistantMessageId = await this.append(userId, conversationId, reply, {
+      awaitingConfirmation,
+    });
+    return { reply, assistantMessageId, awaitingConfirmation, pendingCardBatchId };
+  }
+
+  /**
+   * BW4 — post a recoverable-failure reply: the Coach/Planner run aborted, so we
+   * surface the fallback copy with a `buildRetry` flag (the FE shows a retry
+   * affordance) and keep the turn awaiting so a reply re-runs the same phase.
+   * The phase is never advanced on failure, so a retry is exactly a resume.
+   */
+  private async failed(
+    userId: string,
+    conversationId: string,
+    reply: string,
+  ): Promise<BuildTurnResult> {
+    const assistantMessageId = await this.append(userId, conversationId, reply, {
+      awaitingConfirmation: true,
+      buildRetry: true,
+    });
+    return {
+      reply,
+      assistantMessageId,
+      awaitingConfirmation: true,
+      pendingCardBatchId: null,
+    };
+  }
+
+  /** Append an assistant message and return its id. */
+  private async append(
+    userId: string,
+    conversationId: string,
+    content: string,
+    meta: {
+      awaitingConfirmation: boolean;
+      slotProposal?: MessageMeta['slotProposal'];
+      buildRetry?: boolean;
+    },
+  ): Promise<string> {
+    const messageMeta: MessageMeta = {
+      awaitingConfirmation: meta.awaitingConfirmation,
+    };
+    if (meta.slotProposal) {
+      messageMeta.slotProposal = meta.slotProposal;
+    }
+    if (meta.buildRetry) {
+      messageMeta.buildRetry = true;
+    }
+    const { message } = await this.commandBus.execute<
+      AppendMessageCommand,
+      AppendMessageResult
+    >(
+      new AppendMessageCommand(
+        userId,
+        conversationId,
+        'assistant',
+        content,
+        messageMeta,
+      ),
+    );
+    return message.id;
+  }
+}
