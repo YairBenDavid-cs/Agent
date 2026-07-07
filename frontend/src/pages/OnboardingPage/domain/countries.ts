@@ -5,6 +5,35 @@ export interface Country {
   name: string;
 }
 
+/** Emoji flag from an ISO alpha-2 code via regional-indicator codepoints. */
+export function flagFor(code: string): string {
+  if (!/^[A-Za-z]{2}$/.test(code)) {
+    return '🌐';
+  }
+  const base = 0x1f1e6;
+  const upper = code.toUpperCase();
+  return String.fromCodePoint(
+    base + (upper.charCodeAt(0) - 65),
+    base + (upper.charCodeAt(1) - 65),
+  );
+}
+
+/** Look up a country by code, or null if unknown. */
+export function countryByCode(code: string): Country | null {
+  return COUNTRIES.find((c) => c.code === code) ?? null;
+}
+
+/** Best-effort home country from the browser locale (e.g. "en-US" → "US"). */
+export function detectCountry(): Country | null {
+  try {
+    const locale = navigator.language;
+    const region = new Intl.Locale(locale).maximize().region;
+    return region ? countryByCode(region) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const COUNTRIES: Country[] = [
   { code: 'AF', name: 'Afghanistan' },
   { code: 'AX', name: 'Åland Islands' },

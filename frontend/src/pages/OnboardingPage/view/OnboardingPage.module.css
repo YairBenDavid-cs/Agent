@@ -1,134 +1,150 @@
 .page {
-  /* Popvich palette: near-black surfaces + a single warm-orange accent.
-     Remapping the shared --wa-* tokens here re-themes every descendant
-     (chips, tiles, fields, selects, buttons) without touching each component.
-     The new --accent / --accent-soft drive the orange highlights. */
+  /* Popvich palette from the Onboarding.dc design: near-black layered surfaces
+     + a single warm-orange accent. These tokens cascade to every step control
+     (see controls.module.css); the --wa-* aliases keep the shared Stepper themed. */
   --accent: #f2622e;
-  --accent-soft: rgba(242, 98, 46, 0.2);
+  --accent-soft: rgba(242, 98, 46, 0.16);
+  --bg: #0a0a0b;
+  --rail: #0c0c0e;
+  --panel: #161618;
+  --panel2: #1c1c1f;
+  --text: #f4f4f5;
+  --muted: #8c8c92;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --brand-dark: #d8531f;
 
-  --wa-header-bg: #0c0c0e;
-  --wa-panel-bg: #161618;
-  --wa-chat-bg: #0a0a0b;
-  --wa-bubble-out: rgba(242, 98, 46, 0.14);
-  --wa-bubble-in: #0e0e10;
-  --wa-text: #f4f4f5;
-  --wa-text-muted: #8c8c92;
-  --wa-border: rgba(255, 255, 255, 0.08);
-  --wa-row-hover: rgba(255, 255, 255, 0.05);
-  --wa-row-selected: rgba(242, 98, 46, 0.14);
+  /* Aliases so the shared Stepper (--wa-*) picks up the same palette. */
+  --wa-text: var(--text);
+  --wa-text-muted: var(--muted);
+  --wa-border: var(--border);
   --wa-brand: var(--accent);
-  --wa-brand-dark: #d8531f;
+  --wa-brand-dark: var(--brand-dark);
+  --wa-bubble-out: var(--accent-soft);
 
   color-scheme: dark;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
-  background: var(--wa-chat-bg);
-  color: var(--wa-text);
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* Left stepper rail — hidden on narrow screens in favour of the top bar. */
+/* Left stepper rail — hidden on narrow screens in favour of the header. */
 .rail {
   flex: none;
   width: 320px;
-  background: var(--wa-header-bg);
-  border-right: 1px solid var(--wa-border);
-  padding: 24px 20px;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--rail);
+  border-right: 1px solid var(--border);
+  padding: 30px 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 36px;
 }
 
 .panel {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-/* Compact header + progress segments — shown only on narrow screens. */
-.topBar {
-  display: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--wa-space-4) var(--wa-space-4) 0;
-}
-
-.segments {
-  display: none;
-  gap: 6px;
-  padding: var(--wa-space-3) var(--wa-space-4) 0;
-}
-
-.segment {
-  height: 4px;
-  flex: 1;
-  border-radius: 2px;
-  background: var(--wa-border);
-}
-
-.segmentOn {
-  background: var(--accent);
-}
-
-.counter {
-  font-size: 0.8125rem;
-  color: var(--wa-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.content {
-  width: 100%;
-  max-width: 560px;
-  margin: 0 auto;
-  padding: 24px 20px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--wa-space-2);
+  gap: 10px;
+  color: var(--accent);
 }
 
 .brandName {
+  font-size: 1.0625rem;
   font-weight: 700;
-  color: var(--wa-text);
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
-.heading {
+.header {
+  flex: none;
+}
+
+.headerInner,
+.bodyInner,
+.footerInner {
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.headerInner {
+  padding: 44px 36px 18px;
   display: flex;
   flex-direction: column;
-  gap: var(--wa-space-1);
+  gap: 14px;
+}
+
+.mobileBrand {
+  display: none;
+}
+
+.eyebrowRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .eyebrow {
   font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.09em;
+  font-weight: 700;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--accent);
 }
 
+.counter {
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .title {
-  font-size: 1.75rem;
+  font-size: 2rem;
   font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.1;
-  color: var(--wa-text);
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  color: var(--text);
   margin: 0;
 }
 
 .subtitle {
-  color: var(--wa-text-muted);
+  font-size: 1rem;
+  color: var(--muted);
+  line-height: 1.5;
   margin: 0;
 }
 
+.segments {
+  display: none;
+}
+
 .body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.bodyInner {
+  padding: 8px 36px 28px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
+  animation: stepIn 0.28s cubic-bezier(0, 0, 0.38, 0.9);
 }
 
 .error {
@@ -138,25 +154,32 @@
 }
 
 .footer {
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.footerInner {
+  padding: 18px 36px;
   display: flex;
   align-items: center;
-  gap: var(--wa-space-3);
-  margin-top: var(--wa-space-2);
+  gap: 12px;
 }
 
 .back {
-  border: 1px solid var(--wa-border);
-  border-radius: var(--wa-radius-md);
+  border: 1px solid var(--border-strong);
+  border-radius: 99px;
   background: transparent;
-  color: var(--wa-text);
+  color: var(--text);
+  font: inherit;
   font-weight: 600;
-  padding: var(--wa-space-3) var(--wa-space-4);
+  padding: 14px 24px;
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
 
 .back:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--accent);
 }
 
 .back:disabled {
@@ -167,18 +190,19 @@
 .next {
   flex: 1;
   border: none;
-  border-radius: var(--wa-radius-md);
+  border-radius: 99px;
   background: var(--accent);
-  color: #ffffff;
+  color: #fff;
+  font: inherit;
   font-weight: 600;
-  padding: var(--wa-space-3) var(--wa-space-4);
+  padding: 15px 24px;
   cursor: pointer;
-  box-shadow: 0 10px 30px -10px var(--accent);
+  box-shadow: 0 12px 30px -12px var(--accent);
   transition: background-color 0.15s ease;
 }
 
 .next:hover:not(:disabled) {
-  background: var(--wa-brand-dark);
+  background: var(--brand-dark);
 }
 
 .next:disabled {
@@ -187,20 +211,58 @@
   box-shadow: none;
 }
 
+@keyframes stepIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 880px) {
   .rail {
     display: none;
   }
 
-  .topBar {
+  .headerInner {
+    padding: 24px 20px 16px;
+  }
+
+  .mobileBrand {
     display: flex;
   }
 
   .segments {
     display: flex;
+    gap: 6px;
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 0 20px;
   }
 
-  .content {
-    padding-top: 20px;
+  .segment {
+    height: 4px;
+    flex: 1;
+    border-radius: 2px;
+    background: var(--border);
+  }
+
+  .segmentOn {
+    background: var(--accent);
+  }
+
+  .bodyInner {
+    padding: 12px 20px 24px;
+  }
+
+  .footerInner {
+    padding: 16px 20px;
+  }
+
+  .title {
+    font-size: 1.6rem;
   }
 }

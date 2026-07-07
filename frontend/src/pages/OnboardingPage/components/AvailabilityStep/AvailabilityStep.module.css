@@ -1,85 +1,121 @@
-.slots {
+.gridScroll {
+  overflow-x: auto;
+}
+
+.grid {
+  min-width: 520px;
   display: flex;
   flex-direction: column;
-  gap: var(--wa-space-2);
+  gap: 4px;
 }
 
-.slotRow {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr auto;
-  gap: var(--wa-space-2);
-  align-items: end;
-}
-
-.control {
+.scaleRow {
   display: flex;
-  flex-direction: column;
-  gap: var(--wa-space-1);
+  align-items: center;
 }
 
-.controlLabel {
-  font-size: 0.75rem;
-  color: var(--wa-text-muted);
+.scaleSpacer {
+  flex: none;
+  width: 52px;
 }
 
-.select,
-.time {
-  border: none;
-  border-bottom: 2px solid var(--wa-border);
-  padding: var(--wa-space-2) 0;
-  outline: none;
-  background: transparent;
-  color: var(--wa-text);
-  font: inherit;
+.scaleSpacerRight {
+  flex: none;
+  width: 26px;
 }
 
-.select:focus,
-.time:focus {
-  border-bottom-color: var(--wa-brand);
+.scaleCells {
+  flex: 1;
+  display: flex;
 }
 
-.remove {
-  border: none;
-  background: transparent;
-  color: var(--wa-text-muted);
-  font-size: 1.25rem;
-  line-height: 1;
-  padding: var(--wa-space-2);
-  cursor: pointer;
-  border-radius: var(--wa-radius-sm);
+.scaleLabel {
+  flex: 1;
+  min-width: 16px;
+  font-size: 0.625rem;
+  color: var(--muted);
 }
 
-.remove:hover:not(:disabled) {
-  color: #ffb4ab;
-  background: var(--wa-row-hover);
+.dayRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.remove:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.addButton {
-  align-self: flex-start;
-  border: 2px dashed var(--wa-border);
-  border-radius: var(--wa-radius-md);
-  background: transparent;
-  color: var(--wa-brand-dark);
-  padding: var(--wa-space-2) var(--wa-space-3);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.addButton:hover:not(:disabled) {
-  border-color: var(--wa-brand);
-}
-
-.addButton:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.warning {
-  color: #ffb4ab;
+.dayName {
+  flex: none;
+  width: 52px;
   font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.cells {
+  flex: 1;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.cell {
+  flex: 1;
+  min-width: 16px;
+  height: 34px;
+  cursor: pointer;
+  background: var(--panel2);
+  border-right: 1px solid var(--bg);
+  transition: background-color 0.1s ease;
+}
+
+.cell:last-child {
+  border-right: none;
+}
+
+.cellOn {
+  background: linear-gradient(135deg, var(--accent), var(--brand-dark));
+}
+
+.hourCount {
+  flex: none;
+  width: 26px;
+  text-align: right;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.summary {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.8125rem;
+}
+
+.summaryDay {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.summaryTimes {
+  color: var(--muted);
+  text-align: right;
 }

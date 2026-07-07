@@ -1,0 +1,109 @@
+.flag {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.triggerLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.list {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detected {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+
+.detectedText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.detectedName {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.detectedHint {
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+/* Timezone row */
+.tzRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel2);
+  padding: 14px 16px;
+}
+
+.tzIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tzText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tzName {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tzLocal {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.changeBtn {
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.changeBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.changeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tzWrap {
+  position: relative;
+}

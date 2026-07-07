@@ -79,7 +79,7 @@ export function ConversationView({
     loadError,
     turns,
     phase,
-    progressDetail,
+    progress,
     sendError,
     isBusy,
     send,
@@ -163,83 +163,85 @@ export function ConversationView({
 
   return (
     <div className={styles.conversation}>
-      <TurnList turns={turns} phase={phase} progressDetail={progressDetail} />
+      <div className={styles.scrollArea}>
+        <TurnList turns={turns} phase={phase} progress={progress} />
 
-      {approval.batch !== null && (
-        <ChatApproval
-          batch={approval.batch}
-          sessionsById={approval.sessionsById}
-          mode={mode}
-          actionPending={approval.actionPending}
-          actionError={approval.actionError}
-          onApprove={approval.approve}
-          onReject={approval.reject}
-          onSwitchToPlan={() => onChangeMode('plan')}
-          onRefresh={approval.refresh}
-        />
-      )}
+        {approval.batch !== null && (
+          <ChatApproval
+            batch={approval.batch}
+            sessionsById={approval.sessionsById}
+            mode={mode}
+            actionPending={approval.actionPending}
+            actionError={approval.actionError}
+            onApprove={approval.approve}
+            onReject={approval.reject}
+            onSwitchToPlan={() => onChangeMode('plan')}
+            onRefresh={approval.refresh}
+          />
+        )}
 
-      {slotProposal !== null && !isBusy && (
-        <SlotProposal
-          candidates={slotProposal.candidates}
-          disabled={isBusy}
-          onPick={confirmSlot}
-        />
-      )}
+        {slotProposal !== null && !isBusy && (
+          <SlotProposal
+            candidates={slotProposal.candidates}
+            disabled={isBusy}
+            onPick={confirmSlot}
+          />
+        )}
 
-      {buildRetry && !isBusy && (
-        <div className={styles.consent}>
-          <span className={styles.consentText}>
-            I couldn’t reach your coach. Want me to try again?
-          </span>
-          <button type="button" className={styles.consentApprove} onClick={resume}>
-            <CheckIcon />
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* Generic yes/no consent (e.g. lock weekly targets). Suppressed when a card,
-          slot picker, or retry already owns the decision. */}
-      {awaitingConfirmation &&
-        !isBusy &&
-        approval.batch === null &&
-        slotProposal === null &&
-        !buildRetry && (
+        {buildRetry && !isBusy && (
           <div className={styles.consent}>
-            <span className={styles.consentText}>Apply this change?</span>
-            <div className={styles.consentActions}>
-              <button type="button" className={styles.consentApprove} onClick={() => onConfirm(true)}>
-                <CheckIcon />
-                Approve &amp; apply
-              </button>
-              <button type="button" className={styles.consentCancel} onClick={() => onConfirm(false)}>
-                Cancel
-              </button>
-            </div>
+            <span className={styles.consentText}>
+              I couldn’t reach your coach. Want me to try again?
+            </span>
+            <button type="button" className={styles.consentApprove} onClick={resume}>
+              <CheckIcon />
+              Retry
+            </button>
           </div>
         )}
 
-      {intentBlocked && !isBusy && (
-        <div className={styles.consent}>
-          <span className={styles.consentText}>
-            This chat is in <strong>Ask</strong> mode, so I can’t change your program.
-          </span>
-          <button type="button" className={styles.consentApprove} onClick={onSwitchToPlan}>
-            <CheckIcon />
-            Switch to Plan &amp; apply
-          </button>
-        </div>
-      )}
+        {/* Generic yes/no consent (e.g. lock weekly targets). Suppressed when a card,
+            slot picker, or retry already owns the decision. */}
+        {awaitingConfirmation &&
+          !isBusy &&
+          approval.batch === null &&
+          slotProposal === null &&
+          !buildRetry && (
+            <div className={styles.consent}>
+              <span className={styles.consentText}>Apply this change?</span>
+              <div className={styles.consentActions}>
+                <button type="button" className={styles.consentApprove} onClick={() => onConfirm(true)}>
+                  <CheckIcon />
+                  Approve &amp; apply
+                </button>
+                <button type="button" className={styles.consentCancel} onClick={() => onConfirm(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
-      {sendError !== null && (
-        <div className={styles.error}>
-          <span>{sendError}</span>
-          <button type="button" className={styles.retry} onClick={retry}>
-            Retry
-          </button>
-        </div>
-      )}
+        {intentBlocked && !isBusy && (
+          <div className={styles.consent}>
+            <span className={styles.consentText}>
+              This chat is in <strong>Ask</strong> mode, so I can’t change your program.
+            </span>
+            <button type="button" className={styles.consentApprove} onClick={onSwitchToPlan}>
+              <CheckIcon />
+              Switch to Plan &amp; apply
+            </button>
+          </div>
+        )}
+
+        {sendError !== null && (
+          <div className={styles.error}>
+            <span>{sendError}</span>
+            <button type="button" className={styles.retry} onClick={retry}>
+              Retry
+            </button>
+          </div>
+        )}
+      </div>
 
       <footer className={styles.footer}>
         <div className={styles.composerBar}>

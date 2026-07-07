@@ -11,10 +11,12 @@ import {
 } from '../domain/planned-session.model';
 import {
   PlannedSessionRepositoryPort,
+  SessionContent,
   SessionSchedule,
 } from '../domain/planned-session.repository.port';
 import {
   calendarToPersistence,
+  contentToPersistence,
   diffToPersistence,
   outcomeToPersistence,
   PlannedSessionLean,
@@ -247,6 +249,22 @@ export class PlannedSessionRepository
           end_time: schedule.endTime,
           timezone: schedule.timezone,
           scheduled_start_utc: schedule.scheduledStartUtc,
+        },
+      })
+      .exec();
+  }
+
+  async updateContent(
+    userId: string,
+    plannedSessionId: string,
+    content: SessionContent,
+    lastDiff: SessionDiff,
+  ): Promise<void> {
+    await this.model
+      .updateOne(this.scoped(userId, { _id: plannedSessionId }), {
+        $set: {
+          ...contentToPersistence(content),
+          last_diff: diffToPersistence(lastDiff),
         },
       })
       .exec();

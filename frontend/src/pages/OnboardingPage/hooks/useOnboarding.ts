@@ -6,11 +6,13 @@ import { submitOnboarding } from '../api/submitOnboarding';
 import { buildPayload } from '../domain/buildPayload';
 import {
   isAvailabilityStepValid,
+  isBasicsStepValid,
+  isBodyStepValid,
   isConnectStepValid,
   isDisciplineStepValid,
   isGoalStepValid,
+  isLocationStepValid,
   isPrefsStepValid,
-  isProfileStepValid,
 } from '../domain/validation';
 import {
   initialDraft,
@@ -22,7 +24,9 @@ import {
 export type StepId =
   | 'discipline'
   | 'goal'
-  | 'profile'
+  | 'basics'
+  | 'location'
+  | 'body'
   | 'availability'
   | 'prefs'
   | 'connect';
@@ -63,18 +67,34 @@ const STEPS: StepMeta[] = [
     railSubtitle: 'Your target',
   },
   {
-    id: 'profile',
+    id: 'basics',
     eyebrow: 'Profile',
     title: 'About you',
     subtitle: 'A few basics so plans fit your body.',
-    railTitle: 'Profile',
-    railSubtitle: 'About you',
+    railTitle: 'Basics',
+    railSubtitle: 'You & your birthday',
+  },
+  {
+    id: 'location',
+    eyebrow: 'Profile',
+    title: 'Where are you based?',
+    subtitle: 'So sessions land at the right local time.',
+    railTitle: 'Location',
+    railSubtitle: 'Country & time zone',
+  },
+  {
+    id: 'body',
+    eyebrow: 'Profile',
+    title: 'Your measurements',
+    subtitle: 'Optional — helps us size training load.',
+    railTitle: 'Body',
+    railSubtitle: 'Height & weight',
   },
   {
     id: 'availability',
     eyebrow: 'Availability',
     title: 'When can you train?',
-    subtitle: 'Add the weekly windows you can commit to.',
+    subtitle: 'Set the weekly windows you can commit to.',
     railTitle: 'Availability',
     railSubtitle: 'Your schedule',
   },
@@ -99,7 +119,9 @@ const STEPS: StepMeta[] = [
 const VALIDATORS: Record<StepId, (draft: OnboardingDraft) => boolean> = {
   discipline: isDisciplineStepValid,
   goal: isGoalStepValid,
-  profile: isProfileStepValid,
+  basics: isBasicsStepValid,
+  location: isLocationStepValid,
+  body: isBodyStepValid,
   availability: isAvailabilityStepValid,
   prefs: isPrefsStepValid,
   connect: isConnectStepValid,

@@ -68,23 +68,27 @@ export interface ConnectionsDraft {
 }
 
 export const initialDraft: OnboardingDraft = {
-  discipline: null,
-  goal: { primaryGoal: null, note: '' },
+  discipline: 'running',
+  goal: { primaryGoal: 'build_endurance', note: '' },
   profile: {
     sex: null,
     dateOfBirth: '',
     country: '',
     // Resolved once from the browser so the field is populated from first render.
     timezone: detectTimeZone(),
-    heightCm: '',
-    weightKg: '',
+    heightCm: '175',
+    weightKg: '72',
   },
-  availability: [{ day: 'mon', startTime: '07:00', endTime: '08:00' }],
+  availability: [
+    { day: 'mon', startTime: '06:00', endTime: '08:00' },
+    { day: 'wed', startTime: '06:00', endTime: '08:00' },
+    { day: 'fri', startTime: '18:00', endTime: '20:00' },
+  ],
   sessionDurationMin: 60,
   run: {
-    weeklyKm: '',
-    likedRunTypes: [],
-    experienceLevel: '',
+    weeklyKm: '30',
+    likedRunTypes: ['easy', 'long'],
+    experienceLevel: 'intermediate',
     longestRecentKm: '',
     targetRace: '',
     recent5kTime: '',

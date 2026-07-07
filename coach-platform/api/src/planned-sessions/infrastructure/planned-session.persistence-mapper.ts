@@ -179,6 +179,22 @@ const diffToDomain = (d: SessionDiffClass): SessionDiff => ({
   })),
 });
 
+/* ── content edit (schedule/outcome-independent write) ────────────── */
+
+export const contentToPersistence = (
+  c: Pick<
+    PlannedSession,
+    'title' | 'estDurationMin' | 'intensityLabel' | 'coachNotes' | 'running' | 'strength'
+  >,
+) => ({
+  title: c.title,
+  est_duration_min: c.estDurationMin,
+  intensity_label: c.intensityLabel,
+  coach_notes: c.coachNotes,
+  running: c.running ? runToPersistence(c.running) : null,
+  strength: c.strength ? strengthToPersistence(c.strength) : null,
+});
+
 /* ── root ──────────────────────────────────────────────────────── */
 
 export const toPersistence = (s: PlannedSession): PlannedSessionDoc => ({

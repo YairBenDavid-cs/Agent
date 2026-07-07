@@ -82,15 +82,27 @@ export function isGoalStepValid(draft: OnboardingDraft): boolean {
 
 const ISO_ALPHA2 = /^[A-Z]{2}$/;
 
-export function isProfileStepValid(draft: OnboardingDraft): boolean {
+/** Sex + a real date of birth. First of the three profile steps. */
+export function isBasicsStepValid(draft: OnboardingDraft): boolean {
+  return draft.profile.sex !== null && isValidDateOfBirth(draft.profile.dateOfBirth);
+}
+
+/** A valid country code and a non-empty (auto-detected) time zone. */
+export function isLocationStepValid(draft: OnboardingDraft): boolean {
+  return ISO_ALPHA2.test(draft.profile.country) && draft.profile.timezone.trim() !== '';
+}
+
+/** Height/weight are optional; steppers keep them in range, so this is lenient. */
+export function isBodyStepValid(draft: OnboardingDraft): boolean {
   return (
-    draft.profile.sex !== null &&
-    isValidDateOfBirth(draft.profile.dateOfBirth) &&
-    ISO_ALPHA2.test(draft.profile.country) &&
-    draft.profile.timezone.trim() !== '' &&
     isOptionalPositiveInt(draft.profile.heightCm) &&
     isOptionalPositiveInt(draft.profile.weightKg)
   );
+}
+
+/** The full profile — kept for callers that gate on all profile fields at once. */
+export function isProfileStepValid(draft: OnboardingDraft): boolean {
+  return isBasicsStepValid(draft) && isLocationStepValid(draft) && isBodyStepValid(draft);
 }
 
 export function isAvailabilityStepValid(draft: OnboardingDraft): boolean {

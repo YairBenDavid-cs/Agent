@@ -1,6 +1,4 @@
 .list {
-  flex: 1;
-  overflow-y: auto;
   width: 100%;
   max-width: 768px;
   margin: 0 auto;

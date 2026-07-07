@@ -1,13 +1,11 @@
 import type { ReactElement } from 'react';
 import type { ExperienceLevel, RunType } from '../../domain/types';
 import type { RunDraft } from '../../state/onboardingDraft';
-import { Field } from '../Field/Field';
-import { OptionGroup, type ChipOption } from '../OptionChips/OptionGroup';
-import { OptionToggleGroup } from '../OptionChips/OptionToggleGroup';
 import { toggleValue } from '../OptionChips/toggleValue';
-import section from '../stepSection.module.css';
+import { NumberStepper } from '../NumberStepper/NumberStepper';
+import controls from '../controls.module.css';
 
-const RUN_TYPES: ChipOption<RunType>[] = [
+const RUN_TYPES: { value: RunType; label: string }[] = [
   { value: 'easy', label: 'Easy' },
   { value: 'tempo', label: 'Tempo' },
   { value: 'fartlek', label: 'Fartlek' },
@@ -16,7 +14,7 @@ const RUN_TYPES: ChipOption<RunType>[] = [
   { value: 'recovery', label: 'Recovery' },
 ];
 
-const LEVELS: ChipOption<ExperienceLevel>[] = [
+const LEVELS: { value: ExperienceLevel; label: string }[] = [
   { value: 'beginner', label: 'Beginner' },
   { value: 'intermediate', label: 'Intermediate' },
   { value: 'advanced', label: 'Advanced' },
@@ -30,64 +28,73 @@ interface RunPrefsStepProps {
 
 export function RunPrefsStep({ value, onChange, disabled }: RunPrefsStepProps): ReactElement {
   return (
-    <div className={section.stack}>
-      <Field
-        label="Current weekly volume (km)"
-        type="number"
-        value={value.weeklyKm}
-        onChange={(weeklyKm) => onChange({ weeklyKm })}
-        min={0}
-        max={300}
-        disabled={disabled}
-      />
-      <div className={section.section}>
-        <p className={section.sectionTitle}>Runs you enjoy</p>
-        <OptionToggleGroup
-          options={RUN_TYPES}
-          values={value.likedRunTypes}
-          onToggle={(type) => onChange({ likedRunTypes: toggleValue(value.likedRunTypes, type) })}
-          disabled={disabled}
-        />
-      </div>
-      <div className={section.section}>
-        <p className={section.sectionTitle}>Experience level (optional)</p>
-        <OptionGroup
-          options={LEVELS}
-          value={value.experienceLevel === '' ? null : value.experienceLevel}
-          onChange={(experienceLevel) => onChange({ experienceLevel })}
-          disabled={disabled}
-        />
-      </div>
-      <div className={section.row}>
-        <Field
-          label="Longest recent run (km)"
-          type="number"
-          value={value.longestRecentKm}
-          onChange={(longestRecentKm) => onChange({ longestRecentKm })}
-          optional
+    <div className={controls.stack}>
+      <div className={controls.card}>
+        <div className={controls.sectionHead}>
+          <p className={controls.sectionTitle}>Current weekly volume</p>
+          <p className={controls.sectionSub}>Roughly how far do you run in a week now?</p>
+        </div>
+        <NumberStepper
+          ariaLabel="current weekly volume in kilometres"
+          value={value.weeklyKm}
+          onChange={(weeklyKm) => onChange({ weeklyKm })}
           min={0}
-          max={500}
-          disabled={disabled}
-        />
-        <Field
-          label="Target race"
-          value={value.targetRace}
-          onChange={(targetRace) => onChange({ targetRace })}
-          placeholder="e.g. 10k, half, marathon"
-          optional
-          maxLength={120}
+          max={300}
+          step={5}
+          unit="km / wk"
           disabled={disabled}
         />
       </div>
-      <Field
-        label="Recent 5k time"
-        value={value.recent5kTime}
-        onChange={(recent5kTime) => onChange({ recent5kTime })}
-        placeholder="mm:ss (e.g. 24:30)"
-        optional
-        maxLength={8}
-        disabled={disabled}
-      />
+
+      <div className={controls.card}>
+        <div className={controls.sectionHead}>
+          <p className={controls.sectionTitle}>Runs you enjoy</p>
+          <p className={controls.sectionSub}>Pick any that apply.</p>
+        </div>
+        <div className={controls.pillWrap} role="group">
+          {RUN_TYPES.map((type) => {
+            const active = value.likedRunTypes.includes(type.value);
+            return (
+              <button
+                key={type.value}
+                type="button"
+                aria-pressed={active}
+                className={`${controls.pill} ${active ? controls.pillSelected : ''}`}
+                onClick={() =>
+                  onChange({ likedRunTypes: toggleValue(value.likedRunTypes, type.value) })
+                }
+                disabled={disabled}
+              >
+                {type.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={controls.card}>
+        <div className={controls.sectionHead}>
+          <p className={controls.sectionTitle}>Experience level</p>
+        </div>
+        <div className={`${controls.chipGrid} ${controls.cols3}`} role="radiogroup">
+          {LEVELS.map((level) => {
+            const active = value.experienceLevel === level.value;
+            return (
+              <button
+                key={level.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`${controls.chip} ${active ? controls.chipSelected : ''}`}
+                onClick={() => onChange({ experienceLevel: level.value })}
+                disabled={disabled}
+              >
+                {level.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

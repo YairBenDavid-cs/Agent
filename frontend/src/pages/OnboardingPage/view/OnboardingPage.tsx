@@ -1,20 +1,22 @@
 import type { ReactElement } from 'react';
-import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { DisciplineStep } from '../components/DisciplineStep/DisciplineStep';
 import { GoalStep } from '../components/GoalStep/GoalStep';
-import { ProfileStep } from '../components/ProfileStep/ProfileStep';
+import { BasicsStep } from '../components/BasicsStep/BasicsStep';
+import { LocationStep } from '../components/LocationStep/LocationStep';
+import { BodyStep } from '../components/BodyStep/BodyStep';
 import { AvailabilityStep } from '../components/AvailabilityStep/AvailabilityStep';
 import { RunPrefsStep } from '../components/RunPrefsStep/RunPrefsStep';
 import { StrengthPrefsStep } from '../components/StrengthPrefsStep/StrengthPrefsStep';
 import { ConnectStep } from '../components/ConnectStep/ConnectStep';
 import { Stepper } from '../components/Stepper/Stepper';
+import { LogoIcon } from '../components/LogoIcon/LogoIcon';
 import styles from './OnboardingPage.module.css';
 
 function Brand(): ReactElement {
   return (
     <div className={styles.brand}>
-      <BasketballIcon size={28} />
+      <LogoIcon size={28} />
       <span className={styles.brandName}>AgentiCoach</span>
     </div>
   );
@@ -57,9 +59,25 @@ export function OnboardingPage(): ReactElement {
             disabled={submitting}
           />
         );
-      case 'profile':
+      case 'basics':
         return (
-          <ProfileStep
+          <BasicsStep
+            value={draft.profile}
+            onChange={(patch) => dispatch({ type: 'patchProfile', patch })}
+            disabled={submitting}
+          />
+        );
+      case 'location':
+        return (
+          <LocationStep
+            value={draft.profile}
+            onChange={(patch) => dispatch({ type: 'patchProfile', patch })}
+            disabled={submitting}
+          />
+        );
+      case 'body':
+        return (
+          <BodyStep
             value={draft.profile}
             onChange={(patch) => dispatch({ type: 'patchProfile', patch })}
             disabled={submitting}
@@ -112,37 +130,41 @@ export function OnboardingPage(): ReactElement {
       </aside>
 
       <main className={styles.panel}>
-        <header className={styles.topBar}>
-          <Brand />
-          <span className={styles.counter}>
-            {String(stepIndex + 1).padStart(2, '0')} / {String(stepCount).padStart(2, '0')}
-          </span>
-        </header>
-        <div className={styles.segments} aria-hidden="true">
-          {steps.map((s, i) => (
-            <span key={s.id} className={`${styles.segment} ${i <= stepIndex ? styles.segmentOn : ''}`} />
-          ))}
-        </div>
-
-        <div className={styles.content}>
-          <header className={styles.heading}>
-            <span className={styles.eyebrow}>{step.eyebrow}</span>
+        <header className={styles.header}>
+          <div className={styles.headerInner}>
+            <div className={styles.mobileBrand}>
+              <Brand />
+            </div>
+            <div className={styles.eyebrowRow}>
+              <span className={styles.eyebrow}>{step.eyebrow}</span>
+              <span className={styles.counter}>
+                {String(stepIndex + 1).padStart(2, '0')} / {String(stepCount).padStart(2, '0')}
+              </span>
+            </div>
             <h1 className={styles.title}>{step.title}</h1>
             <p className={styles.subtitle}>{step.subtitle}</p>
-          </header>
+          </div>
+          <div className={styles.segments} aria-hidden="true">
+            {steps.map((s, i) => (
+              <span
+                key={s.id}
+                className={`${styles.segment} ${i <= stepIndex ? styles.segmentOn : ''}`}
+              />
+            ))}
+          </div>
+        </header>
 
-          <div className={styles.body}>{renderStep()}</div>
+        <div className={styles.body}>
+          <div className={styles.bodyInner} key={stepIndex}>
+            {renderStep()}
+            {error !== null && <p className={styles.error}>{error}</p>}
+          </div>
+        </div>
 
-          {error !== null && <p className={styles.error}>{error}</p>}
-
-          <div className={styles.footer}>
+        <footer className={styles.footer}>
+          <div className={styles.footerInner}>
             {!isFirstStep && (
-              <button
-                type="button"
-                className={styles.back}
-                onClick={back}
-                disabled={submitting}
-              >
+              <button type="button" className={styles.back} onClick={back} disabled={submitting}>
                 Back
               </button>
             )}
@@ -155,7 +177,7 @@ export function OnboardingPage(): ReactElement {
               {nextLabel}
             </button>
           </div>
-        </div>
+        </footer>
       </main>
     </div>
   );

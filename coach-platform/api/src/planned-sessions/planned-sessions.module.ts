@@ -6,6 +6,7 @@ import { CommitWeekHandler } from './application/commands/commit-week.handler';
 import { DiscardTentativeWeekHandler } from './application/commands/discard-tentative-week.handler';
 import { RecordOutcomeHandler } from './application/commands/record-outcome.handler';
 import { UpdateCalendarSyncHandler } from './application/commands/update-calendar-sync.handler';
+import { UpsertSessionContentHandler } from './application/commands/upsert-session-content.handler';
 import { UpsertSessionScheduleHandler } from './application/commands/upsert-session-schedule.handler';
 import { UpsertWeekSessionsHandler } from './application/commands/upsert-week-sessions.handler';
 import { GetCalendarRangeHandler } from './application/queries/get-calendar-range.handler';
@@ -22,6 +23,7 @@ const CommandHandlers = [
   RecordOutcomeHandler,
   UpsertWeekSessionsHandler,
   UpsertSessionScheduleHandler,
+  UpsertSessionContentHandler,
   CommitWeekHandler,
   CommitSessionHandler,
   UpdateCalendarSyncHandler,

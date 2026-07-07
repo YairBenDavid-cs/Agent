@@ -3,6 +3,7 @@ import {
   UpsertWeekSessionsArgs,
 } from '../coach.contracts';
 import {
+  detectWeeklyTargetBreach,
   LoadProxyInput,
   sessionLoadProxy,
   sessionVolume,
@@ -10,6 +11,7 @@ import {
   validateSessionStructure,
   validateSkeleton,
   validateWeek,
+  weekFitsTargets,
   weekLoadProxy,
 } from '../coach.guardrails';
 
@@ -375,5 +377,95 @@ describe('coach.guardrails — validateAgainstWeeklyTargets', () => {
       totalVolume: 30,
     });
     expect(v).toEqual([]);
+  });
+});
+
+describe('coach.guardrails — detectWeeklyTargetBreach', () => {
+  function runKm(km: number): LoadProxyInput {
+    return {
+      type: 'running',
+      intensityLabel: 'easy',
+      estDurationMin: 40,
+      running: { totalDistanceKm: km },
+      strength: null,
+    };
+  }
+
+  it('reports no breach when the edited session still fits', () => {
+    const res = detectWeeklyTargetBreach(runKm(15), [runKm(10)], {
+      sessionCount: 3,
+      totalVolume: 30,
+    });
+    expect(res).toEqual({
+      breaches: false,
+      projectedSessionCount: 2,
+      projectedVolume: 25,
+      overBy: { sessionCount: 0, volume: 0 },
+    });
+  });
+
+  it('reports a volume breach with the exact overage', () => {
+    const res = detectWeeklyTargetBreach(runKm(20), [runKm(10)], {
+      sessionCount: 3,
+      totalVolume: 25,
+    });
+    expect(res.breaches).toBe(true);
+    expect(res.overBy.volume).toBeCloseTo(5);
+    expect(res.overBy.sessionCount).toBe(0);
+  });
+
+  it('reports a session-count breach', () => {
+    const res = detectWeeklyTargetBreach(
+      runKm(5),
+      [runKm(5), runKm(5)],
+      { sessionCount: 2, totalVolume: 100 },
+    );
+    expect(res.breaches).toBe(true);
+    expect(res.overBy.sessionCount).toBe(1);
+  });
+
+  it('does not flag hitting the volume budget exactly (epsilon tolerance)', () => {
+    const res = detectWeeklyTargetBreach(runKm(15), [runKm(15)], {
+      sessionCount: 2,
+      totalVolume: 30,
+    });
+    expect(res.breaches).toBe(false);
+  });
+});
+
+describe('coach.guardrails — weekFitsTargets', () => {
+  function runKm(km: number): LoadProxyInput {
+    return {
+      type: 'running',
+      intensityLabel: 'easy',
+      estDurationMin: 40,
+      running: { totalDistanceKm: km },
+      strength: null,
+    };
+  }
+
+  it('fits when the current sessions are within a looser proposed target', () => {
+    const res = weekFitsTargets([runKm(10), runKm(10)], {
+      sessionCount: 3,
+      totalVolume: 30,
+    });
+    expect(res).toEqual({ fits: true, count: 2, volume: 20 });
+  });
+
+  it('does not fit when the current sessions exceed a tighter proposed target', () => {
+    const res = weekFitsTargets([runKm(20), runKm(20)], {
+      sessionCount: 5,
+      totalVolume: 30,
+    });
+    expect(res.fits).toBe(false);
+    expect(res.volume).toBe(40);
+  });
+
+  it('fits exactly at the epsilon boundary', () => {
+    const res = weekFitsTargets([runKm(15), runKm(15)], {
+      sessionCount: 2,
+      totalVolume: 30,
+    });
+    expect(res.fits).toBe(true);
   });
 });

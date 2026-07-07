@@ -17,6 +17,12 @@ export interface SessionSchedule {
   scheduledStartUtc: string;
 }
 
+/** The prescription fields of a train, independent of its schedule/outcome. */
+export type SessionContent = Pick<
+  PlannedSession,
+  'title' | 'estDurationMin' | 'intensityLabel' | 'coachNotes' | 'running' | 'strength'
+>;
+
 export interface PlannedSessionRepositoryPort {
   /**
    * Replace one program week's tentative draft in place, keyed on the unique
@@ -108,6 +114,19 @@ export interface PlannedSessionRepositoryPort {
     userId: string,
     plannedSessionId: string,
     schedule: SessionSchedule,
+  ): Promise<void>;
+
+  /**
+   * Overwrite the prescription fields of one train (content edit), independent
+   * of its `planState`, and persist the display diff. Never touches
+   * `schedule`/`outcome`/`calendarSync` — the content-edit sibling of
+   * `updateSchedule`.
+   */
+  updateContent(
+    userId: string,
+    plannedSessionId: string,
+    content: SessionContent,
+    lastDiff: SessionDiff,
   ): Promise<void>;
 
   /** Set the calendar-sync projection state (used at commit-time sync). */

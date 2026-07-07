@@ -132,6 +132,72 @@ export function validateAgainstWeeklyTargets(
   return violations;
 }
 
+/**
+ * Non-throwing sibling of `validateAgainstWeeklyTargets`, used by the reactive
+ * edit flows where a breach should surface as a confirmation prompt rather
+ * than a hard rejection. Same math/EPSILON convention.
+ */
+export interface TargetBreachCheck {
+  breaches: boolean;
+  projectedSessionCount: number;
+  projectedVolume: number;
+  overBy: { sessionCount: number; volume: number }; // 0 when not breaching
+}
+
+/**
+ * Flow A: does replacing one session's content push the week over its
+ * currently locked targets, given the other sessions already fixed this week?
+ * `fixedOthers` must exclude the session being edited.
+ */
+export function detectWeeklyTargetBreach(
+  editedSession: LoadProxyInput,
+  fixedOthers: LoadProxyInput[],
+  targets: WeeklyTargetsCheck,
+): TargetBreachCheck {
+  const EPSILON = 1e-6;
+
+  const projectedSessionCount = fixedOthers.length + 1;
+  const projectedVolume =
+    fixedOthers.reduce((sum, s) => sum + sessionVolume(s), 0) +
+    sessionVolume(editedSession);
+
+  const overCount = Math.max(
+    0,
+    projectedSessionCount - targets.sessionCount,
+  );
+  const overVolume =
+    projectedVolume > targets.totalVolume + EPSILON
+      ? projectedVolume - targets.totalVolume
+      : 0;
+
+  return {
+    breaches: overCount > 0 || overVolume > 0,
+    projectedSessionCount,
+    projectedVolume,
+    overBy: { sessionCount: overCount, volume: overVolume },
+  };
+}
+
+/**
+ * Flow B: does the current set of sessions already exceed a proposed new
+ * weekly target? Tells the caller whether adopting the new budget requires a
+ * reflow of the sessions or can be adopted with zero session changes.
+ */
+export function weekFitsTargets(
+  sessions: LoadProxyInput[],
+  targets: WeeklyTargetsCheck,
+): { fits: boolean; count: number; volume: number } {
+  const EPSILON = 1e-6;
+  const count = sessions.length;
+  const volume = sessions.reduce((sum, s) => sum + sessionVolume(s), 0);
+
+  return {
+    fits: count <= targets.sessionCount && volume <= targets.totalVolume + EPSILON,
+    count,
+    volume,
+  };
+}
+
 /** Validate a proposed week of sessions against the hard limits. */
 export function validateWeek(
   args: UpsertWeekSessionsArgs,

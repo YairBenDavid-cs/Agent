@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '@/shared/api/ApiError';
 import { MOCK_API } from '@/shared/config';
@@ -12,9 +12,25 @@ import {
   verifyGarminMfa,
   type GarminSyncStatus,
 } from '../../api/connections';
-import { Field } from '../Field/Field';
-import section from '../stepSection.module.css';
 import styles from './ConnectStep.module.css';
+
+function GarminIcon(): ReactElement {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3v18M3 12h18" />
+    </svg>
+  );
+}
+
+function CalendarIcon(): ReactElement {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="17" rx="2" />
+      <path d="M3 9h18M8 3v4M16 3v4" />
+    </svg>
+  );
+}
 
 interface ConnectStepProps {
   value: ConnectionsDraft;
@@ -64,6 +80,9 @@ export function ConnectStep({
 
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
+
+  // Reveals the credential form under the Garmin card when the user clicks Connect.
+  const [garminFormOpen, setGarminFormOpen] = useState(false);
 
   const exchanged = useRef(false);
 
@@ -246,115 +265,153 @@ export function ConnectStep({
     });
   };
 
-  return (
-    <div className={styles.stack}>
-      <div className={styles.card}>
-        <div className={styles.cardHead}>
-          <p className={styles.cardTitle}>Garmin Connect</p>
-          <p className={styles.cardHint}>
-            We use your daily readiness, sleep and training load to adapt your plan.
-          </p>
-        </div>
+  // The Garmin card expands into a credential/MFA/sync flow below its header.
+  const garminExpanded =
+    !value.garminConnected && (garminFormOpen || mfaLoginId !== null || garminSync !== null);
 
-        {value.garminConnected ? (
-          <span className={styles.connected}>
-            <span className={styles.dot} /> Connected
-          </span>
-        ) : garminSync === 'syncing' ? (
-          <p className={styles.cardHint}>Syncing your Garmin data…</p>
-        ) : garminSync === 'sync_failed' ? (
-          <div className={styles.form}>
-            {garminError !== null && <p className={styles.error}>{garminError}</p>}
-            <button
-              type="button"
-              className={styles.button}
-              onClick={handleRetrySync}
-              disabled={disabled}
-            >
-              Retry sync
-            </button>
-          </div>
-        ) : mfaLoginId !== null ? (
-          <div className={styles.form}>
-            <p className={styles.cardHint}>
-              Garmin sent a verification code to your email. Enter it below to
-              finish connecting.
-            </p>
-            <Field
-              label="Verification code"
+  let garminBody: ReactNode = null;
+  if (garminExpanded) {
+    if (garminSync === 'syncing') {
+      garminBody = (
+        <div className={styles.syncing}>
+          <span className={styles.spinner} aria-hidden="true" /> Syncing your Garmin data…
+        </div>
+      );
+    } else if (garminSync === 'sync_failed') {
+      garminBody = (
+        <div className={styles.form}>
+          {garminError !== null && <p className={styles.error}>{garminError}</p>}
+          <button type="button" className={styles.submit} onClick={handleRetrySync} disabled={disabled}>
+            Retry sync
+          </button>
+        </div>
+      );
+    } else if (mfaLoginId !== null) {
+      garminBody = (
+        <div className={styles.form}>
+          <p className={styles.fieldLabel}>
+            Garmin sent a verification code to your email. Enter it below to finish connecting.
+          </p>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Verification code</span>
+            <input
+              className={styles.input}
               value={mfaCode}
-              onChange={setMfaCode}
+              onChange={(e) => setMfaCode(e.target.value)}
               placeholder="123456"
               disabled={disabled || garminBusy}
             />
-            {garminError !== null && <p className={styles.error}>{garminError}</p>}
-            <button
-              type="button"
-              className={styles.button}
-              onClick={handleVerifyMfa}
-              disabled={disabled || garminBusy || !mfaCode.trim()}
-            >
-              {garminBusy ? 'Verifying…' : 'Verify code'}
-            </button>
-          </div>
-        ) : (
-          <div className={styles.form}>
-            <Field
-              label="Garmin email"
+          </label>
+          {garminError !== null && <p className={styles.error}>{garminError}</p>}
+          <button
+            type="button"
+            className={styles.submit}
+            onClick={handleVerifyMfa}
+            disabled={disabled || garminBusy || !mfaCode.trim()}
+          >
+            {garminBusy ? 'Verifying…' : 'Verify code'}
+          </button>
+        </div>
+      );
+    } else {
+      garminBody = (
+        <div className={styles.form}>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Garmin email</span>
+            <input
+              className={styles.input}
               type="email"
               value={email}
-              onChange={setEmail}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               disabled={disabled || garminBusy}
             />
-            <Field
-              label="Garmin password"
+          </label>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Garmin password</span>
+            <input
+              className={styles.input}
               type="password"
               value={password}
-              onChange={setPassword}
+              onChange={(e) => setPassword(e.target.value)}
               disabled={disabled || garminBusy}
             />
-            {garminError !== null && <p className={styles.error}>{garminError}</p>}
+          </label>
+          {garminError !== null && <p className={styles.error}>{garminError}</p>}
+          <button
+            type="button"
+            className={styles.submit}
+            onClick={handleConnectGarmin}
+            disabled={disabled || garminBusy || !email.trim() || !password.trim()}
+          >
+            {garminBusy ? 'Connecting…' : 'Connect Garmin'}
+          </button>
+        </div>
+      );
+    }
+  }
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.card}>
+        <div className={styles.headerRow}>
+          <span className={styles.iconBox} aria-hidden="true">
+            <GarminIcon />
+          </span>
+          <span className={styles.text}>
+            <p className={styles.title}>Garmin</p>
+            <p className={styles.sub}>Workouts, HRV, sleep &amp; recovery</p>
+          </span>
+          {value.garminConnected ? (
+            <button type="button" className={`${styles.toggleBtn} ${styles.toggleConnected}`} disabled>
+              Connected
+            </button>
+          ) : (
             <button
               type="button"
-              className={styles.button}
-              onClick={handleConnectGarmin}
-              disabled={disabled || garminBusy || !email.trim() || !password.trim()}
+              className={styles.toggleBtn}
+              onClick={() => setGarminFormOpen((v) => !v)}
+              disabled={disabled || garminSync === 'syncing'}
             >
-              {garminBusy ? 'Connecting…' : 'Connect Garmin'}
+              Connect
             </button>
-          </div>
-        )}
+          )}
+        </div>
+        {garminBody}
       </div>
 
       <div className={styles.card}>
-        <div className={styles.cardHead}>
-          <p className={styles.cardTitle}>Google Calendar</p>
-          <p className={styles.cardHint}>
-            Lets your coach place sessions around your real schedule.
-          </p>
-        </div>
-
-        {value.googleConnected ? (
-          <span className={styles.connected}>
-            <span className={styles.dot} /> Connected
+        <div className={styles.headerRow}>
+          <span className={styles.iconBox} aria-hidden="true">
+            <CalendarIcon />
           </span>
-        ) : (
-          <div className={styles.form}>
-            {googleError !== null && <p className={styles.error}>{googleError}</p>}
+          <span className={styles.text}>
+            <p className={styles.title}>Google Calendar</p>
+            <p className={styles.sub}>So sessions land in your free time</p>
+          </span>
+          {value.googleConnected ? (
+            <button type="button" className={`${styles.toggleBtn} ${styles.toggleConnected}`} disabled>
+              Connected
+            </button>
+          ) : (
             <button
               type="button"
-              className={styles.button}
+              className={styles.toggleBtn}
               onClick={handleConnectGoogle}
               disabled={disabled || googleBusy}
             >
-              {googleBusy ? 'Connecting…' : 'Connect Google Calendar'}
+              {googleBusy ? 'Connecting…' : 'Connect'}
             </button>
+          )}
+        </div>
+        {!value.googleConnected && googleError !== null && (
+          <div className={styles.form}>
+            <p className={styles.error}>{googleError}</p>
           </div>
         )}
       </div>
 
-      <p className={section.sectionTitle}>
+      <p className={styles.footnote}>
         Both connections are required to finish setting up your coach.
       </p>
     </div>

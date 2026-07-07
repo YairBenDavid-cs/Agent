@@ -26,12 +26,30 @@ export class GoalSnapshotClass {
 }
 const GoalSnapshotSchema = SchemaFactory.createForClass(GoalSnapshotClass);
 
+const REVISION_TRIGGERS = ['session_edit', 'direct_target_change'];
+
+@Schema({ _id: false })
+export class WeeklyTargetsRevisionClass {
+  @Prop({ type: String, required: true }) revised_at!: string;
+  @Prop({ type: Number, required: true }) previous_session_count!: number;
+  @Prop({ type: Number, required: true }) previous_total_volume!: number;
+  @Prop({ type: [String], default: [] }) previous_key_goals!: string[];
+  @Prop({ type: String, required: true }) reason!: string;
+  @Prop({ type: String, required: true, enum: REVISION_TRIGGERS })
+  triggered_by!: 'session_edit' | 'direct_target_change';
+}
+const WeeklyTargetsRevisionSchema = SchemaFactory.createForClass(
+  WeeklyTargetsRevisionClass,
+);
+
 @Schema({ _id: false })
 export class WeeklyTargetsClass {
   @Prop({ type: Number, required: true }) session_count!: number;
   @Prop({ type: Number, required: true }) total_volume!: number;
   @Prop({ type: [String], default: [] }) key_goals!: string[];
   @Prop({ type: String, default: null }) locked_at!: string | null;
+  @Prop({ type: [WeeklyTargetsRevisionSchema], default: [] })
+  revision_history!: WeeklyTargetsRevisionClass[];
 }
 const WeeklyTargetsSchema = SchemaFactory.createForClass(WeeklyTargetsClass);
 

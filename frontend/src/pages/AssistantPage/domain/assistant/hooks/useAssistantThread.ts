@@ -6,6 +6,7 @@ import {
   resumeBuild,
 } from '../api/assistantApi';
 import type { AssistantTurn, AssistantTurnResult } from '../types/assistant';
+import type { WorkflowProgress } from '../stream/assistantStream';
 import { useTurnHistory, type ThreadStatus } from './useTurnHistory';
 import { useAssistantStream, type StreamPhase } from './useAssistantStream';
 
@@ -16,7 +17,7 @@ interface UseAssistantThread {
   loadError: string | null;
   turns: AssistantTurn[];
   phase: StreamPhase;
-  progressDetail: string;
+  progress: WorkflowProgress | null;
   sendError: string | null;
   isBusy: boolean;
   send: (text: string) => void;
@@ -49,7 +50,7 @@ export function useAssistantThread(
 
   const { status, loadError, turns, append, remove, reload } =
     useTurnHistory(conversationId);
-  const { phase: streamPhase, progressDetail, open, close } = useAssistantStream();
+  const { phase: streamPhase, progress, open, close } = useAssistantStream();
 
   const lastPromptRef = useRef<string | null>(null);
   const autoSentRef = useRef(false);
@@ -230,7 +231,7 @@ export function useAssistantThread(
     loadError,
     turns,
     phase,
-    progressDetail,
+    progress,
     sendError,
     isBusy,
     send,

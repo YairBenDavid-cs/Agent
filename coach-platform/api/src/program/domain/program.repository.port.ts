@@ -1,4 +1,4 @@
-import { Program, WeeklyTargets } from './program.model';
+import { Program, WeeklyTargets, WeeklyTargetsRevision } from './program.model';
 
 /** DI token for the program repository port (DIP). */
 export const PROGRAM_REPOSITORY = Symbol('PROGRAM_REPOSITORY');
@@ -52,5 +52,20 @@ export interface ProgramRepositoryPort {
     programId: string,
     weekIndex: number,
     targets: WeeklyTargets,
+  ): Promise<void>;
+
+  /**
+   * Revise a `targets_locked`/`locked` week's quota IN PLACE — `weekState` is
+   * left untouched (no unlock/relock round-trip). Appends `revision` to the
+   * week's `revisionHistory` so the prior quota is preserved, not overwritten.
+   * Used by the reactive-edit path (session overflow or a direct target
+   * change), never by first-time locking.
+   */
+  reviseWeeklyTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: Pick<WeeklyTargets, 'sessionCount' | 'totalVolume' | 'keyGoals'>,
+    revision: WeeklyTargetsRevision,
   ): Promise<void>;
 }

@@ -13,6 +13,14 @@ export interface WorkflowEventData {
   at: string;
 }
 
+// The latest live beat, distilled to what the thinking indicator renders: which
+// agent is working and (optionally) the tool it just reached for. Decoupled from
+// the wire shape so the UI never sees `phase`/`at`.
+export interface WorkflowProgress {
+  agentName: string;
+  detail?: string;
+}
+
 export interface ConversationEventData {
   conversationId: string;
   title: string | null;

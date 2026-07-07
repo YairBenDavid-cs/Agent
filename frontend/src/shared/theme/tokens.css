@@ -18,11 +18,27 @@
   /* Text */
   --wa-text: #111b21;
   --wa-text-muted: #667781;
+  --wa-text-strong: #0b141a;
+  --wa-text-dim: #3b4a54;
 
   /* Lines & rows */
   --wa-border: #e9edef;
+  --wa-border-strong: #d3dbe0;
   --wa-row-hover: #f5f6f6;
   --wa-row-selected: #f0f2f5;
+
+  /* Accent (orange highlights; re-themed per surface) */
+  --wa-accent: var(--wa-brand);
+  --wa-accent-soft: rgba(0, 168, 132, 0.14);
+
+  /* Prose / markdown */
+  --wa-link: var(--wa-brand-dark);
+  --wa-code-bg: rgba(0, 0, 0, 0.06);
+  --wa-code-text: #b5451b;
+  --wa-code-block-bg: #f6f8fa;
+  --wa-code-block-text: #24292f;
+  --wa-code-head-bg: #eef1f4;
+  --wa-table-head-bg: rgba(0, 0, 0, 0.03);
 
   /* Spacing */
   --wa-space-1: 4px;

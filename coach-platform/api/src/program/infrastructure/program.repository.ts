@@ -3,7 +3,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { BaseTenantRepository } from '../../common/infrastructure/base-tenant.repository';
 import { getActiveSession } from '../../common/transaction/transaction.context';
-import { Program, WeeklyTargets } from '../domain/program.model';
+import {
+  Program,
+  WeeklyTargets,
+  WeeklyTargetsRevision,
+} from '../domain/program.model';
 import { ProgramRepositoryPort } from '../domain/program.repository.port';
 import {
   ProgramLean,
@@ -82,6 +86,16 @@ export class ProgramRepository
                   total_volume: w.weeklyTargets.totalVolume,
                   key_goals: w.weeklyTargets.keyGoals,
                   locked_at: w.weeklyTargets.lockedAt,
+                  revision_history: (
+                    w.weeklyTargets.revisionHistory ?? []
+                  ).map((r) => ({
+                    revised_at: r.revisedAt,
+                    previous_session_count: r.previous.sessionCount,
+                    previous_total_volume: r.previous.totalVolume,
+                    previous_key_goals: r.previous.keyGoals,
+                    reason: r.reason,
+                    triggered_by: r.triggeredBy,
+                  })),
                 }
               : null,
           })),
@@ -116,6 +130,7 @@ export class ProgramRepository
               total_volume: targets.totalVolume,
               key_goals: targets.keyGoals,
               locked_at: null,
+              revision_history: [],
             },
           },
         },
@@ -148,6 +163,47 @@ export class ProgramRepository
               total_volume: targets.totalVolume,
               key_goals: targets.keyGoals,
               locked_at: targets.lockedAt,
+              revision_history: [],
+            },
+          },
+        },
+      )
+      .exec();
+  }
+
+  /**
+   * Revise a `targets_locked`/`locked` week's quota in place: `week_state` is
+   * untouched, and `revision` is appended to `revision_history` so the prior
+   * quota is preserved rather than overwritten. Targeted field-level update so
+   * a concurrent write to a sibling field on the same week entry is not clobbered.
+   */
+  async reviseWeeklyTargets(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    targets: Pick<WeeklyTargets, 'sessionCount' | 'totalVolume' | 'keyGoals'>,
+    revision: WeeklyTargetsRevision,
+  ): Promise<void> {
+    await this.model
+      .updateOne(
+        this.scoped(userId, {
+          _id: programId,
+          'weeks.week_index': weekIndex,
+        }),
+        {
+          $set: {
+            'weeks.$.weekly_targets.session_count': targets.sessionCount,
+            'weeks.$.weekly_targets.total_volume': targets.totalVolume,
+            'weeks.$.weekly_targets.key_goals': targets.keyGoals,
+          },
+          $push: {
+            'weeks.$.weekly_targets.revision_history': {
+              revised_at: revision.revisedAt,
+              previous_session_count: revision.previous.sessionCount,
+              previous_total_volume: revision.previous.totalVolume,
+              previous_key_goals: revision.previous.keyGoals,
+              reason: revision.reason,
+              triggered_by: revision.triggeredBy,
             },
           },
         },

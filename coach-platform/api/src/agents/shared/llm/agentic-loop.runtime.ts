@@ -156,6 +156,18 @@ export class AgenticLoopRuntime {
           continue;
         }
 
+        // User-facing beat for the tool about to run (read tools + delegation
+        // tools). Terminal tools emit their own 'completed' beat below, so skip
+        // them here to avoid a redundant beat right before completion.
+        if (!tool.terminal) {
+          this.telemetry.emitWorkflow(
+            params.ctx.userId,
+            params.agentName,
+            'tool',
+            tool.name,
+          );
+        }
+
         let result: unknown;
         try {
           result = await tool.handler(parsed.value, params.ctx);

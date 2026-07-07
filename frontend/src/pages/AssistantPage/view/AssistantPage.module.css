@@ -14,11 +14,23 @@
   --wa-bubble-in: #1c1c1a;
   --wa-text: #ececec;
   --wa-text-muted: #8d8d89;
+  --wa-text-strong: #fbfbf9;
+  --wa-text-dim: #c9c9c4;
   --wa-border: #232321;
+  --wa-border-strong: #33332f;
   --wa-row-hover: #1a1a18;
   --wa-row-selected: var(--wa-accent-soft);
   --wa-brand: #ececec;
   --wa-brand-dark: #ececec;
+
+  /* Prose / markdown (assistant replies render as ChatGPT-style Markdown) */
+  --wa-link: #ff7a33;
+  --wa-code-bg: rgba(255, 255, 255, 0.09);
+  --wa-code-text: #f3c9b0;
+  --wa-code-block-bg: #0c0c0c;
+  --wa-code-block-text: #e6e6e0;
+  --wa-code-head-bg: #141412;
+  --wa-table-head-bg: rgba(255, 255, 255, 0.03);
 
   display: flex;
   height: 100%;

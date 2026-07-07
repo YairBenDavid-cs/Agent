@@ -1,0 +1,208 @@
+/* ChatGPT-style prose for assistant replies. Colors come from the --wa-* token
+   layer so this re-themes with the page (dark + orange on the assistant page,
+   light everywhere else). Mirrors the Popvich Chat design. */
+
+.markdown {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--wa-text);
+  word-break: break-word;
+}
+
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0 0 var(--wa-space-4);
+  line-height: 1.7;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-family: 'Wix Madefor Display', 'Wix Madefor Text', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--wa-text-strong);
+  margin: 22px 0 10px;
+}
+
+.markdown > h1:first-child,
+.markdown > h2:first-child,
+.markdown > h3:first-child,
+.markdown > h4:first-child,
+.markdown > h5:first-child,
+.markdown > h6:first-child {
+  margin-top: 2px;
+}
+
+.markdown h1 { font-size: 1.55em; }
+.markdown h2 { font-size: 1.28em; }
+.markdown h3 { font-size: 1.12em; }
+.markdown h4 { font-size: 1.02em; }
+.markdown h5 { font-size: 0.95em; color: var(--wa-text-dim); }
+.markdown h6 { font-size: 0.88em; color: var(--wa-text-dim); }
+
+.markdown strong {
+  font-weight: 700;
+  color: var(--wa-text-strong);
+}
+
+.markdown em {
+  font-style: italic;
+}
+
+.markdown del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.markdown a {
+  color: var(--wa-link);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--wa-link) 40%, transparent);
+}
+
+.markdown a:hover {
+  border-bottom-color: var(--wa-link);
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 14px;
+  padding-left: 24px;
+  line-height: 1.7;
+}
+
+.markdown li {
+  margin-bottom: 5px;
+}
+
+.taskList {
+  padding-left: 2px;
+}
+
+.taskItem {
+  list-style: none;
+  margin-left: -4px;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-right: var(--wa-space-2);
+  margin-left: -2px;
+  vertical-align: -2px;
+  border: 1.5px solid var(--wa-text-dim);
+  border-radius: 4px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.checkboxOn {
+  border-color: var(--wa-accent);
+  background: var(--wa-accent);
+}
+
+.markdown blockquote {
+  border-left: 3px solid var(--wa-accent);
+  padding: 2px 0 2px var(--wa-space-4);
+  margin: 0 0 var(--wa-space-4);
+  color: var(--wa-text-dim);
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--wa-border);
+  margin: 22px 0;
+}
+
+.inlineCode {
+  background: var(--wa-code-bg);
+  padding: 1.5px 6px;
+  border-radius: 5px;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  color: var(--wa-code-text);
+  word-break: break-word;
+}
+
+.codeBlock {
+  margin: 0 0 18px;
+  border-radius: var(--wa-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--wa-border);
+  background: var(--wa-code-block-bg);
+}
+
+.codeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px;
+  background: var(--wa-code-head-bg);
+  border-bottom: 1px solid var(--wa-border);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--wa-text-muted);
+}
+
+.copyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  color: var(--wa-text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.copyBtn:hover {
+  color: var(--wa-text);
+}
+
+.markdown pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--wa-code-block-text);
+}
+
+.tableWrap {
+  margin: 0 0 18px;
+  overflow-x: auto;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14.5px;
+}
+
+.markdown th {
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--wa-border-strong);
+  background: var(--wa-table-head-bg);
+  font-weight: 700;
+  color: var(--wa-text-strong);
+  white-space: nowrap;
+}
+
+.markdown td {
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--wa-border);
+  color: var(--wa-text-dim);
+}

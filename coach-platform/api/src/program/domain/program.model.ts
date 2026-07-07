@@ -61,6 +61,21 @@ export interface WeeklyTargets {
   totalVolume: number; // native-unit budget (km or volume-load)
   keyGoals: string[]; // free-text intents, e.g. "one quality tempo"
   lockedAt: string | null; // ISO timestamp when Step A was frozen
+  revisionHistory?: WeeklyTargetsRevision[]; // absent/empty = never revised post-lock
+}
+
+/**
+ * One entry in a locked week's audit trail. Written by `ReviseWeeklyTargetsCommand`
+ * when a locked/targets_locked week's quota is revised in place (the reactive-edit
+ * path) — `previous` preserves the quota being overwritten so it is never silently
+ * lost, matching the immutability promise `LockWeeklyTargetsCommand` makes at
+ * first-lock time.
+ */
+export interface WeeklyTargetsRevision {
+  revisedAt: string; // ISO timestamp
+  previous: Pick<WeeklyTargets, 'sessionCount' | 'totalVolume' | 'keyGoals'>;
+  reason: string; // human-readable, surfaced in timeline/diff UI
+  triggeredBy: 'session_edit' | 'direct_target_change';
 }
 
 /** A point-in-time copy of the goal that seeded the program. */

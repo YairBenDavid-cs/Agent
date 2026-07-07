@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MOCK_API } from '@/shared/config';
-import { assistantStreamUrl, parseWorkflowEvent } from '../stream/assistantStream';
+import {
+  assistantStreamUrl,
+  parseWorkflowEvent,
+  type WorkflowProgress,
+} from '../stream/assistantStream';
 
 export type StreamPhase = 'idle' | 'thinking';
 
 interface UseAssistantStream {
   phase: StreamPhase;
-  progressDetail: string;
+  progress: WorkflowProgress | null;
   open: () => void;
   close: () => void;
 }
 
 // Shown in frontend-only mode, where there is no live workflow feed.
-const MOCK_PROGRESS = 'Coach is reviewing your week…';
+const MOCK_PROGRESS: WorkflowProgress = {
+  agentName: 'coach',
+  detail: 'query_performance',
+};
 
 /**
  * Subscribes to the user-wide agent-progress feed for the duration of a turn.
@@ -22,7 +29,7 @@ const MOCK_PROGRESS = 'Coach is reviewing your week…';
  */
 export function useAssistantStream(): UseAssistantStream {
   const [phase, setPhase] = useState<StreamPhase>('idle');
-  const [progressDetail, setProgressDetail] = useState('');
+  const [progress, setProgress] = useState<WorkflowProgress | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
 
   const close = useCallback((): void => {
@@ -31,15 +38,15 @@ export function useAssistantStream(): UseAssistantStream {
       sourceRef.current = null;
     }
     setPhase('idle');
-    setProgressDetail('');
+    setProgress(null);
   }, []);
 
   const open = useCallback((): void => {
     setPhase('thinking');
-    setProgressDetail('');
+    setProgress(null);
 
     if (MOCK_API) {
-      setProgressDetail(MOCK_PROGRESS);
+      setProgress(MOCK_PROGRESS);
       return;
     }
 
@@ -51,8 +58,15 @@ export function useAssistantStream(): UseAssistantStream {
     source.addEventListener('workflow', (event) => {
       if (event instanceof MessageEvent && typeof event.data === 'string') {
         const data = parseWorkflowEvent(event.data);
-        if (data !== null) {
-          setProgressDetail(data.detail ?? `${data.agentName}…`);
+        // Only activity beats move the indicator; `completed`/`exhausted` just
+        // end a (possibly nested) loop — the next beat or the closing POST
+        // supersedes them.
+        if (data !== null && (data.phase === 'started' || data.phase === 'tool')) {
+          const next: WorkflowProgress = { agentName: data.agentName };
+          if (data.detail !== undefined) {
+            next.detail = data.detail;
+          }
+          setProgress(next);
         }
       }
     });
@@ -69,5 +83,5 @@ export function useAssistantStream(): UseAssistantStream {
 
   useEffect(() => close, [close]);
 
-  return { phase, progressDetail, open, close };
+  return { phase, progress, open, close };
 }

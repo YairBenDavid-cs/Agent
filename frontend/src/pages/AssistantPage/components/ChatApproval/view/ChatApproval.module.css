@@ -54,15 +54,15 @@
 .cards {
   display: flex;
   flex-direction: column;
-  gap: var(--wa-space-2);
-  padding: var(--wa-space-3) var(--wa-space-4) 0;
+  gap: var(--wa-space-1);
+  padding: var(--wa-space-2) var(--wa-space-4) 0;
 }
 
 .card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: var(--wa-space-3);
+  gap: 6px;
+  padding: var(--wa-space-2) var(--wa-space-3);
   background: var(--wa-row-hover);
   border: 1px solid var(--wa-border);
   border-radius: var(--wa-radius-md);

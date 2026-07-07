@@ -1,20 +1,24 @@
 import type { ReactElement } from 'react';
+import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
+import type { WorkflowProgress } from '@/pages/AssistantPage/domain/assistant/stream/assistantStream';
+import { describeProgress } from '@/pages/AssistantPage/domain/assistant/stream/workflowLabels';
 import styles from './ThinkingPulse.module.css';
 
 interface ThinkingPulseProps {
-  label?: string;
+  progress: WorkflowProgress | null;
 }
 
-export function ThinkingPulse({ label }: ThinkingPulseProps): ReactElement {
-  const status = label !== undefined && label !== '' ? label : 'Popvich is thinking';
+export function ThinkingPulse({ progress }: ThinkingPulseProps): ReactElement {
+  const { title, subtitle } = describeProgress(progress);
+  const status = subtitle !== undefined ? `${title}, ${subtitle}` : title;
+
   return (
-    <div className={styles.row}>
-      <div className={styles.bubble} role="status" aria-label={status}>
-        <span className={styles.dot} />
-        <span className={styles.dot} />
-        <span className={styles.dot} />
+    <div className={styles.row} role="status" aria-label={status}>
+      <BasketballIcon className={styles.icon} size={30} />
+      <div className={styles.text}>
+        <span className={styles.title}>{title}</span>
+        {subtitle !== undefined && <span className={styles.subtitle}>{subtitle}</span>}
       </div>
-      {label !== undefined && label !== '' && <span className={styles.label}>{label}</span>}
     </div>
   );
 }

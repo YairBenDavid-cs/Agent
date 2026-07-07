@@ -1,9 +1,15 @@
 import { Types } from 'mongoose';
-import { Program, ProgramWeek, WeeklyTargets } from '../domain/program.model';
+import {
+  Program,
+  ProgramWeek,
+  WeeklyTargets,
+  WeeklyTargetsRevision,
+} from '../domain/program.model';
 import {
   ProgramDoc,
   ProgramWeekClass,
   WeeklyTargetsClass,
+  WeeklyTargetsRevisionClass,
 } from './program.schema';
 
 /** Lean doc as returned by Mongo reads — carries the generated `_id`. */
@@ -17,6 +23,30 @@ export type ProgramLean = ProgramDoc & { _id: Types.ObjectId };
  * repository) so the domain `Program` can expose a stable id where needed.
  */
 
+const revisionToPersistence = (
+  r: WeeklyTargetsRevision,
+): WeeklyTargetsRevisionClass => ({
+  revised_at: r.revisedAt,
+  previous_session_count: r.previous.sessionCount,
+  previous_total_volume: r.previous.totalVolume,
+  previous_key_goals: r.previous.keyGoals,
+  reason: r.reason,
+  triggered_by: r.triggeredBy,
+});
+
+const revisionToDomain = (
+  r: WeeklyTargetsRevisionClass,
+): WeeklyTargetsRevision => ({
+  revisedAt: r.revised_at,
+  previous: {
+    sessionCount: r.previous_session_count,
+    totalVolume: r.previous_total_volume,
+    keyGoals: r.previous_key_goals ?? [],
+  },
+  reason: r.reason,
+  triggeredBy: r.triggered_by,
+});
+
 const targetsToPersistence = (
   t: WeeklyTargets,
 ): WeeklyTargetsClass => ({
@@ -24,6 +54,7 @@ const targetsToPersistence = (
   total_volume: t.totalVolume,
   key_goals: t.keyGoals,
   locked_at: t.lockedAt,
+  revision_history: (t.revisionHistory ?? []).map(revisionToPersistence),
 });
 
 const targetsToDomain = (t: WeeklyTargetsClass): WeeklyTargets => ({
@@ -31,6 +62,7 @@ const targetsToDomain = (t: WeeklyTargetsClass): WeeklyTargets => ({
   totalVolume: t.total_volume,
   keyGoals: t.key_goals ?? [],
   lockedAt: t.locked_at ?? null,
+  revisionHistory: (t.revision_history ?? []).map(revisionToDomain),
 });
 
 const weekToPersistence = (w: ProgramWeek): ProgramWeekClass => ({
