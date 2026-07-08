@@ -29,6 +29,8 @@ function staleRun(overrides: Partial<AutoModeRun> = {}): AutoModeRun {
     beforeSnapshot: null,
     diff: null,
     failureReason: null,
+    writesPerformed: false,
+    reverted: false,
     createdAt: NOW,
     startedAt: NOW,
     completedAt: null,

@@ -46,18 +46,39 @@ export class AutoModeExplanationBuilder {
       lines.push('No changes were needed — everything already fit.');
     }
 
+    // `new_week` is excluded: RevertAutoModeRunHandler cannot safely undo a
+    // full week generation, so offering "undo" there would be a false promise.
+    if (run.scenario !== 'new_week') {
+      lines.push(
+        '',
+        'If this isn’t what you wanted, say ‘undo’ and I’ll restore the previous state.',
+      );
+    }
+
     lines.push('', this.renderTrace(run.trace));
     return lines.join('\n');
   }
 
   private buildAbort(run: AutoModeRun): string {
     const reason = run.failureReason ?? 'an unexpected error';
+    // Only claim "nothing changed" when the run verifiably performed no
+    // writes; otherwise report what happened to the writes it did make.
+    const outcome = !run.writesPerformed
+      ? 'Nothing on your program, calendar, or targets was touched.'
+      : run.reverted
+        ? 'Some changes were applied mid-run; I’ve rolled them back — your plan is exactly as it was.'
+        : 'Some changes may have been partially applied — check the week and say ‘undo’ to restore it.';
+    const headline = !run.writesPerformed
+      ? 'stopped, nothing changed'
+      : run.reverted
+        ? 'stopped and rolled back'
+        : 'stopped mid-change';
     const lines = [
-      `**${SCENARIO_HEADLINE[run.scenario]} — stopped, nothing changed**`,
+      `**${SCENARIO_HEADLINE[run.scenario]} — ${headline}**`,
       '',
       `I backed out of this autonomous run rather than push a change I wasn’t confident in: ${reason}`,
       '',
-      'Nothing on your program, calendar, or targets was touched. Let me know how you’d like to proceed — I can retry with tighter constraints, or you can make the change yourself in Plan mode.',
+      `${outcome} Let me know how you’d like to proceed — I can retry with tighter constraints, or you can make the change yourself in Plan mode.`,
       '',
       this.renderTrace(run.trace),
     ];

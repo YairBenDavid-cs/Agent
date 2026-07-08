@@ -4,6 +4,7 @@ import {
 } from '../auto-mode-orchestrator.service';
 import { AppendMessageCommand } from '../../conversation/application/commands/append-message.command';
 import { StartConversationCommand } from '../../conversation/application/commands/start-conversation.command';
+import { RevertAutoModeRunCommand } from '../application/commands/revert-auto-mode-run.command';
 import { AutoModeGraphState } from '../auto-mode.state';
 import { AutoModeRun } from '../domain/auto-mode-run.model';
 import { Program, ProgramWeek } from '../../../program/domain/program.model';
@@ -55,6 +56,8 @@ function autoModeRun(overrides: Partial<AutoModeRun> = {}): AutoModeRun {
     beforeSnapshot: null,
     diff: {},
     failureReason: null,
+    writesPerformed: false,
+    reverted: false,
     createdAt: '2026-07-08T09:00:00.000Z',
     startedAt: '2026-07-08T09:00:00.000Z',
     completedAt: '2026-07-08T09:05:00.000Z',
@@ -77,6 +80,7 @@ function graphState(overrides: Partial<AutoModeGraphState> = {}): AutoModeGraphS
     weeklyTargetsEditRequest: null,
     sessionEditRequest: null,
     sessionTimeEditRequest: null,
+    writesPerformed: false,
     recoveryVerdict: null,
     readinessBand: null,
     debateRound: 0,
@@ -103,6 +107,9 @@ function setup() {
       if (command instanceof AppendMessageCommand) {
         return Promise.resolve({ message: { id: 'msg-1' } });
       }
+      if (command instanceof RevertAutoModeRunCommand) {
+        return Promise.resolve({ reverted: true });
+      }
       return Promise.resolve(undefined);
     }),
   };
@@ -114,6 +121,7 @@ function setup() {
     markCommitted: jest.fn(() => Promise.resolve()),
     markAborted: jest.fn(() => Promise.resolve()),
     markFailed: jest.fn(() => Promise.resolve()),
+    markWriteAudit: jest.fn(() => Promise.resolve()),
     findRecent: jest.fn(() => Promise.resolve([])),
     findStaleRunning: jest.fn(() => Promise.resolve([])),
   };
@@ -257,7 +265,7 @@ describe('AutoModeOrchestratorService', () => {
     });
 
     it('happy aborted path: marks the run aborted instead of committed', async () => {
-      const { orchestrator, graph, runs } = setup();
+      const { orchestrator, graph, runs, commandBus } = setup();
       graph.run.mockResolvedValueOnce(
         graphState({ status: 'aborted', abortReason: 'guardrail breach', trace: [] }),
       );
@@ -266,6 +274,64 @@ describe('AutoModeOrchestratorService', () => {
 
       expect(runs.markAborted).toHaveBeenCalledWith('run-1', 'guardrail breach');
       expect(runs.markCommitted).not.toHaveBeenCalled();
+      // A clean abort (no writes) needs no revert and no write audit.
+      expect(commandBus.execute).not.toHaveBeenCalledWith(expect.any(RevertAutoModeRunCommand));
+      expect(runs.markWriteAudit).not.toHaveBeenCalled();
+    });
+
+    it('aborted after writes landed: auto-reverts via the revert command and records the audit + trace', async () => {
+      const { orchestrator, graph, runs, commandBus } = setup();
+      graph.run.mockResolvedValueOnce(
+        graphState({
+          status: 'aborted',
+          abortReason: 'cascade breached targets',
+          writesPerformed: true,
+          trace: [],
+        }),
+      );
+
+      await orchestrator.runAutoMode(baseInput());
+
+      expect(runs.markAborted).toHaveBeenCalledWith('run-1', 'cascade breached targets');
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        new RevertAutoModeRunCommand('u1', 'run-1', { allowAbortedOrFailed: true }),
+      );
+      expect(runs.markWriteAudit).toHaveBeenCalledWith('run-1', {
+        writesPerformed: true,
+        reverted: true,
+      });
+      expect(runs.appendTrace).toHaveBeenCalledWith('run-1', {
+        node: 'revert',
+        summary: 'revert: restored the week to its pre-run state',
+      });
+    });
+
+    it('records a failed auto-revert honestly (reverted false + failure trace), without throwing', async () => {
+      const { orchestrator, graph, runs, commandBus } = setup();
+      graph.run.mockResolvedValueOnce(
+        graphState({ status: 'aborted', abortReason: 'stopped', writesPerformed: true, trace: [] }),
+      );
+      commandBus.execute.mockImplementation((command: unknown) => {
+        if (command instanceof RevertAutoModeRunCommand) {
+          return Promise.resolve({ reverted: false, reason: 'no snapshot' });
+        }
+        if (command instanceof AppendMessageCommand) {
+          return Promise.resolve({ message: { id: 'msg-1' } });
+        }
+        return Promise.resolve(undefined);
+      });
+
+      const outcome = await orchestrator.runAutoMode(baseInput());
+
+      expect(runs.markWriteAudit).toHaveBeenCalledWith('run-1', {
+        writesPerformed: true,
+        reverted: false,
+      });
+      expect(runs.appendTrace).toHaveBeenCalledWith('run-1', {
+        node: 'revert',
+        summary: expect.stringContaining('could not restore the pre-run state (no snapshot)'),
+      });
+      expect(outcome.reply).toBe('explained');
     });
 
     it('when the lock is not acquired, marks the run failed, never calls graph.run, and still finalizes', async () => {
@@ -291,6 +357,21 @@ describe('AutoModeOrchestratorService', () => {
 
       expect(runs.markFailed).toHaveBeenCalledWith('run-1', 'boom');
       expect(lock.release).toHaveBeenCalledWith('u1', 'p1', 2, 'run-1');
+    });
+
+    it('when graph.run throws, attempts an auto-revert (writes unknown) and records the audit', async () => {
+      const { orchestrator, graph, runs, commandBus } = setup();
+      graph.run.mockRejectedValueOnce(new Error('boom'));
+
+      await orchestrator.runAutoMode(baseInput());
+
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        new RevertAutoModeRunCommand('u1', 'run-1', { allowAbortedOrFailed: true }),
+      );
+      expect(runs.markWriteAudit).toHaveBeenCalledWith('run-1', {
+        writesPerformed: true,
+        reverted: true,
+      });
     });
 
     it('reuses the given conversationId and never opens a new one', async () => {
@@ -409,9 +490,8 @@ describe('AutoModeOrchestratorService', () => {
       );
     });
 
-    it('defaults sessionEditRequest to null for session_edit when no plannedSessionId is classified', async () => {
-      const { orchestrator, graph, loop } = setup();
-      graph.run.mockResolvedValueOnce(graphState({ status: 'committed', trace: [], diff: {} }));
+    it('asks which session is meant (and never runs) when session_edit finalizes without a plannedSessionId', async () => {
+      const { orchestrator, graph, loop, runs, commandBus } = setup();
       loop.run.mockResolvedValueOnce({
         terminalResult: {
           scenario: 'session_edit',
@@ -422,14 +502,21 @@ describe('AutoModeOrchestratorService', () => {
       });
       const spy = jest.spyOn(orchestrator, 'runAutoMode');
 
-      await orchestrator.handleChatMessage('u1', 'conv-1', 'shorten my run', {
+      const result = await orchestrator.handleChatMessage('u1', 'conv-1', 'shorten my run', {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
         today: '2026-07-08',
       });
 
-      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sessionEditRequest: null }));
+      expect(spy).not.toHaveBeenCalled();
+      expect(graph.run).not.toHaveBeenCalled();
+      expect(runs.create).not.toHaveBeenCalled();
+      expect(result.reply).toMatch(/which one did you mean/i);
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: 'conv-1', role: 'assistant', content: result.reply }),
+      );
+      expect(result.assistantMessageId).toBe('msg-1');
     });
 
     it('routes a session_time_edit intent with a plannedSessionId into a sessionTimeEditRequest', async () => {
@@ -467,9 +554,8 @@ describe('AutoModeOrchestratorService', () => {
       );
     });
 
-    it('defaults sessionTimeEditRequest to null for session_time_edit when no plannedSessionId is classified', async () => {
-      const { orchestrator, graph, loop } = setup();
-      graph.run.mockResolvedValueOnce(graphState({ status: 'committed', trace: [], diff: {} }));
+    it('asks which session is meant (and never runs) when session_time_edit finalizes without a plannedSessionId', async () => {
+      const { orchestrator, graph, loop, runs, commandBus } = setup();
       loop.run.mockResolvedValueOnce({
         terminalResult: {
           scenario: 'session_time_edit',
@@ -481,14 +567,46 @@ describe('AutoModeOrchestratorService', () => {
       });
       const spy = jest.spyOn(orchestrator, 'runAutoMode');
 
-      await orchestrator.handleChatMessage('u1', 'conv-1', 'move my run', {
+      const result = await orchestrator.handleChatMessage('u1', 'conv-1', 'move my run', {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
         today: '2026-07-08',
       });
 
-      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sessionTimeEditRequest: null }));
+      expect(spy).not.toHaveBeenCalled();
+      expect(graph.run).not.toHaveBeenCalled();
+      expect(runs.create).not.toHaveBeenCalled();
+      expect(result.reply).toMatch(/which one did you mean/i);
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: 'conv-1', role: 'assistant', content: result.reply }),
+      );
+    });
+
+    it('asks what to change (and never runs) when weekly_targets_edit finalizes with no target fields', async () => {
+      const { orchestrator, graph, loop, runs } = setup();
+      loop.run.mockResolvedValueOnce({
+        terminalResult: {
+          scenario: 'weekly_targets_edit',
+          sessionCount: null,
+          totalVolume: null,
+          keyGoals: null,
+          reason: 'wants a change',
+        },
+      });
+      const spy = jest.spyOn(orchestrator, 'runAutoMode');
+
+      const result = await orchestrator.handleChatMessage('u1', 'conv-1', 'change my targets', {
+        programId: 'p1',
+        weekIndex: 2,
+        timezone: 'UTC',
+        today: '2026-07-08',
+      });
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(graph.run).not.toHaveBeenCalled();
+      expect(runs.create).not.toHaveBeenCalled();
+      expect(result.reply).toMatch(/sessions, the total volume, or the focus/i);
     });
 
     it('pauses on a clarifyingQuestion: posts it as a plain reply and never starts a run', async () => {

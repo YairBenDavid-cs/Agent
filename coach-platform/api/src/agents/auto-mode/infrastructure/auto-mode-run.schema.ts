@@ -53,6 +53,8 @@ export class AutoModeRunDoc {
   @Prop({ type: Object, default: null }) before_snapshot!: unknown;
   @Prop({ type: Object, default: null }) diff!: unknown;
   @Prop({ type: String, default: null }) failure_reason!: string | null;
+  @Prop({ type: Boolean, default: false }) writes_performed!: boolean;
+  @Prop({ type: Boolean, default: false }) reverted!: boolean;
   @Prop({ type: String, default: null }) started_at!: string | null;
   @Prop({ type: String, default: null }) completed_at!: string | null;
 }
