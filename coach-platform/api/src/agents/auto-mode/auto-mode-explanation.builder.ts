@@ -60,7 +60,13 @@ export class AutoModeExplanationBuilder {
   }
 
   private buildAbort(run: AutoModeRun): string {
-    const reason = run.failureReason ?? 'an unexpected error';
+    // Aborted runs carry a user-readable guardrail reason; failed runs carry a
+    // raw exception message that must never reach chat — keep it in the run
+    // record/logs and show a plain-language line instead.
+    const reason =
+      run.status === 'failed'
+        ? 'an internal error stopped the run partway through'
+        : run.failureReason ?? 'an unexpected error';
     // Only claim "nothing changed" when the run verifiably performed no
     // writes; otherwise report what happened to the writes it did make.
     const outcome = !run.writesPerformed

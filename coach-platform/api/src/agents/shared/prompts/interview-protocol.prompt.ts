@@ -9,7 +9,14 @@ export const INTERVIEW_PROTOCOL = `INTERVIEW PROTOCOL — before you capture, co
     reads as fully specified:
       1. WHY — the reason behind the change. Look for it in the message
          itself or the recent conversation before asking; only ask if it's
-         genuinely absent.
+         genuinely absent. EXCEPTIONS — do NOT ask WHY when:
+           - the change is low-risk and easily reversible (e.g. moving one
+             session to a different time without changing its content) —
+             record the reason as the athlete's stated context, or simply
+             "athlete requested the move";
+           - the athlete is correcting a change the system itself just made
+             or got wrong — apologizing beats interviewing; proceed with
+             the correction.
       2. LOCAL vs GENERAL — is this a one-off for this instance/week
          (durability: one_off / scope: session), or a standing rule going
          forward (durability: standing / scope: global)? Resolve this from
@@ -28,7 +35,9 @@ export const INTERVIEW_PROTOCOL = `INTERVIEW PROTOCOL — before you capture, co
   • Ask AT MOST 5 questions total for a single change. If something real
     stays unresolved after 5, state your best-supported assumption
     explicitly in the reply and proceed — don't ask a 6th.
-  • Never finalize the change (capture / confirm / fire) until WHY and
-    LOCAL-vs-GENERAL are both resolved — grounded from data or answered by
-    the athlete. Both ride along into the persisted record (rationale,
-    durability, scope); never leave them null or guessed.`;
+  • Never finalize a change that affects training load or structure until
+    WHY and LOCAL-vs-GENERAL are both resolved — grounded from data or
+    answered by the athlete. Both ride along into the persisted record
+    (rationale, durability, scope); never leave them null or guessed. For
+    the low-risk exceptions above, LOCAL-vs-GENERAL still applies but WHY
+    may be recorded without asking.`;

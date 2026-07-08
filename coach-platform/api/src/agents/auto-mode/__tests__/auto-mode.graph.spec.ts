@@ -4,6 +4,7 @@ import { AgenticLoopResult } from '../../shared/llm/agentic-loop.runtime';
 import { RecoveryVerdict } from '../../recovery/recovery.contracts';
 import { Program, ProgramWeek } from '../../../program/domain/program.model';
 import { PlannedSession } from '../../../planned-sessions/domain/planned-session.model';
+import { SlotCandidate } from '../../build/slot-proposer';
 
 const USER_ID = 'u1';
 const PROGRAM_ID = 'p1';
@@ -172,7 +173,7 @@ function setup() {
   const planner = {
     placeWeek: jest.fn(() => Promise.resolve(loopResult({ placedCount: 3, unplaceable: [] } as never))),
     validateSlot: jest.fn(() => Promise.resolve<string[]>([])),
-    proposeSlotsForSession: jest.fn(() => Promise.resolve<never[]>([])),
+    proposeSlotsForSession: jest.fn(() => Promise.resolve<SlotCandidate[]>([])),
   };
   const approval = {
     approveWeek: jest.fn(() => Promise.resolve({ committed: 3, calendar: { synced: 3, failed: 0 } })),
@@ -488,6 +489,103 @@ describe('AutoModeGraph', () => {
       expect(plannedSessions.findById).not.toHaveBeenCalled();
       expect(planner.validateSlot).not.toHaveBeenCalled();
       expect(commandBus.execute).not.toHaveBeenCalled();
+    });
+
+    it('defaults a missing date to the session’s current day when an explicit time is given', async () => {
+      const { graph, planner, commandBus, plannedSessions } = setup();
+      plannedSessions.findById.mockResolvedValue(
+        Promise.resolve(
+          plannedSession({ id: 'sess-5', estDurationMin: 60, scheduledDate: '2026-07-08', startTime: '07:15' }),
+        ),
+      );
+      planner.validateSlot.mockResolvedValueOnce([]);
+
+      const finalState = await graph.run(
+        initialState({
+          scenario: 'session_time_edit',
+          sessionTimeEditRequest: {
+            plannedSessionId: 'sess-5',
+            requestedDate: null,
+            requestedStartTime: '21:00',
+          },
+        }),
+      );
+
+      // The 21:00 wish must be validated against today (the session's current
+      // date), not discarded in favor of an auto-pick.
+      expect(planner.validateSlot).toHaveBeenCalledWith(
+        USER_ID,
+        expect.anything(),
+        expect.objectContaining({ scheduledDate: '2026-07-08', startTime: '21:00' }),
+      );
+      expect(planner.proposeSlotsForSession).not.toHaveBeenCalled();
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plannedSessionId: 'sess-5',
+          schedule: expect.objectContaining({ scheduledDate: '2026-07-08', startTime: '21:00' }),
+        }),
+      );
+      expect(finalState.status).toBe('committed');
+    });
+
+    it('never silently substitutes a different time when the explicit slot fails — aborts with alternatives', async () => {
+      const { graph, planner, commandBus, plannedSessions } = setup();
+      plannedSessions.findById.mockResolvedValue(
+        Promise.resolve(
+          plannedSession({ id: 'sess-6', estDurationMin: 60, scheduledDate: '2026-07-08', startTime: '07:15' }),
+        ),
+      );
+      planner.validateSlot.mockResolvedValueOnce(['Session confirm overlaps busy interval x.']);
+      planner.proposeSlotsForSession.mockResolvedValueOnce([
+        { scheduledDate: '2026-07-08', startTime: '06:00', endTime: '07:00', scheduledStartUtc: '2026-07-08T03:00:00.000Z' },
+        { scheduledDate: '2026-07-08', startTime: '18:00', endTime: '19:00', scheduledStartUtc: '2026-07-08T15:00:00.000Z' },
+      ]);
+
+      const finalState = await graph.run(
+        initialState({
+          scenario: 'session_time_edit',
+          sessionTimeEditRequest: {
+            plannedSessionId: 'sess-6',
+            requestedDate: '2026-07-08',
+            requestedStartTime: '21:00',
+          },
+        }),
+      );
+
+      expect(commandBus.execute).not.toHaveBeenCalled();
+      expect(finalState.status).toBe('aborted');
+      expect(finalState.writesPerformed).toBe(false);
+      expect(finalState.abortReason).toContain('2026-07-08 at 21:00');
+      expect(finalState.abortReason).toMatch(/won't pick a different time/i);
+      // Alternatives ranked by proximity to the requested 21:00 → 18:00 first.
+      expect(finalState.abortReason).toMatch(/18:00.*06:00/s);
+    });
+
+    it('honors an explicitly named day: aborts instead of silently moving to another day', async () => {
+      const { graph, planner, commandBus, plannedSessions } = setup();
+      plannedSessions.findById.mockResolvedValue(
+        Promise.resolve(plannedSession({ id: 'sess-7', estDurationMin: 60, scheduledDate: '2026-07-08' })),
+      );
+      // No time named, day named; no candidate lands on the requested day.
+      planner.proposeSlotsForSession.mockResolvedValueOnce([
+        { scheduledDate: '2026-07-11', startTime: '07:00', endTime: '08:00', scheduledStartUtc: '2026-07-11T04:00:00.000Z' },
+      ]);
+
+      const finalState = await graph.run(
+        initialState({
+          scenario: 'session_time_edit',
+          sessionTimeEditRequest: {
+            plannedSessionId: 'sess-7',
+            requestedDate: '2026-07-10',
+            requestedStartTime: null,
+          },
+        }),
+      );
+
+      expect(commandBus.execute).not.toHaveBeenCalled();
+      expect(finalState.status).toBe('aborted');
+      expect(finalState.abortReason).toMatch(/free slot on 2026-07-10/i);
+      expect(finalState.abortReason).toMatch(/won't move the session to a different day/i);
     });
 
     it('marks writesPerformed after the schedule upsert lands', async () => {

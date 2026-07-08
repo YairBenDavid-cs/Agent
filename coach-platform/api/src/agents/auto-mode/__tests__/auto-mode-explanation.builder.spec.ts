@@ -116,7 +116,7 @@ describe('AutoModeExplanationBuilder', () => {
   });
 
   describe('aborted / failed runs', () => {
-    it('routes both "aborted" and "failed" statuses through buildAbort, including the failure reason', () => {
+    it('routes both "aborted" and "failed" statuses through buildAbort', () => {
       const aborted = builder.build(
         run({ status: 'aborted', failureReason: 'volume swing exceeded the autonomous cap' }),
       );
@@ -130,14 +130,26 @@ describe('AutoModeExplanationBuilder', () => {
           'Nothing on your program, calendar, or targets was touched. Let me know how you’d like to proceed — I can retry with tighter constraints, or you can make the change yourself in Plan mode.',
         );
       }
+      // Aborted runs carry a user-readable guardrail reason — show it verbatim.
       expect(aborted).toContain('volume swing exceeded the autonomous cap');
-      expect(failed).toContain('the graph crashed mid-commit');
     });
 
-    it('falls back to "an unexpected error" when failureReason is null', () => {
+    it('never leaks a raw exception message on failed runs — shows a plain-language line instead', () => {
+      const message = builder.build(
+        run({
+          status: 'failed',
+          failureReason: "Cannot read properties of null (reading 'plannedSessionId')",
+        }),
+      );
+
+      expect(message).not.toContain('Cannot read properties of null');
+      expect(message).toContain('an internal error stopped the run partway through');
+    });
+
+    it('shows the plain-language failure line when failureReason is null too', () => {
       const message = builder.build(run({ status: 'failed', failureReason: null }));
 
-      expect(message).toContain('an unexpected error');
+      expect(message).toContain('an internal error stopped the run partway through');
     });
 
     it('keeps the "nothing was touched" line only when the run performed no writes', () => {

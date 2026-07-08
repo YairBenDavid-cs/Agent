@@ -48,6 +48,11 @@ function hasViolations(state: AutoModeGraphState): 'abort' | 'ok' {
   return state.guardrailViolations.length > 0 ? 'abort' : 'ok';
 }
 
+function toMinutesOfDay(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
 function addMinutes(time: string, minutes: number): string {
   const [h, m] = time.split(':').map(Number);
   const total = h * 60 + m + minutes;
@@ -743,12 +748,19 @@ export class AutoModeGraph {
     const beforeSchedule = { date: before.scheduledDate, startTime: before.startTime };
     const trace: AutoModeTraceEntry[] = [];
 
+    const hasExplicitTime = req.requestedStartTime != null && req.requestedStartTime !== '';
+    const hasExplicitDate = req.requestedDate != null && req.requestedDate !== '';
+    // "Move today's session to 21:00" names a time but often no date — default
+    // the date to the session's current day rather than discarding the time.
+    const targetDate = hasExplicitDate ? req.requestedDate! : before.scheduledDate;
+
     let slot: SlotCandidate | null = null;
-    if (req.requestedDate && req.requestedStartTime) {
-      const startTime = req.requestedStartTime;
+
+    if (hasExplicitTime) {
+      const startTime = req.requestedStartTime!;
       const endTime = addMinutes(startTime, before.estDurationMin);
-      const scheduledStartUtc = toUtcInstant(req.requestedDate, startTime, state.timezone);
-      const candidate: SlotCandidate = { scheduledDate: req.requestedDate, startTime, endTime, scheduledStartUtc };
+      const scheduledStartUtc = toUtcInstant(targetDate, startTime, state.timezone);
+      const candidate: SlotCandidate = { scheduledDate: targetDate, startTime, endTime, scheduledStartUtc };
       const violations = await this.planner.validateSlot(
         state.userId,
         { weekWindow: state.weekWindow, timezone: state.timezone },
@@ -756,27 +768,93 @@ export class AutoModeGraph {
       );
       if (violations.length === 0) {
         slot = candidate;
-        trace.push(mkTrace('planner', `Validated the requested slot ${slot.scheduledDate} ${slot.startTime}.`));
+        trace.push(
+          mkTrace(
+            'planner',
+            `Validated the requested slot ${slot.scheduledDate} ${slot.startTime}` +
+              (hasExplicitDate ? '.' : " (date defaulted to the session's current day)."),
+          ),
+        );
+      } else {
+        // The athlete named an explicit time. Never substitute a different one
+        // silently — stop, explain, and offer the nearest genuinely free options.
+        trace.push(
+          mkTrace(
+            'planner',
+            `Requested slot ${targetDate} ${startTime} failed validation: ${violations.join(' ')}`,
+          ),
+        );
+        const alternatives = await this.planner.proposeSlotsForSession(state.userId, {
+          weekWindow: state.weekWindow,
+          timezone: state.timezone,
+          durationMin: before.estDurationMin,
+          preferredDate: targetDate,
+          limit: 3,
+        });
+        const requestedMin = toMinutesOfDay(startTime);
+        const options = [...alternatives].sort(
+          (a, b) =>
+            Math.abs(toMinutesOfDay(a.startTime) - requestedMin) -
+            Math.abs(toMinutesOfDay(b.startTime) - requestedMin),
+        );
+        const optionsText =
+          options.length > 0
+            ? ` Nearest free options: ${options
+                .map((o) => `${o.scheduledDate} at ${o.startTime}`)
+                .join(', ')}. Tell me which one you'd like (or another time) and I'll move it.`
+            : " I couldn't find a free alternative this week either — give me a time and I'll double-check it.";
+        return {
+          guardrailViolations: [
+            `I couldn't move the session to ${targetDate} at ${startTime} — that time clashes with ` +
+              `your calendar or training rules, and I won't pick a different time for you without asking.${optionsText}`,
+          ],
+          trace,
+        };
       }
     }
 
     if (!slot) {
+      // No explicit time was named, so a deterministic pick is acceptable —
+      // but an explicitly named DAY is still honored, never silently swapped.
       const candidates = await this.planner.proposeSlotsForSession(state.userId, {
         weekWindow: state.weekWindow,
         timezone: state.timezone,
         durationMin: before.estDurationMin,
-        preferredDate: req.requestedDate ?? before.scheduledDate,
-        limit: 1,
+        preferredDate: targetDate,
+        limit: 3,
       });
-      slot = candidates[0] ?? null;
-      trace.push(
-        mkTrace(
-          'planner',
-          slot
-            ? `Requested slot unavailable; auto-picked ${slot.scheduledDate} ${slot.startTime}.`
-            : 'No requested slot given/available; auto-pick found no free slot.',
-        ),
-      );
+      if (hasExplicitDate) {
+        slot = candidates.find((c) => c.scheduledDate === req.requestedDate) ?? null;
+        if (!slot) {
+          trace.push(mkTrace('planner', `No free slot on the requested day ${req.requestedDate}.`));
+          const optionsText =
+            candidates.length > 0
+              ? ` Nearest free options: ${candidates
+                  .map((o) => `${o.scheduledDate} at ${o.startTime}`)
+                  .join(', ')}. Tell me which one you'd like and I'll move it.`
+              : '';
+          return {
+            guardrailViolations: [
+              `I couldn't find a free slot on ${req.requestedDate}, and I won't move the session ` +
+                `to a different day without asking.${optionsText}`,
+            ],
+            trace,
+          };
+        }
+        trace.push(
+          mkTrace('planner', `No explicit time requested; picked the free slot ${slot.scheduledDate} ${slot.startTime} on the requested day.`),
+        );
+      } else {
+        slot = candidates[0] ?? null;
+        trace.push(
+          mkTrace(
+            'planner',
+            slot
+              ? `No explicit slot requested; picked the free slot ${slot.scheduledDate} ${slot.startTime}.`
+              : 'No explicit slot requested and auto-pick found no free slot.',
+          ),
+        );
+      }
     }
 
     if (!slot) {
