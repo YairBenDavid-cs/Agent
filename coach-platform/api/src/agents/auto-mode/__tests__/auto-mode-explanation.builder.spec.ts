@@ -15,6 +15,8 @@ function run(overrides: Partial<AutoModeRun> = {}): AutoModeRun {
     beforeSnapshot: null,
     diff: null,
     failureReason: null,
+    writesPerformed: false,
+    reverted: false,
     createdAt: '2026-07-08T09:00:00.000Z',
     startedAt: '2026-07-08T09:00:00.000Z',
     completedAt: '2026-07-08T09:01:00.000Z',
@@ -97,6 +99,20 @@ describe('AutoModeExplanationBuilder', () => {
 
       expect(message).toContain('No changes were needed — everything already fit.');
     });
+
+    it('appends an undo offer to committed edit runs', () => {
+      const message = builder.build(run({ scenario: 'weekly_targets_edit', diff: {} }));
+
+      expect(message).toContain(
+        'If this isn’t what you wanted, say ‘undo’ and I’ll restore the previous state.',
+      );
+    });
+
+    it('does not offer undo on a committed new_week run (full weeks cannot be auto-reverted)', () => {
+      const message = builder.build(run({ scenario: 'new_week', diff: {} }));
+
+      expect(message).not.toContain('undo');
+    });
   });
 
   describe('aborted / failed runs', () => {
@@ -122,6 +138,49 @@ describe('AutoModeExplanationBuilder', () => {
       const message = builder.build(run({ status: 'failed', failureReason: null }));
 
       expect(message).toContain('an unexpected error');
+    });
+
+    it('keeps the "nothing was touched" line only when the run performed no writes', () => {
+      const message = builder.build(
+        run({ status: 'aborted', failureReason: 'guardrail', writesPerformed: false }),
+      );
+
+      expect(message).toContain('— stopped, nothing changed**');
+      expect(message).toContain('Nothing on your program, calendar, or targets was touched.');
+    });
+
+    it('reports a successful rollback when writes were performed and reverted', () => {
+      const message = builder.build(
+        run({
+          status: 'aborted',
+          failureReason: 'guardrail',
+          writesPerformed: true,
+          reverted: true,
+        }),
+      );
+
+      expect(message).toContain('— stopped and rolled back**');
+      expect(message).toContain(
+        'Some changes were applied mid-run; I’ve rolled them back — your plan is exactly as it was.',
+      );
+      expect(message).not.toContain('Nothing on your program, calendar, or targets was touched.');
+    });
+
+    it('warns about possibly-partial changes when writes were performed but not reverted', () => {
+      const message = builder.build(
+        run({
+          status: 'failed',
+          failureReason: 'crash',
+          writesPerformed: true,
+          reverted: false,
+        }),
+      );
+
+      expect(message).toContain('— stopped mid-change**');
+      expect(message).toContain(
+        'Some changes may have been partially applied — check the week and say ‘undo’ to restore it.',
+      );
+      expect(message).not.toContain('Nothing on your program, calendar, or targets was touched.');
     });
   });
 

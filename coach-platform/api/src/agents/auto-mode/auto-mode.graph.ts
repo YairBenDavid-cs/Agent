@@ -308,13 +308,23 @@ export class AutoModeGraph {
   private async guardEditableNode(state: AutoModeGraphState): Promise<Partial<AutoModeGraphState>> {
     const program = await this.programs.findById(state.userId, state.programId);
     const week = program?.weeks.find((w) => w.weekIndex === state.weekIndex);
-    if (!week || week.weekState !== 'targets_locked') {
+    // A missing/legacy weekState behaves like 'open': nothing locked yet.
+    // Both 'targets_locked' and 'locked' weeks have revisable targets —
+    // `reviseWeeklyTargets` works in place on either (see
+    // program.repository.port.ts) — so only 'open' blocks the edit.
+    const weekState = week?.weekState ?? 'open';
+    if (!week || weekState === 'open') {
       return {
         guardrailViolations: [
-          `Week ${state.weekIndex} is ${week?.weekState ?? 'unknown'}, not targets_locked — an autonomous ` +
-            `targets edit is only safe once Step A is locked.`,
+          "This week's plan targets haven't been locked in yet, so there's nothing to revise — " +
+            'finish setting up the week first.',
         ],
-        trace: [mkTrace('guardrail', 'Week is not in an editable state.')],
+        trace: [
+          mkTrace(
+            'guardrail',
+            `Week ${state.weekIndex} weekState is '${week?.weekState ?? 'missing'}' — a targets edit needs targets_locked or locked.`,
+          ),
+        ],
       };
     }
     const previous = week.weeklyTargets;
@@ -353,6 +363,15 @@ export class AutoModeGraph {
   }
 
   private async debateTargetsEditNode(state: AutoModeGraphState): Promise<Partial<AutoModeGraphState>> {
+    const req = state.weeklyTargetsEditRequest;
+    if (!req) {
+      return {
+        guardrailViolations: [
+          "I couldn't tell what you wanted this week's targets changed to, so I stopped rather than guess.",
+        ],
+        trace: [mkTrace('guardrail', 'weekly_targets_edit reached the debate node without a weeklyTargetsEditRequest — aborting.')],
+      };
+    }
     const program = await this.programs.findById(state.userId, state.programId);
     const week = program?.weeks.find((w) => w.weekIndex === state.weekIndex);
     const previous = week?.weeklyTargets;
@@ -362,7 +381,6 @@ export class AutoModeGraph {
         trace: [mkTrace('guardrail', 'Week/targets missing at debate time.')],
       };
     }
-    const req = state.weeklyTargetsEditRequest!;
     let proposed = {
       sessionCount: req.sessionCount ?? previous.sessionCount,
       totalVolume: req.totalVolume ?? previous.totalVolume,
@@ -382,6 +400,7 @@ export class AutoModeGraph {
 
     let round = 1;
     let sessionChanges: SessionChange[] = [];
+    let writesPerformed = false;
 
     while (true) {
       await this.coach.reviseWeeklyTargets(
@@ -392,6 +411,7 @@ export class AutoModeGraph {
         'direct_target_change',
         req.reason,
       );
+      writesPerformed = true;
       trace.push(
         mkTrace('coach', `Revised week ${state.weekIndex} targets to ${proposed.sessionCount} sessions / ${proposed.totalVolume} volume.`),
       );
@@ -408,6 +428,7 @@ export class AutoModeGraph {
       const cascade = await this.cascadeCommittedSessions(state, proposed, readiness);
       trace.push(...cascade.trace);
       sessionChanges = cascade.sessionChanges;
+      writesPerformed = writesPerformed || cascade.wrote;
 
       if (cascade.violations.length === 0) {
         if (round >= 2) {
@@ -447,6 +468,7 @@ export class AutoModeGraph {
 
       if (round >= 2) {
         return {
+          writesPerformed,
           guardrailViolations: [cascade.violations.join(' ')],
           trace: [...trace, mkTrace('abort', 'Could not reconcile the targets edit with existing committed sessions after 2 rounds.')],
         };
@@ -465,6 +487,7 @@ export class AutoModeGraph {
     }
 
     return {
+      writesPerformed,
       recoveryVerdict: verdict.terminalResult ?? null,
       readinessBand: readiness,
       sessionChanges,
@@ -482,12 +505,19 @@ export class AutoModeGraph {
     state: AutoModeGraphState,
     targets: { sessionCount: number; totalVolume: number; keyGoals: string[] },
     readiness: ReadinessBand,
-  ): Promise<{ violations: string[]; sessionChanges: SessionChange[]; trace: AutoModeTraceEntry[] }> {
+  ): Promise<{
+    violations: string[];
+    sessionChanges: SessionChange[];
+    trace: AutoModeTraceEntry[];
+    /** True when at least one committed session was actually rewritten. */
+    wrote: boolean;
+  }> {
     const weekSessions = await this.plannedSessions.findByWeek(state.userId, state.programId, state.weekIndex);
     const committed = weekSessions.filter((s) => s.planState === 'committed');
     const violations: string[] = [];
     const sessionChanges: SessionChange[] = [];
     const trace: AutoModeTraceEntry[] = [];
+    let wrote = false;
 
     for (const session of committed) {
       if (!session.id) {
@@ -510,6 +540,7 @@ export class AutoModeGraph {
         trace.push(mkTrace('coach', `Rebalance of "${session.title}" exhausted its loop.`));
         continue;
       }
+      wrote = true;
       await this.resyncIfCommitted(state.userId, session.id);
       const after = await this.plannedSessions.findById(state.userId, session.id);
       sessionChanges.push({
@@ -520,7 +551,7 @@ export class AutoModeGraph {
       trace.push(mkTrace('coach', `Rebalanced "${session.title}" to fit the revised targets.`));
     }
 
-    return { violations, sessionChanges, trace };
+    return { violations, sessionChanges, trace, wrote };
   }
 
   private async commitTargetsEditNode(state: AutoModeGraphState): Promise<Partial<AutoModeGraphState>> {
@@ -534,7 +565,15 @@ export class AutoModeGraph {
   // ── session_edit ──────────────────────────────────────────────────────
 
   private async debateSessionEditNode(state: AutoModeGraphState): Promise<Partial<AutoModeGraphState>> {
-    const req = state.sessionEditRequest!;
+    const req = state.sessionEditRequest;
+    if (!req) {
+      return {
+        guardrailViolations: [
+          "I couldn't tell which session this change targets, so I stopped rather than guess.",
+        ],
+        trace: [mkTrace('guardrail', 'session_edit reached the debate node without a sessionEditRequest — aborting.')],
+      };
+    }
     const before = await this.plannedSessions.findById(state.userId, req.plannedSessionId);
     if (!before) {
       return {
@@ -544,6 +583,7 @@ export class AutoModeGraph {
     }
     const beforeSnapshot = contentSnapshot(before);
     const trace: AutoModeTraceEntry[] = [];
+    let wrote = false;
 
     let result = await this.coach.reviseSessionContent(state.userId, state.runId, state.discipline, {
       programId: state.programId,
@@ -552,6 +592,7 @@ export class AutoModeGraph {
       plannedSessionId: req.plannedSessionId,
       requestedChangeDescription: req.requestedChangeDescription,
     });
+    wrote = wrote || result.terminalResult != null;
     trace.push(
       mkTrace(
         'coach',
@@ -601,6 +642,7 @@ export class AutoModeGraph {
             'session_edit',
             `Autonomous session-edit escalation: readiness green, bumping volume budget to fit "${req.requestedChangeDescription}".`,
           );
+          wrote = true;
           trace.push(mkTrace('coach', `Bumped weekly volume budget to ${bumped.totalVolume} to accommodate the edit.`));
           extraDiff = {
             weeklyTargets: {
@@ -615,6 +657,7 @@ export class AutoModeGraph {
             plannedSessionId: req.plannedSessionId,
             requestedChangeDescription: req.requestedChangeDescription,
           });
+          wrote = wrote || result.terminalResult != null;
           trace.push(
             mkTrace('coach', result.terminalResult ? 'Applied the edit under the bumped target.' : 'Edit still did not fit after bumping the target.'),
           );
@@ -629,6 +672,7 @@ export class AutoModeGraph {
           plannedSessionId: req.plannedSessionId,
           requestedChangeDescription: `${req.requestedChangeDescription} Constraint: you MUST stay within the current locked weekly targets — moderate the request rather than breach them.`,
         });
+        wrote = wrote || result.terminalResult != null;
         trace.push(
           mkTrace(
             'coach',
@@ -641,6 +685,8 @@ export class AutoModeGraph {
 
       if (!result.terminalResult) {
         return {
+          // The bump write may already have landed even though the edit failed.
+          writesPerformed: wrote,
           guardrailViolations: ['Could not reconcile the session edit with the weekly targets after escalation.'],
           trace: [...trace, mkTrace('abort', 'Session edit unresolved after 2 rounds.')],
         };
@@ -663,6 +709,8 @@ export class AutoModeGraph {
     const afterSnapshot = after ? contentSnapshot(after) : null;
     const change: SessionChange = { sessionId: req.plannedSessionId, before: beforeSnapshot, after: afterSnapshot };
     return {
+      // finishSessionEdit is only reached after a successful content revise.
+      writesPerformed: true,
       sessionChanges: [change],
       diff: { ...extraDiff, sessions: [change] },
       trace,
@@ -676,7 +724,15 @@ export class AutoModeGraph {
   // ── session_time_edit ─────────────────────────────────────────────────
 
   private async scheduleSessionNode(state: AutoModeGraphState): Promise<Partial<AutoModeGraphState>> {
-    const req = state.sessionTimeEditRequest!;
+    const req = state.sessionTimeEditRequest;
+    if (!req) {
+      return {
+        guardrailViolations: [
+          "I couldn't tell which session you wanted to move, so I stopped rather than guess.",
+        ],
+        trace: [mkTrace('guardrail', 'session_time_edit reached the schedule node without a sessionTimeEditRequest — aborting.')],
+      };
+    }
     const before = await this.plannedSessions.findById(state.userId, req.plannedSessionId);
     if (!before) {
       return {
@@ -743,6 +799,7 @@ export class AutoModeGraph {
     trace.push(mkTrace('commit', `Rescheduled to ${slot.scheduledDate} ${slot.startTime}.`));
 
     return {
+      writesPerformed: true,
       diff: {
         schedule: [
           {

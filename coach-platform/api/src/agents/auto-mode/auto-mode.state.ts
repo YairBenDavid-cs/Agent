@@ -96,6 +96,17 @@ export const AutoModeState = Annotation.Root({
     reducer: (left, right) => ({ ...left, ...right }),
     default: () => ({}),
   }),
+  /**
+   * Flipped to true by any node the moment a persisting call has succeeded
+   * (targets revision, session-content rewrite, schedule upsert). An abort
+   * with `writesPerformed === true` means the run stopped MID-change, so the
+   * orchestrator must revert and the explanation must not claim nothing
+   * happened.
+   */
+  writesPerformed: Annotation<boolean>({
+    reducer: (_left, right) => right,
+    default: () => false,
+  }),
   status: Annotation<AutoModeRunStatus>({
     reducer: (_left, right) => right,
     default: () => 'running',

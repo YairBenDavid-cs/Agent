@@ -53,14 +53,78 @@ export const autoModeIntentSchema = z
      */
     standingPreference: capturedSignalSchema.nullable().default(null),
   })
-  .refine(
-    (v) =>
-      (v.clarifyingQuestion != null) !==
-      (v.scenario != null && v.reason != null),
-    {
-      message:
-        'Either ask a clarifyingQuestion (scenario/reason null), or finalize with scenario + reason (clarifyingQuestion null) — never both, never neither.',
-    },
-  );
+  .superRefine((v, ctx) => {
+    const finalized = v.scenario != null && v.reason != null;
+    if ((v.clarifyingQuestion != null) === finalized) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Either ask a clarifyingQuestion (scenario/reason null), or finalize with scenario + reason (clarifyingQuestion null) — never both, never neither.',
+      });
+      return;
+    }
+    if (!finalized) {
+      return;
+    }
+    // A finalized scenario runs straight into an autonomous edit — it must
+    // carry everything that edit needs, or the classifier must ask instead.
+    switch (v.scenario) {
+      case 'session_edit':
+        if (v.plannedSessionId == null || v.plannedSessionId.trim() === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['plannedSessionId'],
+            message:
+              'session_edit requires plannedSessionId — identify the exact session (use a read-tool to find its id), or ask a clarifyingQuestion instead of finalizing.',
+          });
+        }
+        if (
+          v.requestedChangeDescription == null ||
+          v.requestedChangeDescription.trim() === ''
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['requestedChangeDescription'],
+            message:
+              'session_edit requires requestedChangeDescription — describe concretely what should change about the session, or ask a clarifyingQuestion instead of finalizing.',
+          });
+        }
+        break;
+      case 'session_time_edit':
+        if (v.plannedSessionId == null || v.plannedSessionId.trim() === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['plannedSessionId'],
+            message:
+              'session_time_edit requires plannedSessionId — identify the exact session to move (use a read-tool to find its id), or ask a clarifyingQuestion instead of finalizing.',
+          });
+        }
+        if (v.requestedDate == null && v.requestedStartTime == null) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['requestedDate'],
+            message:
+              'session_time_edit requires at least one of requestedDate or requestedStartTime — say when the session should move to, or ask a clarifyingQuestion instead of finalizing.',
+          });
+        }
+        break;
+      case 'weekly_targets_edit':
+        if (
+          v.sessionCount == null &&
+          v.totalVolume == null &&
+          (v.keyGoals == null || v.keyGoals.length === 0)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['sessionCount'],
+            message:
+              'weekly_targets_edit requires at least one of sessionCount, totalVolume, or keyGoals — state the concrete target change, or ask a clarifyingQuestion instead of finalizing.',
+          });
+        }
+        break;
+      default:
+        break;
+    }
+  });
 
 export type AutoModeIntent = z.infer<typeof autoModeIntentSchema>;

@@ -92,6 +92,8 @@ export class AutoModeRunRepository
           $set: {
             status: 'committed',
             diff,
+            // A committed run has, by definition, persisted its changes.
+            writes_performed: true,
             completed_at: new Date().toISOString(),
           },
         },
@@ -123,6 +125,23 @@ export class AutoModeRunRepository
             status: 'failed',
             failure_reason: reason,
             completed_at: new Date().toISOString(),
+          },
+        },
+      )
+      .exec();
+  }
+
+  async markWriteAudit(
+    id: string,
+    audit: { writesPerformed: boolean; reverted: boolean },
+  ): Promise<void> {
+    await this.model
+      .updateOne(
+        { _id: id },
+        {
+          $set: {
+            writes_performed: audit.writesPerformed,
+            reverted: audit.reverted,
           },
         },
       )
@@ -161,6 +180,8 @@ function toDomain(d: Lean): AutoModeRun {
     beforeSnapshot: d.before_snapshot ?? null,
     diff: (d.diff as AutoModeDiff | null) ?? null,
     failureReason: d.failure_reason ?? null,
+    writesPerformed: d.writes_performed ?? false,
+    reverted: d.reverted ?? false,
     createdAt: (d.createdAt ?? new Date()).toISOString(),
     startedAt: d.started_at ?? null,
     completedAt: d.completed_at ?? null,

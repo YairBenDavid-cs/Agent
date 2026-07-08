@@ -53,7 +53,14 @@ export class RevertAutoModeRunHandler
       throw ApiError.notFound('Auto-mode run not found.', { runId });
     }
 
-    if (run.status !== 'committed') {
+    // A user-requested undo only makes sense for a committed run. The
+    // orchestrator's auto-revert path additionally restores aborted/failed
+    // runs that stopped after writes had already landed.
+    const revertable =
+      run.status === 'committed' ||
+      (command.opts?.allowAbortedOrFailed === true &&
+        (run.status === 'aborted' || run.status === 'failed'));
+    if (!revertable) {
       return {
         reverted: false,
         reason: `Only a committed run can be reverted (this run is ${run.status}).`,
@@ -84,7 +91,14 @@ export class RevertAutoModeRunHandler
       throw err;
     }
 
-    await this.runs.markAborted(run.id, 'Reverted by user.');
+    if (run.status === 'committed') {
+      // User-requested undo of a committed run: flip its status and record
+      // that its writes have been rolled back.
+      await this.runs.markAborted(run.id, 'Reverted by user.');
+      await this.runs.markWriteAudit(run.id, { writesPerformed: true, reverted: true });
+    }
+    // Auto-revert path: the orchestrator stamps the write audit itself so the
+    // run keeps its real abort/failure reason.
     return { reverted: true };
   }
 

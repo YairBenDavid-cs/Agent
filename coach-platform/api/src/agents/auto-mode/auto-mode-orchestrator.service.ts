@@ -28,6 +28,10 @@ import { AutoModeGraph } from './auto-mode.graph';
 import { AutoModeIntent, autoModeIntentSchema } from './auto-mode.contracts';
 import { AutoModeRun, AutoModeScenario, AutoModeTrigger } from './domain/auto-mode-run.model';
 import {
+  RevertAutoModeRunCommand,
+  RevertAutoModeRunResult,
+} from './application/commands/revert-auto-mode-run.command';
+import {
   AUTO_MODE_RUN_REPOSITORY,
   AutoModeRunRepositoryPort,
 } from './domain/auto-mode-run.repository.port';
@@ -181,6 +185,7 @@ export class AutoModeOrchestratorService {
         weeklyTargetsEditRequest: input.weeklyTargetsEditRequest ?? null,
         sessionEditRequest: input.sessionEditRequest ?? null,
         sessionTimeEditRequest: input.sessionTimeEditRequest ?? null,
+        writesPerformed: false,
         recoveryVerdict: null,
         readinessBand: null,
         debateRound: 0,
@@ -203,16 +208,68 @@ export class AutoModeOrchestratorService {
           run.id,
           finalState.abortReason ?? 'Aborted for an unspecified reason.',
         );
+        if (finalState.writesPerformed) {
+          // The run stopped mid-change: some writes already landed. Restore
+          // the pre-run snapshot so an abort really does leave things as they
+          // were.
+          await this.revertUnsafeStop(input.userId, run.id);
+        }
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       this.logger.error(`Auto-mode run ${run.id} failed: ${reason}`);
       await this.runs.markFailed(run.id, reason);
+      // The graph crashed mid-flight, so what it wrote is unknown — restore
+      // the pre-run snapshot to be safe.
+      await this.revertUnsafeStop(input.userId, run.id);
     } finally {
       await this.lock.release(input.userId, input.programId, input.weekIndex, run.id);
     }
 
     return this.finalize(input.userId, run.id, conversationId);
+  }
+
+  /**
+   * Compensates for a run that stopped after some writes had landed (aborted
+   * with `writesPerformed`, or crashed with its write state unknown): replays
+   * the run's `beforeSnapshot` through the existing revert command, then
+   * stamps the write-audit fields the explanation builder keys its abort
+   * wording off. Never throws — a failed revert must not break the
+   * explanation/lock-release path; it just gets reported honestly.
+   */
+  private async revertUnsafeStop(userId: string, runId: string): Promise<void> {
+    let reverted = false;
+    let failReason: string | null = null;
+    try {
+      const result = await this.commandBus.execute<
+        RevertAutoModeRunCommand,
+        RevertAutoModeRunResult
+      >(new RevertAutoModeRunCommand(userId, runId, { allowAbortedOrFailed: true }));
+      reverted = result?.reverted === true;
+      if (!reverted) {
+        failReason = result?.reason ?? 'the revert command reported failure';
+      }
+    } catch (err) {
+      failReason = err instanceof Error ? err.message : String(err);
+    }
+    try {
+      await this.runs.markWriteAudit(runId, { writesPerformed: true, reverted });
+      await this.runs.appendTrace(runId, {
+        node: 'revert',
+        summary: reverted
+          ? 'revert: restored the week to its pre-run state'
+          : `revert: could not restore the pre-run state (${failReason})`,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Auto-mode run ${runId}: failed to record revert outcome: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    if (!reverted) {
+      this.logger.error(`Auto-mode run ${runId}: auto-revert failed: ${failReason}`);
+    }
   }
 
   /**
@@ -264,6 +321,63 @@ export class AutoModeOrchestratorService {
       );
     }
 
+    const weeklyTargetsEditRequest: WeeklyTargetsEditRequest | null =
+      scenario === 'weekly_targets_edit'
+        ? {
+            sessionCount: intent.sessionCount ?? undefined,
+            totalVolume: intent.totalVolume ?? undefined,
+            keyGoals: intent.keyGoals ?? undefined,
+            reason,
+          }
+        : null;
+    const sessionEditRequest: SessionEditRequest | null =
+      scenario === 'session_edit' && intent.plannedSessionId
+        ? {
+            plannedSessionId: intent.plannedSessionId,
+            requestedChangeDescription: intent.requestedChangeDescription ?? message,
+          }
+        : null;
+    const sessionTimeEditRequest: SessionTimeEditRequest | null =
+      scenario === 'session_time_edit' && intent.plannedSessionId
+        ? {
+            plannedSessionId: intent.plannedSessionId,
+            requestedDate: intent.requestedDate ?? null,
+            requestedStartTime: intent.requestedStartTime ?? null,
+          }
+        : null;
+
+    // Defense in depth behind the schema's completeness rules: if the
+    // finalized scenario needs a request object we could not build, ask
+    // instead of running the graph with a null request.
+    if (
+      (scenario === 'session_edit' && !sessionEditRequest) ||
+      (scenario === 'session_time_edit' && !sessionTimeEditRequest)
+    ) {
+      const reply =
+        'I want to make sure I change the right session before touching anything — ' +
+        'which one did you mean? Name it or its day (e.g. “Tuesday’s tempo run”) and I’ll take it from there.';
+      return {
+        reply,
+        assistantMessageId: await this.postPlainReply(userId, conversationId, reply),
+      };
+    }
+    if (
+      scenario === 'weekly_targets_edit' &&
+      weeklyTargetsEditRequest &&
+      weeklyTargetsEditRequest.sessionCount == null &&
+      weeklyTargetsEditRequest.totalVolume == null &&
+      (weeklyTargetsEditRequest.keyGoals == null ||
+        weeklyTargetsEditRequest.keyGoals.length === 0)
+    ) {
+      const reply =
+        'I got that you want this week’s targets changed, but not what to change them to — ' +
+        'should I adjust the number of sessions, the total volume, or the focus? Give me a number or a goal and I’ll take it from there.';
+      return {
+        reply,
+        assistantMessageId: await this.postPlainReply(userId, conversationId, reply),
+      };
+    }
+
     const outcome = await this.runAutoMode({
       userId,
       programId: opts.programId,
@@ -272,30 +386,9 @@ export class AutoModeOrchestratorService {
       scenario,
       trigger: 'chat',
       conversationId,
-      weeklyTargetsEditRequest:
-        scenario === 'weekly_targets_edit'
-          ? {
-              sessionCount: intent.sessionCount ?? undefined,
-              totalVolume: intent.totalVolume ?? undefined,
-              keyGoals: intent.keyGoals ?? undefined,
-              reason,
-            }
-          : null,
-      sessionEditRequest:
-        scenario === 'session_edit' && intent.plannedSessionId
-          ? {
-              plannedSessionId: intent.plannedSessionId,
-              requestedChangeDescription: intent.requestedChangeDescription ?? message,
-            }
-          : null,
-      sessionTimeEditRequest:
-        scenario === 'session_time_edit' && intent.plannedSessionId
-          ? {
-              plannedSessionId: intent.plannedSessionId,
-              requestedDate: intent.requestedDate ?? null,
-              requestedStartTime: intent.requestedStartTime ?? null,
-            }
-          : null,
+      weeklyTargetsEditRequest,
+      sessionEditRequest,
+      sessionTimeEditRequest,
     });
 
     return { reply: outcome.reply, assistantMessageId: outcome.assistantMessageId };

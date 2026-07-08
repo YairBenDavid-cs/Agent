@@ -140,6 +140,7 @@ function initialState(overrides: Partial<AutoModeGraphState> = {}): AutoModeGrap
     weeklyTargetsEditRequest: null,
     sessionEditRequest: null,
     sessionTimeEditRequest: null,
+    writesPerformed: false,
     recoveryVerdict: null,
     readinessBand: null,
     debateRound: 0,
@@ -279,7 +280,7 @@ describe('AutoModeGraph', () => {
       );
     });
 
-    it('aborts before debating/committing when the week is not targets_locked', async () => {
+    it('aborts with a plain-language message before debating/committing when the week is still open', async () => {
       const { graph, coach, programs } = setup();
       programs.findById.mockResolvedValue(Promise.resolve(programFixture({}, { weekState: 'open' })));
 
@@ -291,7 +292,51 @@ describe('AutoModeGraph', () => {
       );
 
       expect(finalState.status).toBe('aborted');
-      expect(finalState.abortReason).toMatch(/not targets_locked/);
+      expect(finalState.abortReason).toMatch(/haven't been locked in yet/i);
+      // Internal state names stay out of the user-facing reason; the trace keeps them.
+      expect(finalState.abortReason).not.toMatch(/targets_locked/);
+      expect(finalState.trace.some((t) => t.summary.includes("'open'"))).toBe(true);
+      expect(coach.reviseWeeklyTargets).not.toHaveBeenCalled();
+    });
+
+    it('proceeds on a fully locked week — reviseWeeklyTargets works on locked weeks too', async () => {
+      const { graph, coach, programs } = setup();
+      programs.findById.mockResolvedValue(Promise.resolve(programFixture({}, { weekState: 'locked' })));
+
+      const finalState = await graph.run(
+        initialState({
+          scenario: 'weekly_targets_edit',
+          weeklyTargetsEditRequest: { sessionCount: 5, totalVolume: 44, reason: 'more volume' },
+        }),
+      );
+
+      expect(finalState.status).toBe('committed');
+      expect(coach.reviseWeeklyTargets).toHaveBeenCalled();
+    });
+
+    it('marks writesPerformed once targets have been revised', async () => {
+      const { graph } = setup();
+
+      const finalState = await graph.run(
+        initialState({
+          scenario: 'weekly_targets_edit',
+          weeklyTargetsEditRequest: { sessionCount: 5, totalVolume: 44, reason: 'more volume' },
+        }),
+      );
+
+      expect(finalState.writesPerformed).toBe(true);
+    });
+
+    it('aborts with a readable reason (no throw) when the request object is null', async () => {
+      const { graph, coach } = setup();
+
+      const finalState = await graph.run(
+        initialState({ scenario: 'weekly_targets_edit', weeklyTargetsEditRequest: null }),
+      );
+
+      expect(finalState.status).toBe('aborted');
+      expect(finalState.abortReason).toMatch(/stopped rather than guess/i);
+      expect(finalState.writesPerformed).toBe(false);
       expect(coach.reviseWeeklyTargets).not.toHaveBeenCalled();
     });
   });
@@ -339,6 +384,34 @@ describe('AutoModeGraph', () => {
       );
       expect(coach.reviseSessionContent).toHaveBeenCalledTimes(2);
       expect(finalState.status).toBe('committed');
+    });
+
+    it('aborts with a readable reason (no throw) when sessionEditRequest is null', async () => {
+      const { graph, coach } = setup();
+
+      const finalState = await graph.run(
+        initialState({ scenario: 'session_edit', sessionEditRequest: null }),
+      );
+
+      expect(finalState.status).toBe('aborted');
+      expect(finalState.abortReason).toMatch(/couldn't tell which session this change targets/i);
+      expect(finalState.abortReason).toMatch(/stopped rather than guess/i);
+      expect(finalState.writesPerformed).toBe(false);
+      expect(coach.reviseSessionContent).not.toHaveBeenCalled();
+    });
+
+    it('marks writesPerformed after a successful session edit', async () => {
+      const { graph, plannedSessions } = setup();
+      plannedSessions.findById.mockResolvedValue(Promise.resolve(plannedSession({ id: 'sess-1' })));
+
+      const finalState = await graph.run(
+        initialState({
+          scenario: 'session_edit',
+          sessionEditRequest: { plannedSessionId: 'sess-1', requestedChangeDescription: 'add a mile' },
+        }),
+      );
+
+      expect(finalState.writesPerformed).toBe(true);
     });
   });
 
@@ -398,6 +471,42 @@ describe('AutoModeGraph', () => {
       expect(commandBus.execute).not.toHaveBeenCalled();
       expect(finalState.status).toBe('aborted');
       expect(finalState.abortReason).toMatch(/no clash-free slot/i);
+      expect(finalState.writesPerformed).toBe(false);
+    });
+
+    it('aborts with a readable reason (no throw) when sessionTimeEditRequest is null', async () => {
+      const { graph, commandBus, planner, plannedSessions } = setup();
+
+      const finalState = await graph.run(
+        initialState({ scenario: 'session_time_edit', sessionTimeEditRequest: null }),
+      );
+
+      expect(finalState.status).toBe('aborted');
+      expect(finalState.abortReason).toMatch(/couldn't tell which session you wanted to move/i);
+      expect(finalState.abortReason).toMatch(/stopped rather than guess/i);
+      expect(finalState.writesPerformed).toBe(false);
+      expect(plannedSessions.findById).not.toHaveBeenCalled();
+      expect(planner.validateSlot).not.toHaveBeenCalled();
+      expect(commandBus.execute).not.toHaveBeenCalled();
+    });
+
+    it('marks writesPerformed after the schedule upsert lands', async () => {
+      const { graph, plannedSessions } = setup();
+      plannedSessions.findById.mockResolvedValue(Promise.resolve(plannedSession({ id: 'sess-3' })));
+
+      const finalState = await graph.run(
+        initialState({
+          scenario: 'session_time_edit',
+          sessionTimeEditRequest: {
+            plannedSessionId: 'sess-3',
+            requestedDate: '2026-07-08',
+            requestedStartTime: '07:00',
+          },
+        }),
+      );
+
+      expect(finalState.status).toBe('committed');
+      expect(finalState.writesPerformed).toBe(true);
     });
   });
 });

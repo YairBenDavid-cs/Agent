@@ -58,6 +58,19 @@ export interface AutoModeRun {
   beforeSnapshot: unknown;
   diff: AutoModeDiff | null;
   failureReason: string | null;
+  /**
+   * True once the run has persisted at least one write (committed runs are
+   * always true; aborted/failed runs may be true when they stopped mid-change,
+   * and are conservatively true when the graph crashed and the answer is
+   * unknown). Drives honest abort messaging.
+   */
+  writesPerformed: boolean;
+  /**
+   * True when a revert (auto-revert after an unsafe stop, or a user-requested
+   * undo) successfully restored the pre-run state. Together with
+   * `writesPerformed`, picks the abort-message variant.
+   */
+  reverted: boolean;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;

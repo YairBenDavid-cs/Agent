@@ -43,6 +43,17 @@ export interface AutoModeRunRepositoryPort {
   markFailed(id: string, reason: string): Promise<void>;
 
   /**
+   * Records the run's write audit: whether it persisted anything before it
+   * ended, and whether a revert successfully restored the pre-run state.
+   * Never touches status/failure_reason — safe to call after markAborted/
+   * markFailed without clobbering them.
+   */
+  markWriteAudit(
+    id: string,
+    audit: { writesPerformed: boolean; reverted: boolean },
+  ): Promise<void>;
+
+  /**
    * All `running` runs older than `olderThanMs`, across users — the lock-TTL
    * reaper's input. A run stuck in `running` past the TTL means its process
    * died mid-graph; the reaper fails it and releases its week lock.
