@@ -1664,6 +1664,18 @@ export class BuildConversationOrchestrator {
         messageMeta,
       ),
     );
+    // Out-of-band posts (kickoff welcome/proposal, post-approval drafts) land
+    // outside any HTTP turn the client is awaiting, so push a conversation beat
+    // over SSE — an open chat reloads its transcript on it instead of polling.
+    // (Kickoff timing: onboarding navigates into the chat as soon as the
+    // conversation RECORD exists, before these messages are written.)
+    this.telemetry.emitConversationOpened({
+      userId,
+      conversationId,
+      title: null,
+      origin: 'system',
+      attention: false,
+    });
     return message.id;
   }
 }

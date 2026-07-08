@@ -1,5 +1,6 @@
 import { request } from '@/shared/api/httpClient';
 import { MOCK_API } from '@/shared/config';
+import type { RunningPlan, StrengthPlan } from '../domain/types';
 import { MOCK_APPROVAL_BATCH, MOCK_PENDING_BATCHES } from './mockData';
 
 // Frontend mirror of the backend approval contracts (agents/approval). A
@@ -31,6 +32,9 @@ export interface ApprovalCard {
   intensityLabel: string;
   estDurationMin: number;
   coachNotes: string | null;
+  // Structured prescription body (exactly one populated, gated by `type`).
+  running: RunningPlan | null;
+  strength: StrengthPlan | null;
   placementNote: string | null;
   diffStatus: CardDiffStatus;
   changedFields: string[];

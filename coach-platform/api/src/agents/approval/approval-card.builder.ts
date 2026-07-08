@@ -14,6 +14,11 @@
  * Framework-free and side-effect-free — fully unit-testable.
  */
 
+import {
+  RunningPlan,
+  StrengthPlan,
+} from '../../planned-sessions/domain/planned-session.model';
+
 export type CardDiffStatus = 'new' | 'modified' | 'unchanged' | 'removed';
 
 /** The minimal session shape the card builder needs (DTO- and domain-compatible). */
@@ -28,6 +33,9 @@ export interface CardSessionLike {
   intensityLabel: string;
   estDurationMin: number;
   coachNotes: string | null;
+  /** Structured prescription body (exactly one populated, gated by `type`). */
+  running: RunningPlan | null;
+  strength: StrengthPlan | null;
 }
 
 /** Fields whose change between baseline and draft is user-visible on a card. */
@@ -52,6 +60,9 @@ export interface ApprovalCard {
   intensityLabel: string;
   estDurationMin: number;
   coachNotes: string | null;
+  /** Structured prescription body, rendered in the chat card and program page. */
+  running: RunningPlan | null;
+  strength: StrengthPlan | null;
   /** The Planner's "why this slot" note, when supplied for this slot. */
   placementNote: string | null;
   diffStatus: CardDiffStatus;
@@ -107,6 +118,8 @@ export function buildApprovalCards(input: BuildCardsInput): ApprovalCard[] {
       intensityLabel: d.intensityLabel,
       estDurationMin: d.estDurationMin,
       coachNotes: d.coachNotes,
+      running: d.running,
+      strength: d.strength,
       placementNote: notes[d.slotKey] ?? null,
       diffStatus,
       changedFields,
@@ -126,6 +139,8 @@ export function buildApprovalCards(input: BuildCardsInput): ApprovalCard[] {
         intensityLabel: b.intensityLabel,
         estDurationMin: b.estDurationMin,
         coachNotes: b.coachNotes,
+        running: b.running,
+        strength: b.strength,
         placementNote: null,
         diffStatus: 'removed',
         changedFields: [],

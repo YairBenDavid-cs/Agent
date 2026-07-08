@@ -709,6 +709,8 @@ export const MOCK_APPROVAL_BATCH: ApprovalBatchView = {
       intensityLabel: s.intensityLabel,
       estDurationMin: s.estDurationMin,
       coachNotes: s.coachNotes,
+      running: s.running,
+      strength: s.strength,
       placementNote: null,
       diffStatus: 'new',
       changedFields: [],

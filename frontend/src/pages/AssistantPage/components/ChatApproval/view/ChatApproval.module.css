@@ -116,6 +116,11 @@
   padding-left: 27px;
 }
 
+/* Structured prescription body (shared WorkoutBody) inside the chat card. */
+.workout {
+  margin-top: var(--wa-space-1);
+}
+
 .error {
   margin: 0;
   padding: var(--wa-space-2) var(--wa-space-4) 0;

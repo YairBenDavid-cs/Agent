@@ -14,6 +14,8 @@ const session = (overrides: Partial<CardSessionLike> = {}): CardSessionLike => (
   intensityLabel: 'easy',
   estDurationMin: 45,
   coachNotes: 'base aerobic',
+  running: null,
+  strength: null,
   ...overrides,
 });
 

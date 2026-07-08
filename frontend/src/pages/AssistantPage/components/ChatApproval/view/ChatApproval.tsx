@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import type { ApprovalBatchView, ApprovalCard } from '@/pages/ProgramPage/api/approvalsApi';
 import type { ConversationMode } from '@/pages/AssistantPage/domain/assistant/types/assistant';
+import { WorkoutBody } from '@/pages/ProgramPage/components/WorkoutBody/WorkoutBody';
 import { CheckIcon } from '@/shared/ui/icons/CheckIcon';
 import styles from './ChatApproval.module.css';
 
@@ -50,9 +51,12 @@ function cardsToShow(batch: ApprovalBatchView): ApprovalCard[] {
   return changed.length > 0 ? changed : batch.cards;
 }
 
-// Deliberately minimal (decision: no prescription body, notes, or eyebrow in
-// the chat card): title, training type, and one meta line. The full workout
-// lives on the program page.
+// Head: title, training type, one meta line. Below it, the full structured
+// prescription body (same WorkoutBody as the program page) so the user can
+// review the actual workout before approving. Deliberately NO coach/placement
+// notes in the chat card (decision: body only) — the rationale lives in the
+// conversation itself. Removed sessions render head-only: their body is gone
+// content, and the strike-through line already says everything.
 function CardBody({ cards }: { cards: ApprovalCard[] }): ReactElement {
   return (
     <div className={styles.cards}>
@@ -71,6 +75,12 @@ function CardBody({ cards }: { cards: ApprovalCard[] }): ReactElement {
               {card.scheduledDate} · {card.startTime}–{card.endTime} · {card.estDurationMin} min ·{' '}
               {card.intensityLabel}
             </span>
+            {!removed && (
+              <WorkoutBody
+                session={{ running: card.running, strength: card.strength }}
+                className={styles.workout}
+              />
+            )}
           </div>
         );
       })}

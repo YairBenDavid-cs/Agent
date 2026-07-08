@@ -74,12 +74,22 @@ export function AssistantPage(): ReactElement {
     [navigate, upsert],
   );
 
-  // A trigger opened a pinned/flagged chat — pull the list so it surfaces
-  // immediately (push path; no polling).
+  // A conversation beat arrived over SSE: a trigger opened a pinned/flagged
+  // chat, OR the backend posted an out-of-band message (e.g. the build kickoff's
+  // welcome + targets proposal, written seconds AFTER onboarding lands the user
+  // in the chat). Refetch the list either way; when the beat targets the chat
+  // currently on screen, bump a tick so ConversationView reloads its transcript.
+  const [conversationEventTick, setConversationEventTick] = useState(0);
   useConversationEvents(
-    useCallback(() => {
-      refetch();
-    }, [refetch]),
+    useCallback(
+      (event) => {
+        refetch();
+        if (event.conversationId === id) {
+          setConversationEventTick((t) => t + 1);
+        }
+      },
+      [refetch, id],
+    ),
   );
 
   const onReplyComplete = useCallback(
@@ -152,6 +162,7 @@ export function AssistantPage(): ReactElement {
           <ConversationView
             key={id}
             conversationId={id}
+            remoteUpdateTick={conversationEventTick}
             pendingPromptRef={pendingPromptRef}
             onReplyComplete={() => onReplyComplete(id)}
           />

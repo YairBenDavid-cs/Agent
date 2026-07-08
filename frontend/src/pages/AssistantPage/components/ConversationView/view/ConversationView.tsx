@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MutableRefObject, ReactElement } from 'react';
 import { Spinner } from '@/shared/ui/Spinner/Spinner';
@@ -21,6 +21,10 @@ import styles from './ConversationView.module.css';
 
 interface ConversationViewProps {
   conversationId: string;
+  // Bumped by the page when a `conversation` SSE beat targets THIS chat — the
+  // backend posted a message outside a turn we're awaiting (build kickoff,
+  // post-approval draft), so the transcript must be reloaded to show it.
+  remoteUpdateTick: number;
   pendingPromptRef: MutableRefObject<PendingPrompt | null>;
   onReplyComplete: () => void;
 }
@@ -32,6 +36,7 @@ const CONFIRM_NO = 'No, leave it as is.';
 
 export function ConversationView({
   conversationId,
+  remoteUpdateTick,
   pendingPromptRef,
   onReplyComplete,
 }: ConversationViewProps): ReactElement {
@@ -99,9 +104,38 @@ export function ConversationView({
     reloadTurns();
   }, [refresh, reloadTurns]);
 
+  // A `conversation` SSE beat targeted this chat: the backend appended a
+  // message outside any turn we're awaiting — e.g. the build kickoff's welcome
+  // and targets proposal, which land seconds after onboarding navigates here
+  // (the transcript was fetched while still empty). Reload to show them. Skip
+  // while a turn is in flight — its completion already reloads, and reloading
+  // mid-send would race the optimistic user turn.
+  const isBusyRef = useRef(isBusy);
+  isBusyRef.current = isBusy;
+  useEffect(() => {
+    if (remoteUpdateTick === 0 || isBusyRef.current) {
+      return;
+    }
+    reloadTurns();
+    refresh();
+  }, [remoteUpdateTick, reloadTurns, refresh]);
+
   const approval = useChatApproval(conversation?.pendingCardBatchId ?? null, {
     onResolved: onCardResolved,
   });
+
+  // An empty build chat = the kickoff's welcome/proposal haven't been posted
+  // yet (onboarding navigates here before they're written). The SSE beat is the
+  // primary reload signal; this slow poll is the safety net for a beat that
+  // fired before our stream (re)connected.
+  const awaitingKickoff = isBuild && status === 'ready' && turns.length === 0;
+  useEffect(() => {
+    if (!awaitingKickoff) {
+      return undefined;
+    }
+    const timer = setInterval(reloadTurns, 3000);
+    return () => clearInterval(timer);
+  }, [awaitingKickoff, reloadTurns]);
 
   // Derive the live build affordances from the latest assistant turn's meta, so
   // they survive a transcript reload / reopen (the meta lives on the message).
@@ -186,7 +220,10 @@ export function ConversationView({
   // A card approve/reject kicks off backend work (commit + the coach drafting
   // the next step) before the transcript reloads — surface the same "thinking"
   // indicator as a chat turn so the user sees Popvich working, not a dead chat.
-  const displayPhase = approval.actionPending ? 'thinking' : phase;
+  // Likewise an EMPTY build chat: onboarding lands here before the kickoff's
+  // welcome/proposal are posted (they arrive via the SSE-triggered reload), so
+  // show the coach thinking instead of a blank transcript.
+  const displayPhase = approval.actionPending || awaitingKickoff ? 'thinking' : phase;
   const busy = isBusy || approval.actionPending;
 
   return (

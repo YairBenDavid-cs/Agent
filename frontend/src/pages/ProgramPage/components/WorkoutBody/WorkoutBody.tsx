@@ -17,7 +17,9 @@ import {
 import styles from './WorkoutBody.module.css';
 
 interface WorkoutBodyProps {
-  session: PlannedSession;
+  // Only the prescription body is read, so any session-like carrier works
+  // (PlannedSession on the program page, ApprovalCard in the chat card).
+  session: Pick<PlannedSession, 'running' | 'strength'>;
   // Optional extra class on the root (used by callers to add padding).
   className?: string | undefined;
 }
