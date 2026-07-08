@@ -44,6 +44,6 @@ export const loadConfiguration = (): AppConfig => ({
   googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? '',
   googleOauthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ?? '',
   openaiApiKey: process.env.OPENAI_API_KEY ?? '',
-  openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o',
+  openaiModel: process.env.OPENAI_MODEL ?? 'gpt-5.1',
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
 });

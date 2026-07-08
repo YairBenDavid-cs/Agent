@@ -5,7 +5,7 @@ import { Conversation, Message } from '../domain/conversation.model';
 import { UpdateConversationSummaryCommand } from './commands/update-summary.command';
 
 /** Cheap model for summarization — runs only when the budget threshold trips. */
-const SUMMARIZER_MODEL = 'gpt-4o-mini';
+const SUMMARIZER_MODEL = 'gpt-5.1';
 /** Fraction of the verbatim buffer folded into the summary; newest 30% kept. */
 const COMPACT_FRACTION = 0.7;
 

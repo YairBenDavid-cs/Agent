@@ -41,6 +41,9 @@ export class User {
 
   @Prop({ type: String, required: true, enum: ['user', 'admin'], default: 'user' })
   role!: UserRole;
+
+  @Prop({ type: Boolean, required: true, default: false })
+  auto_mode_opt_in!: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

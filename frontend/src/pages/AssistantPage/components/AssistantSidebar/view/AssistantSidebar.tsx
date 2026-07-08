@@ -8,7 +8,7 @@ import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { SettingsMenu } from '@/shared/ui/SettingsMenu/SettingsMenu';
 import type { AssistantConversation } from '@/pages/AssistantPage/domain/assistant/types/assistant';
 import { ConversationRow } from '../components/ConversationRow/ConversationRow';
-import { ScheduleWeekBuildMenu } from '../components/ScheduleWeekBuildMenu/ScheduleWeekBuildMenu';
+import { ScheduleMenu } from '../components/ScheduleMenu/ScheduleMenu';
 import styles from './AssistantSidebar.module.css';
 
 interface AssistantSidebarProps {
@@ -26,6 +26,8 @@ interface AssistantSidebarProps {
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  /** Small transient confirmation, e.g. after scheduling a build or saving a sync schedule. */
+  onToast: (message: string) => void;
 }
 
 function syncTooltip(syncing: boolean, lastSyncedAt: string | null): string {
@@ -49,6 +51,7 @@ export function AssistantSidebar({
   onSelect,
   onRename,
   onDelete,
+  onToast,
 }: AssistantSidebarProps): ReactElement {
   return (
     <div className={collapsed ? `${styles.sidebar} ${styles.collapsed}` : styles.sidebar}>
@@ -75,7 +78,7 @@ export function AssistantSidebar({
         >
           <NewChatIcon />
         </button>
-        <ScheduleWeekBuildMenu />
+        <ScheduleMenu garminVisible={garminVisible} onToast={onToast} />
         {garminVisible && (
           <button
             type="button"

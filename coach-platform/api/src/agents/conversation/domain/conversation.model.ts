@@ -19,9 +19,13 @@ export type MessageRole = 'user' | 'assistant' | 'system';
  *    preferences and (later) drive commits/replans.
  *  - `ask`  = read-only consultation. The turn never writes preferences and
  *    never fires a pipeline; mutation intent surfaces a "switch to Plan" hint.
+ *  - `auto` = autonomous. A turn's free text is classified into an
+ *    `AutoModeScenario` and handed to `AutoModeOrchestratorService`, which
+ *    runs the Coach/Recovery-debated `AutoModeGraph` end-to-end (guardrails,
+ *    lock, commit-or-abort) instead of the ordinary assistant loop.
  * Mode is explicit conversation state — capability is a boundary, never inferred.
  */
-export type ConversationMode = 'plan' | 'ask';
+export type ConversationMode = 'plan' | 'ask' | 'auto';
 
 /**
  * Who opened the conversation:
@@ -117,6 +121,8 @@ export interface MessageMeta {
       scheduledStartUtc: string;
     }>;
   };
+  /** The AutoModeRun this turn reports on, when posted by an `auto`-mode run. */
+  autoModeRunId?: string;
 }
 
 export interface Message {

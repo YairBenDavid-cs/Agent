@@ -299,8 +299,14 @@ function renderCoachSeed(seed: CoachSeed): string {
     `== Coach seed · ${seed.discipline} ==`,
     coldStartNote,
     jsonBlock('Goal', seed.goal),
-    jsonBlock('Onboarding baseline (survey)', seed.onboarding),
-    jsonBlock('Program skeleton (weeks)', seed.skeletonWeeks),
+    jsonBlock(
+      'Onboarding baseline (survey) — historical signup answers, NOT the live plan',
+      seed.onboarding,
+    ),
+    jsonBlock(
+      'Program skeleton (weeks) — weeklyTargets here (when set) is the LOCKED current plan',
+      seed.skeletonWeeks,
+    ),
     `Current week index: ${seed.currentWeekIndex ?? 'n/a'}`,
     jsonBlock('Planned sessions (current + last 2 weeks)', seed.plannedRecent),
     jsonBlock('Observed sessions (last 7 days)', seed.observedSessions),

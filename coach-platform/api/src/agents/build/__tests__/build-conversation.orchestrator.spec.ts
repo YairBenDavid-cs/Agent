@@ -427,6 +427,57 @@ describe('BuildConversationOrchestrator', () => {
     expect(result?.reply).toMatch(/on the calendar/i);
   });
 
+  describe('lockWeekIfComplete', () => {
+    it('locks the week when quota is met and every committed session is scheduled', async () => {
+      const scheduledSession = committedSession('run-1', {
+        calendarSync: { provider: 'google', eventId: 'evt-run-1', syncedAt: null, syncState: 'synced' },
+      });
+      const { orchestrator, commandBus } = makeOrchestrator({
+        weekOverrides: { weeklyTargets: lockedTargets({ sessionCount: 1 }) },
+        sessions: [scheduledSession],
+      });
+
+      await orchestrator.lockWeekIfComplete('u1', PROGRAM_ID, 0);
+
+      const lockCmd = commandBus.execute.mock.calls
+        .map((c) => c[0])
+        .find((c) => c instanceof CommitSkeletonCommand) as
+        | CommitSkeletonCommand
+        | undefined;
+      expect(lockCmd?.weeks.find((w) => w.weekIndex === 0)?.weekState).toBe(
+        'locked',
+      );
+    });
+
+    it('no-ops when the week is already locked', async () => {
+      const { orchestrator, commandBus } = makeOrchestrator({
+        weekOverrides: { weekState: 'locked' },
+        sessions: [committedSession('run-1')],
+      });
+
+      await orchestrator.lockWeekIfComplete('u1', PROGRAM_ID, 0);
+
+      const lockCmd = commandBus.execute.mock.calls
+        .map((c) => c[0])
+        .find((c) => c instanceof CommitSkeletonCommand);
+      expect(lockCmd).toBeUndefined();
+    });
+
+    it('no-ops when the session quota is not yet met', async () => {
+      const { orchestrator, commandBus } = makeOrchestrator({
+        weekOverrides: { weeklyTargets: lockedTargets({ sessionCount: 3 }) },
+        sessions: [committedSession('run-1')],
+      });
+
+      await orchestrator.lockWeekIfComplete('u1', PROGRAM_ID, 0);
+
+      const lockCmd = commandBus.execute.mock.calls
+        .map((c) => c[0])
+        .find((c) => c instanceof CommitSkeletonCommand);
+      expect(lockCmd).toBeUndefined();
+    });
+  });
+
   it('resumeBuild re-greets an unperformed action phase and re-surfaces attention', async () => {
     const { orchestrator, planner, telemetry } = makeOrchestrator({
       sessions: [

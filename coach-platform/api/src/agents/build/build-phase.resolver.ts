@@ -78,6 +78,21 @@ function isScheduled(session: BuildSession): boolean {
 }
 
 /**
+ * Whether a week's build is functionally done: quota met, every committed
+ * session scheduled. Mirrors the COMPLETE-phase check in `resolveBuildPhase`,
+ * but callable from approval paths that never run the build conversation's
+ * own turns (e.g. the Program page's whole-week approval).
+ */
+export function isWeekBuildComplete(week: ProgramWeek, sessions: BuildSession[]): boolean {
+  const sessionCount = week.weeklyTargets?.sessionCount ?? 0;
+  if (sessionCount <= 0) return false;
+  const committed = sessions.filter(isCommitted);
+  if (committed.length < sessionCount) return false;
+  const scheduled = committed.filter(isScheduled);
+  return scheduled.length === committed.length;
+}
+
+/**
  * Resolve the current build phase from live state. Precedence matters: an
  * outstanding consent gate (card batch / slot pick) always wins over the action
  * that would otherwise be taken, so the orchestrator never re-drafts or

@@ -42,6 +42,17 @@ export interface GarminMfaInput {
   password: string;
 }
 
+/** Plan: recommend + wait for approval. Auto: apply, then report what changed. */
+export type GarminSyncMode = 'plan' | 'auto';
+
+/** The user's configured recurring Garmin sync (mirrors the server's GarminSyncSchedule). */
+export interface GarminSyncSchedule {
+  syncTimesLocal: string[];
+  mode: GarminSyncMode;
+  enabled: boolean;
+  lastFiredAt: Record<string, string>;
+}
+
 /** Read every provider's connection status for the current user. */
 export async function fetchIntegrationStatuses(): Promise<IntegrationStatus[]> {
   if (MOCK_API) {
@@ -65,6 +76,34 @@ export async function runGarminSync(): Promise<void> {
     return;
   }
   await request<unknown>('/ingestion/run', { method: 'POST', body: {} });
+}
+
+const DEFAULT_GARMIN_SYNC_SCHEDULE: GarminSyncSchedule = {
+  syncTimesLocal: ['04:00'],
+  mode: 'plan',
+  enabled: true,
+  lastFiredAt: {},
+};
+
+/** Read the current user's recurring Garmin sync schedule (times + Plan/Auto mode). */
+export async function fetchGarminSyncSchedule(): Promise<GarminSyncSchedule> {
+  if (MOCK_API) {
+    return DEFAULT_GARMIN_SYNC_SCHEDULE;
+  }
+  return request<GarminSyncSchedule>('/ingestion/garmin-sync-schedule');
+}
+
+/** Save the sync times (max 3, "HH:mm") + mode for the current user. */
+export async function saveGarminSyncSchedule(
+  input: Pick<GarminSyncSchedule, 'syncTimesLocal' | 'mode' | 'enabled'>,
+): Promise<GarminSyncSchedule> {
+  if (MOCK_API) {
+    return { ...DEFAULT_GARMIN_SYNC_SCHEDULE, ...input };
+  }
+  return request<GarminSyncSchedule>('/ingestion/garmin-sync-schedule', {
+    method: 'PUT',
+    body: input,
+  });
 }
 
 /**

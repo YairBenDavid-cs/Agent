@@ -37,6 +37,7 @@ export class CreateUserHandler
       weightKg: dto.weightKg ?? null,
       status: 'active',
       role: 'user',
+      autoModeOptIn: false,
     };
     await this.repository.create(profile);
     return { id: profile.userId };

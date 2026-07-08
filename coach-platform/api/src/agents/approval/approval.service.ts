@@ -142,6 +142,8 @@ export class ApprovalService {
       })),
     );
 
+    await this.buildOrchestrator.lockWeekIfComplete(userId, programId, weekIndex);
+
     this.logger.log(
       `Approved week ${weekIndex} for ${userId}: committed ${committed}, calendar synced ${calendar.synced}/${calendar.synced + calendar.failed}.`,
     );

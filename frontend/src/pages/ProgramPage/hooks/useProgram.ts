@@ -5,8 +5,9 @@ import {
   parseWorkflowEvent,
 } from '@/pages/AssistantPage/domain/assistant/stream/assistantStream';
 import { getBuildConversation } from '@/pages/AssistantPage/domain/assistant/api/assistantApi';
-import type { Program, PlannedSession, ProgramWeek } from '../domain/types';
+import type { Program, PlannedSession, ProgramWeek, RunAutoModeOutcome } from '../domain/types';
 import { fetchActiveProgram, fetchCalendarRange } from '../api/programApi';
+import { runAutoMode } from '../api/autoModeApi';
 import {
   approveBatch,
   fetchApprovalBatch,
@@ -40,6 +41,10 @@ interface ProgramState {
   actionError: string | null;
   approve: () => Promise<void>;
   reject: () => Promise<void>;
+  // Manual Auto Mode trigger (M4.5) — builds the next week autonomously.
+  autoModeRunning: boolean;
+  autoModeError: string | null;
+  triggerAutoMode: () => Promise<RunAutoModeOutcome | null>;
 }
 
 // How long to wait for a generation run to surface a reviewable draft before
@@ -83,6 +88,9 @@ export function useProgram(): ProgramState {
 
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const [autoModeRunning, setAutoModeRunning] = useState(false);
+  const [autoModeError, setAutoModeError] = useState<string | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
@@ -312,6 +320,21 @@ export function useProgram(): ProgramState {
     await runAction(() => rejectBatch(pendingBatch.batchId), false);
   }, [pendingBatch, runAction]);
 
+  const triggerAutoMode = useCallback(async (): Promise<RunAutoModeOutcome | null> => {
+    setAutoModeRunning(true);
+    setAutoModeError(null);
+    try {
+      const outcome = await runAutoMode('new_week');
+      reload();
+      return outcome;
+    } catch (err) {
+      setAutoModeError(err instanceof Error ? err.message : 'Auto Mode failed. Please try again.');
+      return null;
+    } finally {
+      setAutoModeRunning(false);
+    }
+  }, [reload]);
+
   return {
     loading,
     error,
@@ -332,5 +355,8 @@ export function useProgram(): ProgramState {
     actionError,
     approve,
     reject,
+    autoModeRunning,
+    autoModeError,
+    triggerAutoMode,
   };
 }

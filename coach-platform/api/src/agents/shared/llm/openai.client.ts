@@ -53,7 +53,7 @@ export class OpenAiClient {
   }
 
   private get defaultModel(): string {
-    return this.config.get<string>('openaiModel') ?? 'gpt-4o';
+    return this.config.get<string>('openaiModel') ?? 'gpt-5.1';
   }
 
   async complete(params: LlmCompleteParams): Promise<LlmCompletion> {

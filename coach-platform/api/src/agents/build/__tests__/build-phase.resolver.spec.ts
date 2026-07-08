@@ -1,7 +1,7 @@
 import { ProgramWeek, WeeklyTargets } from '../../../program/domain/program.model';
 import { PlannedSession } from '../../../planned-sessions/domain/planned-session.model';
 import { PendingCardBatch } from '../../approval/domain/pending-card-batch.model';
-import { BuildSnapshot, resolveBuildPhase } from '../build-phase.resolver';
+import { BuildSnapshot, isWeekBuildComplete, resolveBuildPhase } from '../build-phase.resolver';
 
 function targets(overrides: Partial<WeeklyTargets> = {}): WeeklyTargets {
   return {
@@ -168,5 +168,27 @@ describe('resolveBuildPhase', () => {
   it('COMPLETE when the week is already locked', () => {
     const s = snapshot({ week: week({ weekState: 'locked', weeklyTargets: targets({ lockedAt: '2026-07-01T00:00:00.000Z' }) }) });
     expect(resolveBuildPhase(s)).toBe('COMPLETE');
+  });
+});
+
+describe('isWeekBuildComplete', () => {
+  it('true when quota met and every committed session is scheduled', () => {
+    const w = week({ weekState: 'targets_locked', weeklyTargets: targets({ sessionCount: 2, lockedAt: '2026-07-01T00:00:00.000Z' }) });
+    expect(isWeekBuildComplete(w, [scheduled('s1'), scheduled('s2')])).toBe(true);
+  });
+
+  it('false when fewer committed sessions than the quota', () => {
+    const w = week({ weekState: 'targets_locked', weeklyTargets: targets({ sessionCount: 3, lockedAt: '2026-07-01T00:00:00.000Z' }) });
+    expect(isWeekBuildComplete(w, [scheduled('s1')])).toBe(false);
+  });
+
+  it('false when a committed session is not yet scheduled', () => {
+    const w = week({ weekState: 'targets_locked', weeklyTargets: targets({ sessionCount: 2, lockedAt: '2026-07-01T00:00:00.000Z' }) });
+    expect(isWeekBuildComplete(w, [scheduled('s1'), session({ id: 's2' })])).toBe(false);
+  });
+
+  it('false when the week has no weekly targets / sessionCount 0', () => {
+    const w = week({ weekState: 'open', weeklyTargets: null });
+    expect(isWeekBuildComplete(w, [session({ id: 's1' })])).toBe(false);
   });
 });

@@ -12,6 +12,7 @@ export interface UserProfilePatch {
   timezone?: string;
   heightCm?: number | null;
   weightKg?: number | null;
+  autoModeOptIn?: boolean;
 }
 
 export class UpdateUserProfileCommand {

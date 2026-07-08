@@ -31,6 +31,9 @@ export function ProgramPage(): ReactElement {
     actionError,
     approve,
     reject,
+    autoModeRunning,
+    autoModeError,
+    triggerAutoMode,
   } = useProgram();
 
   if (loading) {
@@ -100,8 +103,19 @@ export function ProgramPage(): ReactElement {
     });
   };
 
+  const handleAutoMode = async (): Promise<void> => {
+    const outcome = await triggerAutoMode();
+    if (outcome !== null) {
+      navigate(`/assistant/${outcome.conversationId}`);
+    }
+  };
+
   return (
-    <Shell>
+    <Shell
+      onAutoMode={handleAutoMode}
+      autoModeRunning={autoModeRunning}
+      autoModeError={autoModeError}
+    >
       <GoalHeader program={program} />
 
       {buildConversationId !== null && (
@@ -260,7 +274,20 @@ function WeekMeta({
   );
 }
 
-function Shell({ children }: { children: ReactNode }): ReactElement {
+function Shell({
+  children,
+  onAutoMode,
+  autoModeRunning,
+  autoModeError,
+}: {
+  children: ReactNode;
+  // Only the fully-loaded program view passes these — Auto Mode needs an
+  // active program + selected week, which the loading/error/generating states
+  // don't have.
+  onAutoMode?: () => void;
+  autoModeRunning?: boolean;
+  autoModeError?: string | null;
+}): ReactElement {
   const navigate = useNavigate();
   const location = useLocation();
   const navState = location.state as
@@ -284,16 +311,31 @@ function Shell({ children }: { children: ReactNode }): ReactElement {
             <BasketballIcon size={26} />
             <span className={styles.brandName}>AgentiCoach</span>
           </div>
-          {!fromOnboarding && (
-            <button
-              type="button"
-              className={styles.backToChat}
-              onClick={() => navigate(backToChatPath)}
-            >
-              ‹ Back to chat
-            </button>
-          )}
+          <div className={styles.topBarActions}>
+            {onAutoMode && (
+              <button
+                type="button"
+                className={styles.autoModeBtn}
+                onClick={onAutoMode}
+                disabled={autoModeRunning}
+              >
+                {autoModeRunning ? 'Auto Mode running…' : 'Auto Mode'}
+              </button>
+            )}
+            {!fromOnboarding && (
+              <button
+                type="button"
+                className={styles.backToChat}
+                onClick={() => navigate(backToChatPath)}
+              >
+                ‹ Back to chat
+              </button>
+            )}
+          </div>
         </div>
+        {autoModeError !== null && autoModeError !== undefined && (
+          <p className={styles.error}>{autoModeError}</p>
+        )}
         {children}
       </div>
     </div>

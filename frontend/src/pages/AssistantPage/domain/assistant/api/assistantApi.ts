@@ -127,14 +127,18 @@ export function getAssistantConversation(
   );
 }
 
-export async function createAssistantConversation(): Promise<AssistantConversation> {
+export async function createAssistantConversation(
+  mode?: ConversationMode,
+): Promise<AssistantConversation> {
   if (MOCK_API) {
-    return mockCreateConversation();
+    return { ...mockCreateConversation(), ...(mode ? { mode } : {}) };
   }
   // `start` returns only the id; fetch the full record so the UI has a title.
+  // An initial `mode` opens the conversation directly in the picked mode, so the
+  // auto-sent first prompt is processed under it (no create-then-PATCH race).
   const { conversationId } = await request<StartConversationResult>('/assistant/conversations', {
     method: 'POST',
-    body: {},
+    body: mode ? { mode } : {},
   });
   return getAssistantConversation(conversationId);
 }

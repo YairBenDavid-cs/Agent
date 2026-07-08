@@ -68,4 +68,20 @@ export interface ProgramRepositoryPort {
     targets: Pick<WeeklyTargets, 'sessionCount' | 'totalVolume' | 'keyGoals'>,
     revision: WeeklyTargetsRevision,
   ): Promise<void>;
+
+  /**
+   * Atomically acquire (lock != null) or release (lock == null) the
+   * autonomous-run lock on one week. Acquisition only succeeds if the week is
+   * currently unlocked or already held by the same runId (idempotent retry);
+   * it fails (returns false) if another run holds it. Release only succeeds
+   * if the caller's runId matches the current holder. This is the mutual-
+   * exclusion boundary between AutoModeGraph runs and manual edits/other runs.
+   */
+  setWeekRunLock(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    lock: { runId: string; lockedAt: string } | null,
+    expectedRunId?: string,
+  ): Promise<boolean>;
 }

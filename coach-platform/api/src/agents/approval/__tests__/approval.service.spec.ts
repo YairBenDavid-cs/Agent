@@ -97,6 +97,7 @@ describe('ApprovalService.approveByBatch — action-point buffer flush', () => {
 
     const buildOrchestrator = {
       advanceAfterSessionApproved: jest.fn().mockResolvedValue(null),
+      lockWeekIfComplete: jest.fn().mockResolvedValue(undefined),
     };
     const service = new ApprovalService(
       queryBus as never,

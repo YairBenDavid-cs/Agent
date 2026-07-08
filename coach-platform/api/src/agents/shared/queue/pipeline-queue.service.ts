@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PendingCardBatchService } from '../../approval/pending-card-batch.service';
 import { OrchestratorSaga } from '../../orchestrator/orchestrator.saga';
 import {
@@ -6,6 +7,11 @@ import {
   PipelineRunContext,
   PipelineRunResult,
 } from '../../orchestrator/pipeline.types';
+import {
+  GARMIN_SYNC_BATCH_RECORDED,
+  GARMIN_SYNC_RUN_ID_PREFIX,
+  GarminSyncBatchRecordedEvent,
+} from './events/garmin-sync-batch-recorded.event';
 import { IdempotencyStore } from './idempotency.store';
 
 /** One unit of work: the selected pipeline + everything it needs to run. */
@@ -51,6 +57,7 @@ export class PipelineQueue {
     private readonly saga: OrchestratorSaga,
     private readonly idempotency: IdempotencyStore,
     private readonly batches: PendingCardBatchService,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -140,7 +147,7 @@ export class PipelineQueue {
       return;
     }
     try {
-      await this.batches.record({
+      const batch = await this.batches.record({
         userId: job.ctx.userId,
         programId: job.ctx.programId,
         weekIndex: job.ctx.weekIndex,
@@ -151,6 +158,18 @@ export class PipelineQueue {
         runId: job.ctx.runId,
         conversationId: job.ctx.conversationId ?? null,
       });
+      if (job.ctx.runId.startsWith(`${GARMIN_SYNC_RUN_ID_PREFIX}:`)) {
+        this.events.emit(
+          GARMIN_SYNC_BATCH_RECORDED,
+          new GarminSyncBatchRecordedEvent({
+            userId: job.ctx.userId,
+            programId: job.ctx.programId,
+            weekIndex: job.ctx.weekIndex,
+            batchId: batch.id,
+            runId: job.ctx.runId,
+          }),
+        );
+      }
     } catch (err) {
       // A bookkeeping failure must never fail the run — the tentative week is
       // already persisted and can still be approved by (program, week).

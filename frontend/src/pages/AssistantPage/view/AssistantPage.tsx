@@ -12,7 +12,7 @@ import {
 import { useAssistantConversations } from '../domain/assistant/hooks/useAssistantConversations';
 import { useConversationEvents } from '../domain/assistant/hooks/useConversationEvents';
 import { useGarminSync } from '../domain/garmin/useGarminSync';
-import type { PendingPrompt } from '../domain/assistant/types/assistant';
+import type { ConversationMode, PendingPrompt } from '../domain/assistant/types/assistant';
 import { AssistantSidebar } from '../components/AssistantSidebar/view/AssistantSidebar';
 import { StartView } from '../components/StartView/view/StartView';
 import { ConversationView } from '../components/ConversationView/view/ConversationView';
@@ -65,8 +65,8 @@ export function AssistantPage(): ReactElement {
   );
 
   const onStart = useCallback(
-    async (text: string): Promise<void> => {
-      const conversation = await createAssistantConversation();
+    async (text: string, mode: ConversationMode): Promise<void> => {
+      const conversation = await createAssistantConversation(mode);
       upsert(conversation);
       pendingPromptRef.current = { id: conversation.id, text };
       navigate(`/assistant/${conversation.id}`);
@@ -140,6 +140,7 @@ export function AssistantPage(): ReactElement {
           onSelect={onSelect}
           onRename={onRename}
           onDelete={setPendingDeleteId}
+          onToast={showToast}
         />
       </aside>
       <main className={styles.main}>

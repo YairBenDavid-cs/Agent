@@ -11,7 +11,7 @@ import {
 export type ConversationDocument = HydratedDocument<ConversationDoc>;
 
 const STATUSES = ['active', 'closed'];
-const MODES = ['plan', 'ask'];
+const MODES = ['plan', 'ask', 'auto'];
 const ORIGINS = ['user', 'system'];
 const PURPOSES = ['program_build'];
 

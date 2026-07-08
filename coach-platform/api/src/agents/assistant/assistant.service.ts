@@ -29,6 +29,7 @@ import {
 } from './assistant.salvage';
 import { DelegationService } from './delegation';
 import { BuildConversationOrchestrator } from '../build/build-conversation.orchestrator';
+import { AutoModeOrchestratorService } from '../auto-mode/auto-mode-orchestrator.service';
 
 /** Appended to an ASK-mode reply when the user asked for a change we won't make. */
 const ASK_MODE_BLOCKED_HINT =
@@ -40,6 +41,8 @@ export interface AssistantTurnOptions {
   discipline: EventDiscipline;
   /** The current (committed) training week — the firing-boundary reference. */
   weekWindow: { from: string; to: string };
+  /** The current week's index — Auto Mode routes to this week. */
+  weekIndex: number;
   /** IANA timezone, threaded into any pipeline run the turn fires. */
   timezone: string;
   /** Today's local date (YYYY-MM-DD) for stamping captured preference events. */
@@ -90,6 +93,7 @@ export class AssistantService {
     private readonly queue: PipelineQueue,
     private readonly conversationContext: ConversationContextService,
     private readonly buildOrchestrator: BuildConversationOrchestrator,
+    private readonly autoModeOrchestrator: AutoModeOrchestratorService,
     @Inject(CONVERSATION_REPOSITORY)
     private readonly conversations: ConversationRepositoryPort,
   ) {}
@@ -126,6 +130,28 @@ export class AssistantService {
       if (built) {
         return this.buildOutcome(conversationId, built);
       }
+    }
+
+    // 1b. Auto-mode routing. A conversation in `auto` mode never runs the
+    //     ordinary classify-and-maybe-pipeline loop below — every message is
+    //     classified into an AutoModeScenario and handed to the debated,
+    //     guardrailed AutoModeGraph instead (hard constraints #1-#4).
+    if (convo?.mode === 'auto') {
+      const auto = await this.autoModeOrchestrator.handleChatMessage(
+        userId,
+        conversationId,
+        message,
+        {
+          programId: opts.programId,
+          weekIndex: opts.weekIndex,
+          timezone: opts.timezone,
+        },
+      );
+      return this.buildOutcome(conversationId, {
+        reply: auto.reply,
+        assistantMessageId: auto.assistantMessageId,
+        awaitingConfirmation: false,
+      });
     }
 
     const seed = await this.seeds.buildCoachSeed(userId, opts.discipline);
@@ -267,6 +293,17 @@ export class AssistantService {
             : {}),
         },
       });
+
+      // The LLM's `reply` was phrased BEFORE we knew whether the pipeline would
+      // actually succeed (it's written in past/done tense per the prompt). If
+      // the run aborted, nothing was changed — never let the "Done" reply reach
+      // the user; replace it with the real reason so the plan and the chat
+      // transcript never disagree about what happened.
+      if (pipelineRun?.status === 'aborted') {
+        reply =
+          `I couldn't make that change: ${pipelineRun.abortReason ?? 'the update failed.'} ` +
+          'Nothing on your plan was changed.';
+      }
     }
 
     // 3. Persist the assistant reply with its structured action metadata so the

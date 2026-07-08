@@ -26,7 +26,7 @@ export class GoalSnapshotClass {
 }
 const GoalSnapshotSchema = SchemaFactory.createForClass(GoalSnapshotClass);
 
-const REVISION_TRIGGERS = ['session_edit', 'direct_target_change'];
+const REVISION_TRIGGERS = ['session_edit', 'direct_target_change', 'auto_mode_revert'];
 
 @Schema({ _id: false })
 export class WeeklyTargetsRevisionClass {
@@ -36,7 +36,7 @@ export class WeeklyTargetsRevisionClass {
   @Prop({ type: [String], default: [] }) previous_key_goals!: string[];
   @Prop({ type: String, required: true }) reason!: string;
   @Prop({ type: String, required: true, enum: REVISION_TRIGGERS })
-  triggered_by!: 'session_edit' | 'direct_target_change';
+  triggered_by!: 'session_edit' | 'direct_target_change' | 'auto_mode_revert';
 }
 const WeeklyTargetsRevisionSchema = SchemaFactory.createForClass(
   WeeklyTargetsRevisionClass,
@@ -70,6 +70,8 @@ export class ProgramWeekClass {
   week_state!: WeekState;
   @Prop({ type: WeeklyTargetsSchema, default: null })
   weekly_targets!: WeeklyTargetsClass | null;
+  @Prop({ type: String, default: null }) run_lock_id!: string | null;
+  @Prop({ type: String, default: null }) run_locked_at!: string | null;
 }
 const ProgramWeekSchema = SchemaFactory.createForClass(ProgramWeekClass);
 

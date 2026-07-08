@@ -21,6 +21,7 @@ const toDomain = (doc: User): UserProfile => ({
   weightKg: doc.weight_kg,
   status: doc.status,
   role: doc.role,
+  autoModeOptIn: doc.auto_mode_opt_in,
 });
 
 const toPersistence = (p: UserProfile): User => ({
@@ -37,6 +38,7 @@ const toPersistence = (p: UserProfile): User => ({
   weight_kg: p.weightKg,
   status: p.status,
   role: p.role,
+  auto_mode_opt_in: p.autoModeOptIn,
 });
 
 @Injectable()
@@ -86,6 +88,7 @@ export class UsersRepository implements UsersRepositoryPort {
     if (patch.timezone !== undefined) set.timezone = patch.timezone;
     if (patch.heightCm !== undefined) set.height_cm = patch.heightCm;
     if (patch.weightKg !== undefined) set.weight_kg = patch.weightKg;
+    if (patch.autoModeOptIn !== undefined) set.auto_mode_opt_in = patch.autoModeOptIn;
 
     if (Object.keys(set).length === 0) {
       // Nothing to change — confirm the user exists so callers get a truthful result.

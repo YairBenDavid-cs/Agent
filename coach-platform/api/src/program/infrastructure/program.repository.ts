@@ -210,4 +210,48 @@ export class ProgramRepository
       )
       .exec();
   }
+
+  /**
+   * Atomic acquire/release of the per-week autonomous-run lock. Acquire
+   * (`lock` set) matches weeks where the lock is currently absent OR already
+   * held by the same runId, so a retry from the same run is idempotent.
+   * Release (`lock` null) matches only when `expectedRunId` still holds it,
+   * so a stale/aborted run can never clear a lock it no longer owns.
+   * `modifiedCount === 1` tells the caller whether it actually won the lock.
+   */
+  async setWeekRunLock(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+    lock: { runId: string; lockedAt: string } | null,
+    expectedRunId?: string,
+  ): Promise<boolean> {
+    const ownershipFilter = lock
+      ? {
+          $or: [
+            { 'weeks.run_lock_id': null },
+            { 'weeks.run_lock_id': lock.runId },
+          ],
+        }
+      : { 'weeks.run_lock_id': expectedRunId ?? null };
+
+    const result = await this.model
+      .updateOne(
+        {
+          ...this.scoped(userId, {
+            _id: programId,
+            'weeks.week_index': weekIndex,
+          }),
+          ...ownershipFilter,
+        },
+        {
+          $set: {
+            'weeks.$.run_lock_id': lock ? lock.runId : null,
+            'weeks.$.run_locked_at': lock ? lock.lockedAt : null,
+          },
+        },
+      )
+      .exec();
+    return result.modifiedCount === 1;
+  }
 }

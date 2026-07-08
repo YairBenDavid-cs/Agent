@@ -39,6 +39,7 @@ import { AgentTelemetryService } from '../shared/llm/agent-telemetry.service';
 import {
   BuildPhase,
   BuildSnapshot,
+  isWeekBuildComplete,
   resolveBuildPhase,
 } from './build-phase.resolver';
 
@@ -879,6 +880,42 @@ export class BuildConversationOrchestrator {
         program.currentWeekIndex,
       ),
     );
+  }
+
+  /**
+   * Lock the week if its quota is fulfilled and every committed session is
+   * scheduled — idempotent, safe to call from ANY approval path that just
+   * finished a week's sessions, not only the build-conversation's own turns.
+   */
+  async lockWeekIfComplete(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+  ): Promise<void> {
+    const active = await this.queryBus.execute<
+      GetActiveProgramQuery,
+      ActiveProgramResponse
+    >(new GetActiveProgramQuery(userId));
+    const program = active.program;
+    if (!program || program.id !== programId) {
+      return;
+    }
+    const week = program.weeks.find((w) => w.weekIndex === weekIndex);
+    if (!week || (week.weekState ?? 'open') === 'locked') {
+      return;
+    }
+    const sessions = await this.queryBus.execute<
+      GetWeekQuery,
+      PlannedSessionResponse[]
+    >(new GetWeekQuery(userId, programId, weekIndex));
+    if (!isWeekBuildComplete(week, sessions)) {
+      return;
+    }
+    try {
+      await this.lockBuildWeek(userId, programId, weekIndex);
+    } catch (err) {
+      this.logger.error(`lockWeekIfComplete failed for ${userId}: ${String(err)}`);
+    }
   }
 
   /** Render a short, warm slot proposal naming the session + candidate times. */

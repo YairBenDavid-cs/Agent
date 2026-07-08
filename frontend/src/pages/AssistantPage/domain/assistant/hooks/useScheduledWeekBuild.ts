@@ -60,6 +60,7 @@ export function useScheduledWeekBuild(): UseScheduledWeekBuildResult {
     } catch {
       setError('Could not cancel the scheduled build.');
       await refresh();
+      throw new Error('cancel-failed');
     }
   }, [pending, refresh]);
 

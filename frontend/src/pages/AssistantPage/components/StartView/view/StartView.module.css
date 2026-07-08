@@ -36,3 +36,10 @@
   font-size: 14px;
   margin: 0 0 var(--wa-space-3);
 }
+
+/* Mode chip sits just under the composer, aligned to its left edge. */
+.modeRow {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 12px;
+}

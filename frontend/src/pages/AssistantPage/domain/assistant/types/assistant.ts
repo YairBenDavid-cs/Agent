@@ -3,7 +3,7 @@
 // Kept narrow: only the fields the chat UI renders or branches on.
 
 // from conversation.model.ts
-export type ConversationMode = 'plan' | 'ask';
+export type ConversationMode = 'plan' | 'ask' | 'auto';
 export type ConversationOrigin = 'user' | 'system';
 
 // One candidate calendar slot the coach offers for a build session. Mirrors the

@@ -77,7 +77,7 @@ export class AssistantController {
     return this.commandBus.execute<
       StartConversationCommand,
       StartConversationResult
-    >(new StartConversationCommand(user.userId, dto.title ?? null));
+    >(new StartConversationCommand(user.userId, dto.title ?? null, { mode: dto.mode }));
   }
 
   /** GET /assistant/conversations — the caller's conversations, newest first. */
@@ -183,6 +183,7 @@ export class AssistantController {
         programId: ctx.programId,
         discipline: ctx.discipline,
         weekWindow: ctx.weekWindow,
+        weekIndex: ctx.weekIndex,
         timezone: ctx.timezone,
         today: localToday(ctx.timezone),
       },

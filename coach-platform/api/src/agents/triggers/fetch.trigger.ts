@@ -1,37 +1,40 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import {
-  USERS_REPOSITORY,
-  UsersRepositoryPort,
-} from '../../users/domain/users.repository.port';
+import { Injectable, Logger } from '@nestjs/common';
 import { Pipeline, PipelineRunResult } from '../orchestrator/pipeline.types';
 import { PipelineQueue } from '../shared/queue/pipeline-queue.service';
 import { TriggerContextResolver } from './trigger-context.resolver';
 
 /**
- * The scheduled `fetch` (session-day) trigger — the heaviest pipeline and the
- * only one that always runs the Recovery gate. This is the place the plan calls
- * out for graduating the lightweight Cron to the durable BullMQ queue: it
- * resolves each user's run context and ENQUEUES a FULL_SESSION_DAY job (one per
- * user per day, idempotent on the runId), rather than running inline. Per-user
- * single-flight + idempotency are the queue's job; per-tenant failures stay
- * isolated so one user never blocks the fan-out.
+ * The `fetch` (session-day) trigger — the heaviest pipeline and the only one
+ * that always runs the Recovery gate. Resolves a user's run context and
+ * ENQUEUES a FULL_SESSION_DAY job, rather than running inline. Per-user
+ * single-flight + idempotency are the queue's job; callers isolate their own
+ * per-tenant failures.
+ *
+ * Firing is owned by callers, not this class: the configurable per-user
+ * Garmin sync sweep (`agents/triggers/garmin-sync.scheduler.ts`) calls
+ * `runForUser` once per configured sync time, tagging the run with its own
+ * `runId` prefix so the resulting pending-card batch can be attributed back to
+ * the sync that produced it.
  */
 @Injectable()
 export class FetchTrigger {
   private readonly logger = new Logger(FetchTrigger.name);
 
   constructor(
-    @Inject(USERS_REPOSITORY)
-    private readonly users: UsersRepositoryPort,
     private readonly resolver: TriggerContextResolver,
     private readonly queue: PipelineQueue,
   ) {}
 
-  /** Enqueue today's session-day pipeline for one user. */
+  /**
+   * Enqueue the session-day pipeline for one user. `runId` defaults to one run
+   * per user per day (`fetch:${userId}:${today}`); callers that need to
+   * attribute the run to a specific trigger (e.g. a scheduled sync) may
+   * override it.
+   */
   async runForUser(
     userId: string,
     today: string,
+    runId: string = `fetch:${userId}:${today}`,
   ): Promise<PipelineRunResult | null> {
     const ctx = await this.resolver.resolve(userId);
     if (!ctx) {
@@ -41,8 +44,7 @@ export class FetchTrigger {
       pipeline: Pipeline.FULL_SESSION_DAY,
       ctx: {
         userId,
-        // One run per user per day; retries within the day dedupe.
-        runId: `fetch:${userId}:${today}`,
+        runId,
         discipline: ctx.discipline,
         timezone: ctx.timezone,
         weekWindow: ctx.weekWindow,
@@ -50,21 +52,5 @@ export class FetchTrigger {
         programId: ctx.programId,
       },
     });
-  }
-
-  @Cron(CronExpression.EVERY_DAY_AT_5AM)
-  async runDaily(): Promise<void> {
-    const today = new Date().toISOString().slice(0, 10);
-    const userIds = await this.users.findActiveIds();
-    this.logger.log(`Session-day fetch fan-out for ${userIds.length} users.`);
-
-    for (const userId of userIds) {
-      try {
-        await this.runForUser(userId, today);
-      } catch (err) {
-        // Isolate per-tenant failures; the next user still enqueues.
-        this.logger.error(`Fetch enqueue failed for ${userId}: ${String(err)}`);
-      }
-    }
   }
 }

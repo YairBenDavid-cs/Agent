@@ -76,6 +76,8 @@ const weekToPersistence = (w: ProgramWeek): ProgramWeekClass => ({
   generated_at: w.generatedAt,
   week_state: w.weekState ?? 'open',
   weekly_targets: w.weeklyTargets ? targetsToPersistence(w.weeklyTargets) : null,
+  run_lock_id: w.runLockId ?? null,
+  run_locked_at: w.runLockedAt ?? null,
 });
 
 const weekToDomain = (w: ProgramWeekClass): ProgramWeek => ({
@@ -90,6 +92,8 @@ const weekToDomain = (w: ProgramWeekClass): ProgramWeek => ({
   // Legacy weeks predate Step A — default to an open week with no quota.
   weekState: w.week_state ?? 'open',
   weeklyTargets: w.weekly_targets ? targetsToDomain(w.weekly_targets) : null,
+  runLockId: w.run_lock_id ?? null,
+  runLockedAt: w.run_locked_at ?? null,
 });
 
 export const toPersistence = (program: Program): ProgramDoc => ({

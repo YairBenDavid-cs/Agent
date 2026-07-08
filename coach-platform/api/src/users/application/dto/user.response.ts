@@ -12,6 +12,7 @@ export class UserResponse {
   units!: Units;
   heightCm!: number | null;
   weightKg!: number | null;
+  autoModeOptIn!: boolean;
 }
 
 export const toUserResponse = (p: UserProfile): UserResponse => ({
@@ -26,4 +27,5 @@ export const toUserResponse = (p: UserProfile): UserResponse => ({
   units: p.units,
   heightCm: p.heightCm,
   weightKg: p.weightKg,
+  autoModeOptIn: p.autoModeOptIn,
 });

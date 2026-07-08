@@ -1,92 +1,122 @@
-.wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-}
+/* Amber accent for Auto — no shared token exists for it, so it's scoped here. */
+.root {
+  --wa-accent-auto: #f2b024;
 
-.toggle {
   position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  background: var(--wa-chat-bg);
-  border: 1px solid var(--wa-border);
-  border-radius: 999px;
 }
 
-.hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--wa-text-muted);
-}
-
-.hintDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  background: var(--wa-text-muted);
-  transition: background 0.2s;
-}
-
-.hint[data-mode='plan'] .hintDot {
-  background: var(--wa-accent);
-}
-
-.option {
+/* Compact chip: current-mode icon + label + chevron. */
+.chip {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: none;
-  background: transparent;
-  color: var(--wa-text-muted);
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--wa-border-strong);
+  border-radius: 10px;
+  background: var(--wa-bubble-out);
+  color: var(--wa-text);
   font: inherit;
   font-size: 13px;
-  font-weight: 500;
-  padding: 7px 18px;
-  border-radius: 999px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s cubic-bezier(0.2, 0, 0.38, 0.9),
-    color 0.2s cubic-bezier(0.2, 0, 0.38, 0.9);
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.option svg {
+.chip:hover:not(:disabled) {
+  background: var(--wa-row-hover);
+  border-color: var(--wa-border-strong);
+}
+
+.chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chipLabel {
+  line-height: 1;
+}
+
+.chevron {
+  opacity: 0.55;
   flex-shrink: 0;
 }
 
-.option:hover:not(:disabled) {
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Per-mode icon colour (chip + menu rows). */
+.ask {
+  color: var(--wa-text-dim);
+}
+.plan {
+  color: var(--wa-accent);
+}
+.auto {
+  color: var(--wa-accent-auto);
+}
+
+/* Popover, opens above the chip. */
+.menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 214px;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--wa-border-strong);
+  border-radius: 12px;
+  background: var(--wa-panel-bg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+
+.menuOpen {
+  display: flex;
+}
+
+.item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--wa-text-dim);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.item:hover {
+  background: var(--wa-row-hover);
+}
+
+.itemActive,
+.itemActive:hover {
+  background: var(--wa-accent-soft);
   color: var(--wa-text);
 }
 
-/* The active option is the disabled one (you can't re-select it). */
-.active,
-.active:disabled {
-  font-weight: 700;
-  cursor: default;
-  opacity: 1;
+.itemLabel {
+  flex: 1;
 }
 
-/* Plan active = filled orange (capability on). */
-.active[data-mode='plan'],
-.active[data-mode='plan']:disabled {
-  background: var(--wa-accent);
-  color: #fff;
-}
-
-/* Ask active = neutral fill (read-only). */
-.active[data-mode='ask'],
-.active[data-mode='ask']:disabled {
-  background: #3c3c3a;
-  color: var(--wa-text);
-}
-
-.option:disabled:not(.active) {
-  opacity: 0.5;
-  cursor: not-allowed;
+.itemDesc {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--wa-text-muted);
 }

@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrchestratorSaga } from '../../../orchestrator/orchestrator.saga';
 import {
   Pipeline,
@@ -12,7 +13,9 @@ import { PipelineJob, PipelineQueue } from '../pipeline-queue.service';
 // Batch bookkeeping is exercised in the approval tests; here it is a no-op stub
 // so the queue's serialization/idempotency/supersession logic stays in focus.
 const batchesStub = () =>
-  ({ record: jest.fn().mockResolvedValue(undefined) }) as unknown as PendingCardBatchService;
+  ({
+    record: jest.fn().mockResolvedValue({ id: 'batch-1' }),
+  }) as unknown as PendingCardBatchService;
 
 function makeQueue(
   saga: { run: jest.Mock },
@@ -22,6 +25,7 @@ function makeQueue(
     saga as unknown as OrchestratorSaga,
     store,
     batchesStub(),
+    { emit: jest.fn() } as unknown as EventEmitter2,
   );
 }
 

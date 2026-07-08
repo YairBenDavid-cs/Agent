@@ -62,6 +62,22 @@ export interface ActiveProgramResponse {
   program: Program | null;
 }
 
+// Auto Mode — from agents/auto-mode/domain/auto-mode-run.model.ts. Only the
+// button's manual-trigger flow (`new_week`) is wired in the UI today; the
+// other 3 scenarios are reached via chat, not this button.
+export type AutoModeScenario =
+  | 'new_week'
+  | 'weekly_targets_edit'
+  | 'session_edit'
+  | 'session_time_edit';
+
+// Response of AutoModeOrchestratorService.runAutoMode — the run always ends
+// with its verbose explanation already posted into `conversationId`.
+export interface RunAutoModeOutcome {
+  conversationId: string;
+  reply: string;
+}
+
 // Section semantics — drives the label + colour of a block header.
 export type SegmentKind = 'warmup' | 'work' | 'recovery' | 'cooldown';
 

@@ -22,4 +22,6 @@ export interface UserProfile {
   weightKg: number | null;
   status: UserStatus;
   role: UserRole;
+  /** Opt-in to autonomous week/session builds (AutoModeGraph). Off by default. */
+  autoModeOptIn: boolean;
 }

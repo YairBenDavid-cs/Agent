@@ -75,7 +75,7 @@ export interface WeeklyTargetsRevision {
   revisedAt: string; // ISO timestamp
   previous: Pick<WeeklyTargets, 'sessionCount' | 'totalVolume' | 'keyGoals'>;
   reason: string; // human-readable, surfaced in timeline/diff UI
-  triggeredBy: 'session_edit' | 'direct_target_change';
+  triggeredBy: 'session_edit' | 'direct_target_change' | 'auto_mode_revert';
 }
 
 /** A point-in-time copy of the goal that seeded the program. */
@@ -99,6 +99,10 @@ export interface ProgramWeek {
   // predate Step A) stay valid; the mapper defaults reads to 'open' / null.
   weekState?: WeekState;
   weeklyTargets?: WeeklyTargets | null;
+  // Optimistic lock held by an in-flight AutoModeRun. Prevents a concurrent
+  // manual edit or a second autonomous run from mutating the same week.
+  runLockId?: string | null;
+  runLockedAt?: string | null;
 }
 
 export interface Program {

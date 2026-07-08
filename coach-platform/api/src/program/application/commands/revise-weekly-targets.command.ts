@@ -17,7 +17,7 @@ export class ReviseWeeklyTargetsCommand {
     public readonly totalVolume: number,
     public readonly keyGoals: string[],
     public readonly reason: string,
-    public readonly triggeredBy: 'session_edit' | 'direct_target_change',
+    public readonly triggeredBy: 'session_edit' | 'direct_target_change' | 'auto_mode_revert',
   ) {}
 }
 

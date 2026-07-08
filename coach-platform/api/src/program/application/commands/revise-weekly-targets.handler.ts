@@ -2,10 +2,6 @@ import { Inject } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { ApiError } from '../../../common/errors/api-error';
 import {
-  PLANNED_SESSION_REPOSITORY,
-  PlannedSessionRepositoryPort,
-} from '../../../planned-sessions/domain/planned-session.repository.port';
-import {
   PROGRAM_REPOSITORY,
   ProgramRepositoryPort,
 } from '../../domain/program.repository.port';
@@ -20,14 +16,16 @@ import {
  * Ownership + existence are checked by a tenant-scoped read, mirroring
  * `LockWeeklyTargetsHandler`.
  *
- * Two additional invariants (both fail-closed, clear message not a crash):
- * a `locked` week is closed to ANY direct mutation, including a target
- * revision — the athlete's completed week is a historical record; and a
- * `direct_target_change` (Flow B, which reflows the whole week's sessions)
- * is refused once ANY session in the week is already `committed` — reflowing
- * would silently rewrite a session the athlete already reviewed. A
- * `session_edit`-triggered revision (Flow A's cascade) is exempt from the
- * committed-session check: it never touches other sessions.
+ * One additional invariant (fail-closed, clear message not a crash): a
+ * `locked` week is closed to ANY direct mutation, including a target
+ * revision — the athlete's completed week is a historical record.
+ *
+ * A `direct_target_change` (Flow B) is allowed even once some sessions in the
+ * week are already `committed` — that's the normal shape of the CURRENT week
+ * the athlete is asking to revise. It's safe: the downstream reflow
+ * (`coach.generateWeek` → `replaceTentativeWeek`) only ever overwrites
+ * `tentative` slots and leaves every `committed` session untouched, so an
+ * already-reviewed session is never silently rewritten.
  */
 @CommandHandler(ReviseWeeklyTargetsCommand)
 export class ReviseWeeklyTargetsHandler
@@ -37,8 +35,6 @@ export class ReviseWeeklyTargetsHandler
   constructor(
     @Inject(PROGRAM_REPOSITORY)
     private readonly repository: ProgramRepositoryPort,
-    @Inject(PLANNED_SESSION_REPOSITORY)
-    private readonly plannedSessions: PlannedSessionRepositoryPort,
   ) {}
 
   async execute(
@@ -89,23 +85,6 @@ export class ReviseWeeklyTargetsHandler
         `Week ${weekIndex} has no weekly targets to revise.`,
         { programId, weekIndex },
       );
-    }
-
-    if (triggeredBy === 'direct_target_change') {
-      const sessions = await this.plannedSessions.findByWeek(
-        userId,
-        programId,
-        weekIndex,
-      );
-      const hasCommitted = sessions.some((s) => s.planState === 'committed');
-      if (hasCommitted) {
-        throw ApiError.badRequest(
-          `Week ${weekIndex} already has committed sessions; a direct target ` +
-            'change would reflow (and silently overwrite) sessions the athlete ' +
-            'already reviewed. Edit individual sessions instead.',
-          { programId, weekIndex, weekState: state },
-        );
-      }
     }
 
     await this.repository.reviseWeeklyTargets(

@@ -5,6 +5,7 @@ import { ConversationModule } from './conversation/conversation.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { UsersModule } from '../users/users.module';
 import { ProgramModule } from '../program/program.module';
+import { IngestionModule } from '../ingestion/ingestion.module';
 import { PlannedSessionsModule } from '../planned-sessions/planned-sessions.module';
 import { AssistantController } from './assistant/interface/assistant.controller';
 import { WorkflowStreamController } from './assistant/interface/workflow-stream.controller';
@@ -36,6 +37,8 @@ import { TriggerContextResolver } from './triggers/trigger-context.resolver';
 import { FetchTrigger } from './triggers/fetch.trigger';
 import { OutcomeTrigger } from './triggers/outcome.trigger';
 import { OutcomeClarifyListener } from './triggers/outcome-clarify.listener';
+import { GarminSyncScheduler } from './triggers/garmin-sync.scheduler';
+import { GarminSyncBatchListener } from './triggers/garmin-sync-batch.listener';
 import { SessionFlushTrigger } from './triggers/session-flush.trigger';
 import { SessionFlushListener } from './triggers/session-flush.listener';
 import { OnboardingGenerationListener } from './triggers/onboarding-generation.listener';
@@ -54,6 +57,20 @@ import { ScheduleWeekBuildHandler } from './build/scheduled-build/application/co
 import { CancelScheduledWeekBuildHandler } from './build/scheduled-build/application/commands/cancel-scheduled-week-build.handler';
 import { ListScheduledWeekBuildsHandler } from './build/scheduled-build/application/queries/list-scheduled-week-builds.handler';
 import { ScheduledWeekBuildScheduler } from './build/scheduled-build/scheduled-week-build.scheduler';
+import { ListAutoModeRunsHandler } from './auto-mode/application/queries/list-auto-mode-runs.handler';
+import { AUTO_MODE_RUN_REPOSITORY } from './auto-mode/domain/auto-mode-run.repository.port';
+import { AutoModeRunRepository } from './auto-mode/infrastructure/auto-mode-run.repository';
+import {
+  AutoModeRunDoc,
+  AutoModeRunSchema,
+} from './auto-mode/infrastructure/auto-mode-run.schema';
+import { AutoModeGraph } from './auto-mode/auto-mode.graph';
+import { AutoModeLockService } from './auto-mode/auto-mode-lock.service';
+import { AutoModeExplanationBuilder } from './auto-mode/auto-mode-explanation.builder';
+import { AutoModeOrchestratorService } from './auto-mode/auto-mode-orchestrator.service';
+import { RevertAutoModeRunHandler } from './auto-mode/application/commands/revert-auto-mode-run.handler';
+import { AutoModeController } from './auto-mode/interface/auto-mode.controller';
+import { AutoModeReaperService } from './auto-mode/auto-mode-reaper.service';
 
 /**
  * Top-level agent layer: the LLM reasoning tier that sits ON TOP of the existing
@@ -74,9 +91,11 @@ import { ScheduledWeekBuildScheduler } from './build/scheduled-build/scheduled-w
     UsersModule,
     ProgramModule,
     PlannedSessionsModule,
+    IngestionModule,
     MongooseModule.forFeature([
       { name: PendingCardBatchDoc.name, schema: PendingCardBatchSchema },
       { name: ScheduledWeekBuildDoc.name, schema: ScheduledWeekBuildSchema },
+      { name: AutoModeRunDoc.name, schema: AutoModeRunSchema },
     ]),
   ],
   controllers: [
@@ -85,6 +104,7 @@ import { ScheduledWeekBuildScheduler } from './build/scheduled-build/scheduled-w
     ApprovalController,
     AgentsTriggerController,
     ScheduledWeekBuildController,
+    AutoModeController,
   ],
   providers: [
     { provide: PENDING_CARD_BATCH_REPOSITORY, useClass: PendingCardBatchRepository },
@@ -92,10 +112,18 @@ import { ScheduledWeekBuildScheduler } from './build/scheduled-build/scheduled-w
       provide: SCHEDULED_WEEK_BUILD_REPOSITORY,
       useClass: ScheduledWeekBuildRepository,
     },
+    { provide: AUTO_MODE_RUN_REPOSITORY, useClass: AutoModeRunRepository },
     ScheduleWeekBuildHandler,
     CancelScheduledWeekBuildHandler,
     ListScheduledWeekBuildsHandler,
     ScheduledWeekBuildScheduler,
+    AutoModeGraph,
+    AutoModeLockService,
+    AutoModeExplanationBuilder,
+    AutoModeOrchestratorService,
+    RevertAutoModeRunHandler,
+    ListAutoModeRunsHandler,
+    AutoModeReaperService,
     PreferenceDistillationService,
     FlushConversationPreferencesHandler,
     PendingCardBatchService,
@@ -117,6 +145,8 @@ import { ScheduledWeekBuildScheduler } from './build/scheduled-build/scheduled-w
     FetchTrigger,
     OutcomeTrigger,
     OutcomeClarifyListener,
+    GarminSyncScheduler,
+    GarminSyncBatchListener,
     SessionFlushTrigger,
     SessionFlushListener,
     OnboardingGenerationListener,

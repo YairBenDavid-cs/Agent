@@ -60,7 +60,7 @@ export const envValidationSchema = Joi.object({
   // of crashing at startup. REDIS_URL backs the BullMQ single-flight queue and
   // idempotency store; defaults to localhost for dev.
   OPENAI_API_KEY: Joi.string().allow('').optional(),
-  OPENAI_MODEL: Joi.string().default('gpt-4o'),
+  OPENAI_MODEL: Joi.string().default('gpt-5.1'),
   REDIS_URL: Joi.string()
     .uri({ scheme: ['redis', 'rediss'] })
     .default('redis://localhost:6379'),
