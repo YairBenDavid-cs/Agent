@@ -5,8 +5,12 @@ import { CommitSkeletonCommand } from '../../../program/application/commands/com
 import { GetActiveProgramQuery } from '../../../program/application/queries/get-active-program.query';
 import { GetWeekQuery } from '../../../planned-sessions/application/queries/get-week.query';
 import { GetUserQuery } from '../../../users/application/queries/get-user.query';
+import { GetTrainingProfileQuery } from '../../../training/application/queries/get-training-profile.query';
 import { ProgramWeek, WeeklyTargets } from '../../../program/domain/program.model';
 import { BuildConversationOrchestrator } from '../build-conversation.orchestrator';
+
+/** An assistant message that already satisfies the once-per-week schedule check-in. */
+const WEEK_CHECKED_IN = { role: 'assistant', meta: { weekCheckin: true } };
 
 /**
  * Focused unit coverage for the build orchestrator's drafting (BW2) and slot
@@ -97,6 +101,8 @@ describe('BuildConversationOrchestrator', () => {
     // single resolved week). Used to simulate a program whose skeleton
     // already has later weeks laid down.
     programWeeks?: () => ProgramWeek[];
+    // GetTrainingProfileQuery response, for the weekIndex===0 welcome snapshot.
+    trainingProfile?: { profile: unknown };
   }) {
     const appended: string[] = [];
     let messageSeq = 0;
@@ -133,6 +139,9 @@ describe('BuildConversationOrchestrator', () => {
         if (q instanceof GetUserQuery) {
           return { timezone: 'Europe/Berlin' };
         }
+        if (q instanceof GetTrainingProfileQuery) {
+          return opts.trainingProfile ?? { profile: null };
+        }
         return null;
       }),
     };
@@ -149,6 +158,9 @@ describe('BuildConversationOrchestrator', () => {
       proposeWeeklyTargets: jest
         .fn()
         .mockResolvedValue({ finalText: 'Here are this week’s targets.' }),
+      // Null → the orchestrator falls back to the templated welcome copy, so
+      // the welcome-content tests below assert the deterministic fallback.
+      composeWelcome: jest.fn().mockResolvedValue(null),
       ...(opts.coachOverrides ?? {}),
     };
     const candidates =
@@ -297,6 +309,7 @@ describe('BuildConversationOrchestrator', () => {
         committedSession('run-2'),
         committedSession('run-3'),
       ],
+      messages: [WEEK_CHECKED_IN],
     });
 
     const reply = await orchestrator.advanceAfterSessionApproved('u1', 'c1');
@@ -357,6 +370,7 @@ describe('BuildConversationOrchestrator', () => {
         committedSession('run-2'),
         committedSession('run-3'),
       ],
+      messages: [WEEK_CHECKED_IN],
     });
 
     const result = await orchestrator.handleTurn({
@@ -424,7 +438,7 @@ describe('BuildConversationOrchestrator', () => {
     expect(lockCmd?.weeks.find((w) => w.weekIndex === 0)?.weekState).toBe(
       'locked',
     );
-    expect(result?.reply).toMatch(/on the calendar/i);
+    expect(result?.reply).toMatch(/on your calendar/i);
   });
 
   describe('lockWeekIfComplete', () => {
@@ -485,6 +499,7 @@ describe('BuildConversationOrchestrator', () => {
         committedSession('run-2'),
         committedSession('run-3'),
       ],
+      messages: [WEEK_CHECKED_IN],
     });
 
     // All committed, none scheduled, no slot proposal yet → PROPOSE_SLOTS.
@@ -547,6 +562,7 @@ describe('BuildConversationOrchestrator', () => {
           role: 'assistant',
           meta: { slotProposal: { plannedSessionId: 'id-run-1', candidates: [slot] } },
         },
+        WEEK_CHECKED_IN,
       ],
       slotCandidates: [slot],
       slotViolations: ['busy clash at 07:00'],
@@ -609,8 +625,196 @@ describe('BuildConversationOrchestrator', () => {
         'u1',
         expect.any(String),
         'running',
-        { weekIndex: 1 },
+        { weekIndex: 1, conversationId: 'c1', openWithInterview: true },
       );
+    });
+  });
+
+  describe('welcome messages', () => {
+    it('posts an app-welcome snapshot before the targets proposal on the very first build (weekIndex 0)', async () => {
+      const { orchestrator, appended } = makeOrchestrator({
+        sessions: [],
+        programWeeks: () => [week({ weekIndex: 0 })],
+        trainingProfile: {
+          profile: {
+            discipline: 'running',
+            goal: { primaryGoal: 'first_race', note: null, horizon: '12 weeks' },
+            availability: [
+              { day: 'mon', startTime: '07:00', endTime: '08:00' },
+              { day: 'wed', startTime: '07:00', endTime: '08:00' },
+              { day: 'sat', startTime: '08:00', endTime: '09:00' },
+            ],
+            sessionDurationMin: 45,
+            run: { weeklyKm: 20, likedRunTypes: [], experienceLevel: null, longestRecentKm: null, targetRace: 'half marathon', recent5kTime: null },
+            strength: null,
+            status: 'completed',
+            completedAt: '2026-06-28T00:00:00.000Z',
+          },
+        },
+      });
+
+      await orchestrator.startBuild({
+        userId: 'u1',
+        conversationId: 'c1',
+        title: 'Week 1 planning',
+        programId: PROGRAM_ID,
+        discipline: 'running',
+        weekIndex: 0,
+      });
+
+      const welcome = appended.find((m) => /welcome/i.test(m));
+      expect(welcome).toBeDefined();
+      expect(welcome).toMatch(/running/i);
+      expect(welcome).toMatch(/first race/i);
+      expect(welcome).toMatch(/3 sessions\/week/i);
+      expect(welcome).toMatch(/half marathon/i);
+      // The welcome must be posted before the targets proposal, not after.
+      expect(appended.indexOf(welcome!)).toBeLessThan(
+        appended.indexOf('Here are this week’s targets.'),
+      );
+    });
+
+    it('prefers the LLM-composed welcome over the templated fallback when available', async () => {
+      const composed =
+        "Hey! I'm Popvich, your head coach — welcome aboard. Let's start with week 1.";
+      const { orchestrator, coach, appended } = makeOrchestrator({
+        sessions: [],
+        programWeeks: () => [week({ weekIndex: 0 })],
+        coachOverrides: {
+          composeWelcome: jest.fn().mockResolvedValue(composed),
+        },
+      });
+
+      await orchestrator.startBuild({
+        userId: 'u1',
+        conversationId: 'c1',
+        title: 'Week 1 planning',
+        programId: PROGRAM_ID,
+        discipline: 'running',
+        weekIndex: 0,
+      });
+
+      expect(coach.composeWelcome).toHaveBeenCalledWith(
+        'u1',
+        expect.any(String),
+        'running',
+        expect.objectContaining({ kind: 'app', weekIndex: 0 }),
+      );
+      expect(appended).toContain(composed);
+      // Posted before the targets proposal.
+      expect(appended.indexOf(composed)).toBeLessThan(
+        appended.indexOf('Here are this week’s targets.'),
+      );
+    });
+
+    it('posts a "welcome to week N" adherence recap (not the app-welcome) for a later scheduled build', async () => {
+      // `startBuild`'s only `GetWeekQuery` caller for a `weekIndex > 0` build is
+      // `formatWeekRecap` (fetching weekIndex - 1); the shared mock returns
+      // `opts.sessions` for any `GetWeekQuery`, so seed it with the prior week's
+      // completed/skipped outcomes to drive the recap.
+      const { orchestrator, appended } = makeOrchestrator({
+        sessions: [
+          committedSession('run-1', { weekIndex: 0, outcome: { status: 'completed' } }),
+          committedSession('run-2', { weekIndex: 0, outcome: { status: 'skipped', reasonCode: 'busy' } }),
+        ],
+        programWeeks: () => [
+          week({ weekIndex: 0, status: 'done' }),
+          week({ weekIndex: 1, status: 'current', weekState: 'open', weeklyTargets: null }),
+        ],
+      });
+
+      await orchestrator.startBuild({
+        userId: 'u1',
+        conversationId: 'c1',
+        title: 'Week 2 planning',
+        programId: PROGRAM_ID,
+        discipline: 'running',
+        weekIndex: 1,
+      });
+
+      const welcome = appended.find((m) => /completed/i.test(m) || /plan week/i.test(m));
+      expect(welcome).toBeDefined();
+      expect(welcome).not.toMatch(/welcome to the app/i);
+      expect(welcome).toMatch(/completed 1 of 2 session/i);
+      expect(welcome).toMatch(/plan week 2/i);
+    });
+  });
+
+  describe('week schedule check-in', () => {
+    it('posts the one-round check-in before the first slot proposal of the week, without proposing slots yet', async () => {
+      const { orchestrator, planner, appended } = makeOrchestrator({
+        sessions: [
+          committedSession('run-1'),
+          committedSession('run-2'),
+          committedSession('run-3'),
+        ],
+        // No prior WEEK_CHECKED_IN message — this is the first entry into
+        // PROPOSE_SLOTS for the week.
+      });
+
+      const result = await orchestrator.handleTurn({
+        userId: 'u1',
+        conversationId: 'c1',
+        message: 'ok',
+        discipline: 'running',
+      });
+
+      expect(planner.proposeSlotsForSession).not.toHaveBeenCalled();
+      expect(appended.some((m) => /anything different about your schedule/i.test(m))).toBe(true);
+      // A free-text check-in question, not a consent gate — no Approve/Cancel box.
+      expect(result?.awaitingConfirmation).toBe(false);
+    });
+
+    it('skips straight to candidate slots once the week check-in has already been posted', async () => {
+      const { orchestrator, planner } = makeOrchestrator({
+        sessions: [
+          committedSession('run-1'),
+          committedSession('run-2'),
+          committedSession('run-3'),
+        ],
+        messages: [WEEK_CHECKED_IN],
+      });
+
+      await orchestrator.handleTurn({
+        userId: 'u1',
+        conversationId: 'c1',
+        message: 'no changes',
+        discipline: 'running',
+      });
+
+      expect(planner.proposeSlotsForSession).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('targets consent interview', () => {
+    it('stays at AWAIT_TARGETS_CONSENT and re-surfaces the coach question when no terminal tool fires (reject → interview, not blind re-propose)', async () => {
+      const { orchestrator, coach, appended } = makeOrchestrator({
+        sessions: [],
+        weekOverrides: { weekState: 'open', weeklyTargets: tentativeTargets() },
+        coachOverrides: {
+          resolveTargetsConsent: jest.fn().mockResolvedValue({
+            terminalTool: null,
+            finalText: 'What specifically would you like to change about the volume?',
+          }),
+        },
+      });
+
+      const result = await orchestrator.handleTurn({
+        userId: 'u1',
+        conversationId: 'c1',
+        message: 'can you revise this',
+        discipline: 'running',
+      });
+
+      expect(coach.resolveTargetsConsent).toHaveBeenCalledTimes(1);
+      // No lock, no re-draft — the coach's clarifying question is surfaced and
+      // the turn stays at the same gate. An interview question is answered in
+      // free text, so no Approve/Cancel consent box.
+      expect(appended).toContain(
+        'What specifically would you like to change about the volume?',
+      );
+      expect(result?.awaitingConfirmation).toBe(false);
+      expect(result?.pendingCardBatchId).toBeNull();
     });
   });
 });

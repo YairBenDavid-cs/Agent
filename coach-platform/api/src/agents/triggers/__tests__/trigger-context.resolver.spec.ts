@@ -83,7 +83,7 @@ describe('TriggerContextResolver', () => {
   });
 });
 
-describe('TriggerContextResolver.resolveForChat', () => {
+describe('TriggerContextResolver.resolveForToday', () => {
   it('resolves to the week matching today, even when currentWeekIndex has already advanced ahead of it', async () => {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(
       new Date(),
@@ -102,7 +102,7 @@ describe('TriggerContextResolver.resolveForChat', () => {
       user: { timezone: 'UTC' },
     });
 
-    const ctx = await resolver.resolveForChat('user-1');
+    const ctx = await resolver.resolveForToday('user-1');
 
     expect(ctx).toEqual({
       programId: 'prog-1',
@@ -119,7 +119,7 @@ describe('TriggerContextResolver.resolveForChat', () => {
       user: { timezone: 'UTC' },
     });
 
-    const ctx = await resolver.resolveForChat('user-1');
+    const ctx = await resolver.resolveForToday('user-1');
 
     expect(ctx?.weekIndex).toBe(2);
     expect(ctx?.weekWindow).toEqual({ from: '2026-06-22', to: '2026-06-28' });
@@ -131,6 +131,6 @@ describe('TriggerContextResolver.resolveForChat', () => {
       user: { timezone: 'UTC' },
     });
 
-    expect(await resolver.resolveForChat('user-1')).toBeNull();
+    expect(await resolver.resolveForToday('user-1')).toBeNull();
   });
 });

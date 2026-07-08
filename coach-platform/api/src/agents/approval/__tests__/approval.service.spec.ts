@@ -1,4 +1,5 @@
 import { CommitWeekCommand } from '../../../planned-sessions/application/commands/commit-week.command';
+import { DiscardTentativeWeekCommand } from '../../../planned-sessions/application/commands/discard-tentative-week.command';
 import { PlannedSessionResponse } from '../../../planned-sessions/application/dto/planned-session.response';
 import { GetWeekQuery } from '../../../planned-sessions/application/queries/get-week.query';
 import { GetActiveProgramQuery } from '../../../program/application/queries/get-active-program.query';
@@ -135,5 +136,75 @@ describe('ApprovalService.approveByBatch — action-point buffer flush', () => {
       .map((c) => c[0])
       .some((c) => c instanceof FlushConversationPreferencesCommand);
     expect(flushed).toBe(false);
+  });
+});
+
+describe('ApprovalService.rejectByBatch — build_session reopens a discussion', () => {
+  function makeService(opts: {
+    conversationId: string | null;
+    committedFallback?: boolean;
+  }) {
+    const buildSessionBatch: PendingCardBatch = {
+      ...batch,
+      kind: 'build_session',
+      conversationId: opts.conversationId,
+    };
+    const commandBus = { execute: jest.fn() };
+    const queryBus = { execute: jest.fn() };
+    const calendarSync = { syncWeek: jest.fn() };
+    const batches = {
+      get: jest.fn().mockResolvedValue(buildSessionBatch),
+      setStatus: jest.fn().mockResolvedValue(undefined),
+    };
+    queryBus.execute.mockImplementation(async (q: unknown) => {
+      if (q instanceof GetWeekQuery) {
+        return opts.committedFallback
+          ? [session({ planState: 'committed' })]
+          : [];
+      }
+      return null;
+    });
+    const buildOrchestrator = {
+      openSessionRevision: jest.fn().mockResolvedValue('What would you like changed?'),
+      advanceAfterSessionApproved: jest.fn().mockResolvedValue(null),
+      lockWeekIfComplete: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ApprovalService(
+      queryBus as never,
+      commandBus as never,
+      calendarSync as never,
+      batches as never,
+      buildOrchestrator as never,
+    );
+    return { service, commandBus, batches, buildOrchestrator };
+  }
+
+  it('marks the batch rejected and opens a discussion — even with no committed fallback (the week\'s first session)', async () => {
+    const { service, commandBus, batches, buildOrchestrator } = makeService({
+      conversationId: 'conv-1',
+      committedFallback: false,
+    });
+
+    const result = await service.rejectByBatch('u1', 'batch-1');
+
+    expect(batches.setStatus).toHaveBeenCalledWith('u1', 'batch-1', 'rejected');
+    expect(buildOrchestrator.openSessionRevision).toHaveBeenCalledWith(
+      'u1',
+      'conv-1',
+    );
+    // Never discards the tentative session — a redraft naturally replaces it.
+    const discardCmd = commandBus.execute.mock.calls
+      .map((c) => c[0])
+      .find((c) => c instanceof DiscardTentativeWeekCommand);
+    expect(discardCmd).toBeUndefined();
+    expect(result).toEqual({ discarded: 0 });
+  });
+
+  it('does not call the orchestrator when the batch has no originating conversation', async () => {
+    const { service, buildOrchestrator } = makeService({ conversationId: null });
+
+    await service.rejectByBatch('u1', 'batch-1');
+
+    expect(buildOrchestrator.openSessionRevision).not.toHaveBeenCalled();
   });
 });

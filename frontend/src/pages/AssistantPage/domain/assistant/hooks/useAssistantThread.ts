@@ -27,6 +27,9 @@ interface UseAssistantThread {
   // calendar slot; `resume` re-greets an in-flight build (used on reopen + retry).
   confirmSlot: (scheduledStartUtc: string) => void;
   resume: () => void;
+  // Re-fetch the transcript from the server. Used after out-of-band actions
+  // (card approve/reject) that post assistant messages outside a chat turn.
+  reloadTurns: () => void;
 }
 
 interface UseAssistantThreadOptions {
@@ -239,5 +242,6 @@ export function useAssistantThread(
     retry,
     confirmSlot,
     resume,
+    reloadTurns: reload,
   };
 }

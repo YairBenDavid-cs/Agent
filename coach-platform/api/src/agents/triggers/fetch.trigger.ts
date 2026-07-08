@@ -36,7 +36,10 @@ export class FetchTrigger {
     today: string,
     runId: string = `fetch:${userId}:${today}`,
   ): Promise<PipelineRunResult | null> {
-    const ctx = await this.resolver.resolve(userId);
+    // Date-matched, NOT the build pointer: after a scheduled build advances
+    // `currentWeekIndex` onto next week early, the session-day pipeline must
+    // still run against the week the athlete is actually living in.
+    const ctx = await this.resolver.resolveForToday(userId);
     if (!ctx) {
       return null; // no active program / current week — nothing to fetch.
     }

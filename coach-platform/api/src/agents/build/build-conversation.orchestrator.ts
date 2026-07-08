@@ -27,6 +27,11 @@ import {
 } from '../../planned-sessions/application/commands/upsert-session-schedule.command';
 import { GetUserQuery } from '../../users/application/queries/get-user.query';
 import { UserResponse } from '../../users/application/dto/user.response';
+import { GetTrainingProfileQuery } from '../../training/application/queries/get-training-profile.query';
+import {
+  TrainingProfileResponse,
+  TrainingProfileStatusResponse,
+} from '../../training/application/dto/training-profile.response';
 import { CoachService } from '../coach/coach.service';
 import { PlannerService } from '../planner/planner.service';
 import {
@@ -36,6 +41,7 @@ import {
 import { SlotCandidate } from './slot-proposer';
 import { PendingCardBatchService } from '../approval/pending-card-batch.service';
 import { AgentTelemetryService } from '../shared/llm/agent-telemetry.service';
+import { computeAdherence } from '../shared/read-tools/aggregates';
 import {
   BuildPhase,
   BuildSnapshot,
@@ -65,8 +71,9 @@ const FALLBACK_PROPOSAL =
   "I've sketched your first week. Take a look on your program page — does this " +
   'look like a good starting point, or would you like to adjust anything?';
 const FALLBACK_LOCK_CONFIRM =
-  "Great — your week's targets are locked in. Next I'll draft your sessions one " +
-  'at a time so you can review each.';
+  "That's step one done — your week's goals are locked in. Nice work getting " +
+  "aligned. Now for the fun part: I'll draft your sessions one at a time, and " +
+  'you get the final say on each.';
 const FALLBACK_COACH_UNAVAILABLE =
   "Sorry — I couldn't reach your coach just now. Reply and I'll try again.";
 const FALLBACK_SESSION_DRAFT =
@@ -74,17 +81,40 @@ const FALLBACK_SESSION_DRAFT =
   'it looks good to add, or tell me what to change.';
 /** Posted once every session is committed; BW3 takes over for scheduling. */
 const SESSIONS_COMPLETE_HANDOFF =
-  "That's every session drafted and locked in for the week. Next we'll find a " +
-  'time on your calendar for each one.';
+  "Amazing — that's every session for the week drafted and approved. Your week " +
+  "has real shape now. One last step: let's find a time on your calendar for " +
+  'each session.';
 /** Posted when no clash-free calendar slot exists for the session being placed. */
 const NO_SLOTS_AVAILABLE =
   "I couldn't find a free, clash-free time for this session in your calendar " +
   'this week. Free up a window (or adjust your availability) and reply, and ' +
   "I'll look again.";
+/**
+ * Posted once per week, before the first slot proposal: general recurring
+ * availability was already covered at onboarding, but this week specifically
+ * may differ (a one-off conflict, a day that works better). One round only —
+ * a check-in, not a full interview.
+ */
+const WEEK_SCHEDULE_CHECKIN =
+  'Before I start finding times this week — anything different about your ' +
+  "schedule, like a one-off conflict or a day that works better than usual? " +
+  "Let me know, or just say no and I'll go ahead.";
+/** Posted right after a session card is approved, before the next step runs. */
+const SESSION_APPROVED_ACK =
+  "Nice — that session's locked in and added to your week.";
+/**
+ * Posted when a session card is declined without any stated reason. Opens the
+ * revision interview deterministically (no LLM guessing at what to change);
+ * `{title}` is replaced with the declined session's title when known.
+ */
+const SESSION_DECLINED_ASK =
+  'I saw you passed on {title}. Tell me what you\'d like different — the type ' +
+  "of session, its structure, the day it lands on, anything — and I'll redraft it.";
 /** Posted once every session is scheduled and the week is locked. */
 const BUILD_COMPLETE =
-  "All set — every session for your first week is on the calendar. You're ready " +
-  'to go. You can review the full week on your program page.';
+  "That's it — your week is fully built and every session is on your calendar. " +
+  'We planned it together, so go make it count. You can review the full week on ' +
+  'your program page any time.';
 
 /**
  * Routes turns on a `program_build` conversation through the build state
@@ -143,6 +173,11 @@ export class BuildConversationOrchestrator {
 
     try {
       const runId = `build:propose:${userId}:${programId}:${randomUUID()}`;
+      // Warm welcome before any proposal: the app-welcome for the very first
+      // build (weekIndex 0, onboarding), or a "welcome to week N" recap of the
+      // prior week for every later scheduled build. Best-effort — a failure
+      // here shouldn't block the actual build kickoff.
+      await this.postWelcome(userId, conversationId, programId, weekIndex, discipline);
       // Lay down the skeleton only the first time — a bare seed has just the
       // one placeholder week. Every later week's build reuses the existing
       // skeleton (regenerating it would wipe already-locked weeks' state; see
@@ -158,11 +193,11 @@ export class BuildConversationOrchestrator {
         userId,
         runId,
         discipline,
-        { weekIndex },
+        { weekIndex, conversationId, openWithInterview: true },
       );
-      const text = proposal.finalText?.trim() || FALLBACK_PROPOSAL;
-      await this.append(userId, conversationId, text, {
-        awaitingConfirmation: true,
+      const outcome = this.proposalOutcome(proposal);
+      await this.append(userId, conversationId, outcome.text, {
+        awaitingConfirmation: outcome.awaitingConfirmation,
       });
     } catch (err) {
       this.logger.error(
@@ -226,6 +261,9 @@ export class BuildConversationOrchestrator {
           message,
         );
       case 'DRAFT_SESSION':
+        // The user's reply mid-interview (or after a declined card) is the
+        // controlling input for the draft — pass it through so the coach
+        // honors it rather than re-deriving everything from history alone.
         return this.runDraftSession(
           userId,
           conversationId,
@@ -233,6 +271,7 @@ export class BuildConversationOrchestrator {
           buildContext.programId,
           snapshot,
           sessions,
+          message,
         );
       case 'AWAIT_SESSION_CONSENT':
         // A reply while a session card is open is an adjustment request: re-draft
@@ -309,6 +348,14 @@ export class BuildConversationOrchestrator {
       `build advance: conversation=${conversationId} phase=${phase}`,
     );
 
+    // Record the approval in the transcript. The card decision happens
+    // out-of-band (POST /approvals), so without this the conversation history
+    // the LLM sees would jump from "does this look good?" straight to the next
+    // draft with no trace of the user's decision.
+    await this.append(userId, conversationId, SESSION_APPROVED_ACK, {
+      awaitingConfirmation: false,
+    });
+
     if (phase === 'DRAFT_SESSION') {
       const res = await this.runDraftSession(
         userId,
@@ -332,6 +379,75 @@ export class BuildConversationOrchestrator {
       sessions,
     );
     return slots.reply;
+  }
+
+  /**
+   * Reopen a discussion after a session card is rejected (called by the approval
+   * flow once the batch is marked `rejected`). Rejecting a drafted session is
+   * never a dead end. With `feedback`, the coach redrafts through the same
+   * interview-aware path as a free-text adjustment. WITHOUT feedback (the card's
+   * Decline button), no LLM run fires at all: we post a deterministic
+   * acknowledgment — "I saw you passed on X, tell me what you'd like different" —
+   * and wait for the user's answer, which re-enters DRAFT_SESSION as the
+   * adjustment. This both records the rejection in the transcript (so the LLM's
+   * history shows the decision) and guarantees the clarifying question is asked
+   * exactly once instead of hoping the model asks it. Returns the posted reply
+   * text (or null if nothing was posted, e.g. a stale conversation).
+   */
+  async openSessionRevision(
+    userId: string,
+    conversationId: string,
+    feedback?: string,
+  ): Promise<string | null> {
+    const convo = await this.conversations.findConversation(
+      userId,
+      conversationId,
+    );
+    const buildContext = convo?.buildContext ?? null;
+    if (!buildContext) {
+      return null;
+    }
+    // The rejected card's batch is terminal now; clear the conversation pointer
+    // so the snapshot sees no outstanding gate and the resolver re-drafts.
+    await this.clearPendingBatch(userId, conversationId);
+
+    const load = await this.loadBuild(
+      userId,
+      conversationId,
+      buildContext.programId,
+      buildContext.weekIndex,
+      null,
+    );
+    if (!load) {
+      return null;
+    }
+    const { snapshot, sessions } = load;
+    const trimmed = feedback?.trim() ?? '';
+
+    if (trimmed) {
+      const discipline = await this.resolveDiscipline(userId);
+      const res = await this.runDraftSession(
+        userId,
+        conversationId,
+        discipline,
+        buildContext.programId,
+        snapshot,
+        sessions,
+        trimmed,
+      );
+      return res.reply;
+    }
+
+    // Decline with no stated reason — acknowledge + open the revision interview.
+    const declined = sessions.find((s) => s.planState === 'tentative');
+    const ask = SESSION_DECLINED_ASK.replace(
+      '{title}',
+      declined ? `"${declined.title}"` : 'that session',
+    );
+    await this.append(userId, conversationId, ask, {
+      awaitingConfirmation: false,
+    });
+    return ask;
   }
 
   /**
@@ -445,10 +561,15 @@ export class BuildConversationOrchestrator {
         userId,
         runId,
         discipline,
-        { weekIndex },
+        { weekIndex, conversationId },
       );
-      const text = proposal.finalText?.trim() || FALLBACK_PROPOSAL;
-      return this.handled(userId, conversationId, text, true);
+      const outcome = this.proposalOutcome(proposal);
+      return this.handled(
+        userId,
+        conversationId,
+        outcome.text,
+        outcome.awaitingConfirmation,
+      );
     } catch (err) {
       this.logger.error(`runPropose failed for ${userId}: ${String(err)}`);
       return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
@@ -480,6 +601,7 @@ export class BuildConversationOrchestrator {
           keyGoals: targets.keyGoals,
         },
         userMessage: message,
+        conversationId,
       });
 
       if (res.terminalTool === 'lock_weekly_targets') {
@@ -499,9 +621,16 @@ export class BuildConversationOrchestrator {
         );
       }
 
-      // Re-proposed (or plain reply) — surface the coach's message, keep waiting.
-      const text = res.finalText?.trim() || FALLBACK_PROPOSAL;
-      return this.handled(userId, conversationId, text, true);
+      // Re-proposed OR an interview question. Only an actual re-proposal
+      // (terminal propose tool) re-opens the consent gate — a question awaits
+      // a free-text answer and must not render an approval box.
+      const outcome = this.proposalOutcome(res);
+      return this.handled(
+        userId,
+        conversationId,
+        outcome.text,
+        outcome.awaitingConfirmation,
+      );
     } catch (err) {
       this.logger.error(`runTargetsConsent failed for ${userId}: ${String(err)}`);
       return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
@@ -539,6 +668,9 @@ export class BuildConversationOrchestrator {
       `targets-locked advance: conversation=${conversationId} phase=${phase}`,
     );
     if (phase === 'DRAFT_SESSION') {
+      // First session of the week — open its step with the interview (nothing
+      // session-level has been discussed yet), per the build's interview-first
+      // doctrine. Later sessions inherit the established pattern.
       return this.runDraftSession(
         userId,
         conversationId,
@@ -546,6 +678,8 @@ export class BuildConversationOrchestrator {
         programId,
         snapshot,
         sessions,
+        undefined,
+        true,
       );
     }
     // Defensive: a zero-session quota (or already-committed sessions) leaves
@@ -568,6 +702,7 @@ export class BuildConversationOrchestrator {
     snapshot: BuildSnapshot,
     sessions: PlannedSessionResponse[],
     adjustment?: string,
+    openWithInterview = false,
   ): Promise<BuildTurnResult> {
     const targets = snapshot.week.weeklyTargets;
     if (!targets) {
@@ -592,6 +727,9 @@ export class BuildConversationOrchestrator {
         },
         committed,
         committedSlotKeys: committed.map((s) => s.slotKey),
+        conversationId,
+        adjustment,
+        openWithInterview,
       });
 
       // Interview-first: the coach may ask a clarifying question instead of
@@ -601,8 +739,9 @@ export class BuildConversationOrchestrator {
       if (res.terminalTool !== 'draft_next_session') {
         const question = res.finalText?.trim();
         if (question) {
-          void adjustment;
-          return this.handled(userId, conversationId, question, true);
+          // An interview question awaits a typed answer — no consent gate, so
+          // the UI must not render the Approve/Cancel box under it.
+          return this.handled(userId, conversationId, question, false);
         }
         return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
       }
@@ -621,9 +760,6 @@ export class BuildConversationOrchestrator {
       );
 
       const text = res.finalText?.trim() || FALLBACK_SESSION_DRAFT;
-      // `adjustment` is implicitly honoured by the coach via the prior turn's
-      // transcript; we keep the signature for clarity and future prompt threading.
-      void adjustment;
       // A drafted session's decision is owned by its card, NOT a yes/no consent
       // gate — so it does not raise `awaitingConfirmation`. It advertises the
       // card id so the client can render the card straight off this response.
@@ -660,6 +796,27 @@ export class BuildConversationOrchestrator {
       );
     }
 
+    // One-round check-in before the week's FIRST slot proposal: onboarding
+    // already captured general recurring availability, but this specific week
+    // may differ. Fires once per week (detected from history), not once per
+    // session — later sessions in the same week skip straight to candidates.
+    if (!(await this.hasWeekCheckin(userId, conversationId))) {
+      // A free-text check-in question, not a consent gate — the user answers by
+      // typing (or "no"), so no Approve/Cancel box may render under it.
+      const assistantMessageId = await this.append(
+        userId,
+        conversationId,
+        WEEK_SCHEDULE_CHECKIN,
+        { awaitingConfirmation: false, weekCheckin: true },
+      );
+      return {
+        reply: WEEK_SCHEDULE_CHECKIN,
+        assistantMessageId,
+        awaitingConfirmation: false,
+        pendingCardBatchId: null,
+      };
+    }
+
     const week = snapshot.week;
     const timezone = next.timezone || (await this.resolveTimezone(userId));
     try {
@@ -670,7 +827,8 @@ export class BuildConversationOrchestrator {
         preferredDate: next.scheduledDate,
       });
       if (candidates.length === 0) {
-        return this.handled(userId, conversationId, NO_SLOTS_AVAILABLE, true);
+        // "Free up a window and reply" — a typed reply, not a consent decision.
+        return this.handled(userId, conversationId, NO_SLOTS_AVAILABLE, false);
       }
 
       const text = this.formatSlotProposal(next.title, candidates);
@@ -944,7 +1102,188 @@ export class BuildConversationOrchestrator {
     return `${weekday}, ${c.startTime}–${c.endTime}`;
   }
 
+  /**
+   * Post a warm welcome message before any proposal: an app-welcome for the
+   * very first build (`weekIndex === 0`, onboarding), or a "welcome to week N"
+   * recap for every later scheduled build. The message itself is LLM-composed
+   * ({@link CoachService.composeWelcome}) from deterministic fact lines gathered
+   * here, so it's personal rather than templated; the templated copy remains as
+   * the fallback when the run fails or returns nothing. Best-effort — swallows
+   * its own errors so a lookup failure never blocks the actual build.
+   */
+  private async postWelcome(
+    userId: string,
+    conversationId: string,
+    programId: string,
+    weekIndex: number,
+    discipline: EventDiscipline,
+  ): Promise<void> {
+    try {
+      const { facts, fallback } =
+        weekIndex === 0
+          ? await this.welcomeSnapshotFacts(userId)
+          : await this.weekRecapFacts(userId, programId, weekIndex);
+
+      let text: string | null = null;
+      try {
+        text = await this.coach.composeWelcome(
+          userId,
+          `build:welcome:${userId}:${randomUUID()}`,
+          discipline,
+          { kind: weekIndex === 0 ? 'app' : 'week', weekIndex, facts },
+        );
+      } catch (err) {
+        this.logger.warn(`composeWelcome failed for ${userId}: ${String(err)}`);
+      }
+
+      await this.append(userId, conversationId, text ?? fallback, {
+        awaitingConfirmation: false,
+      });
+    } catch (err) {
+      this.logger.error(`postWelcome failed for ${userId}: ${String(err)}`);
+    }
+  }
+
+  /**
+   * The onboarding-profile facts feeding the app-welcome (what the athlete told
+   * us they want), plus the templated fallback copy.
+   */
+  private async welcomeSnapshotFacts(
+    userId: string,
+  ): Promise<{ facts: string[]; fallback: string }> {
+    const status = await this.queryBus.execute<
+      GetTrainingProfileQuery,
+      TrainingProfileStatusResponse
+    >(new GetTrainingProfileQuery(userId));
+    const profile = status.profile;
+    if (!profile) {
+      return {
+        facts: [],
+        fallback:
+          "Welcome! I'm excited to help you train. Let's build your first week together.",
+      };
+    }
+
+    const sessionsPerWeek = profile.availability.length;
+    const headline = this.formatProfileHeadline(profile);
+    const goal = this.humanize(profile.goal.primaryGoal);
+
+    const facts = [
+      `discipline: ${this.humanize(profile.discipline)}`,
+      `primary goal: ${goal}`,
+      `sessions per week (from their availability): ${sessionsPerWeek}`,
+      `preferred session duration: ${profile.sessionDurationMin} min`,
+    ];
+    if (profile.goal.horizon) {
+      facts.push(`program horizon: ${profile.goal.horizon}`);
+    }
+    if (profile.goal.note) {
+      facts.push(`their own words about the goal: "${profile.goal.note}"`);
+    }
+    if (headline) {
+      facts.push(headline);
+    }
+
+    const fallback =
+      `Welcome to the app! Here's what I've got for you: ${this.humanize(profile.discipline)}, ` +
+      `training for "${goal}", about ${sessionsPerWeek} session${sessionsPerWeek === 1 ? '' : 's'}/week ` +
+      `at ${profile.sessionDurationMin} min${headline ? `, ${headline}` : ''}. ` +
+      `Let's build your first week together.`;
+
+    return { facts, fallback };
+  }
+
+  /** Discipline-specific headline stat for the app-welcome snapshot. */
+  private formatProfileHeadline(profile: TrainingProfileResponse): string | null {
+    if (profile.run) {
+      const race = profile.run.targetRace
+        ? ` toward a ${profile.run.targetRace}`
+        : '';
+      return `~${profile.run.weeklyKm}km/week${race}`;
+    }
+    if (profile.strength) {
+      const groups = profile.strength.targetMuscleGroups
+        .slice(0, 3)
+        .map((g) => this.humanize(g))
+        .join(', ');
+      return groups ? `focused on ${groups}` : null;
+    }
+    return null;
+  }
+
+  /**
+   * The prior-week adherence facts feeding the "welcome to week N" message,
+   * plus the templated fallback copy.
+   */
+  private async weekRecapFacts(
+    userId: string,
+    programId: string,
+    weekIndex: number,
+  ): Promise<{ facts: string[]; fallback: string }> {
+    const prior = await this.queryBus.execute<
+      GetWeekQuery,
+      PlannedSessionResponse[]
+    >(new GetWeekQuery(userId, programId, weekIndex - 1));
+
+    const opener = `Let's plan week ${weekIndex + 1}.`;
+    if (prior.length === 0) {
+      return { facts: [], fallback: opener };
+    }
+    const adherence = computeAdherence(prior);
+    if (adherence.totalPlanned === 0 || adherence.completionRate === null) {
+      return { facts: [], fallback: opener };
+    }
+    const pct = Math.round(adherence.completionRate * 100);
+    const facts = [
+      `last week: completed ${adherence.completed} of ${adherence.totalPlanned} ` +
+        `planned session${adherence.totalPlanned === 1 ? '' : 's'} (${pct}%)`,
+    ];
+    const topSkip = adherence.mostSkipped[0];
+    if (topSkip) {
+      facts.push(
+        `most-skipped session type last week: ${this.humanize(topSkip.key)}`,
+      );
+    }
+
+    const recap =
+      `Nice work last week — you completed ${adherence.completed} of ` +
+      `${adherence.totalPlanned} session${adherence.totalPlanned === 1 ? '' : 's'} (${pct}%).`;
+    const callout = topSkip
+      ? ` A few "${this.humanize(topSkip.key)}" sessions got skipped — we'll keep that in mind.`
+      : '';
+    return { facts, fallback: `${recap}${callout} ${opener}` };
+  }
+
+  /** "target_race" / "full_body" → "target race" / "full body". */
+  private humanize(value: string): string {
+    return value.replace(/_/g, ' ');
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  /**
+   * Derive the message + consent flag from a targets-proposal run. Only a turn
+   * that actually STAGED a proposal (terminal `propose_weekly_targets`) puts a
+   * decision on the table — the only case the UI may render the Approve/Cancel
+   * gate for. A tool-less turn with text is an interview question awaiting a
+   * free-text answer, so it must NOT raise `awaitingConfirmation`.
+   */
+  private proposalOutcome(res: {
+    terminalTool: string | null;
+    finalText: string | null;
+  }): { text: string; awaitingConfirmation: boolean } {
+    const proposed = res.terminalTool === 'propose_weekly_targets';
+    const text = res.finalText?.trim() ?? '';
+    if (proposed) {
+      return { text: text || FALLBACK_PROPOSAL, awaitingConfirmation: true };
+    }
+    if (text) {
+      return { text, awaitingConfirmation: false };
+    }
+    // Defensive: no tool and no text — fall back to the proposal copy so the
+    // turn never dead-ends silently (a reply re-runs the same phase).
+    return { text: FALLBACK_PROPOSAL, awaitingConfirmation: true };
+  }
 
   /** Resolve the phase a build conversation is in (used by callers/tests). */
   resolvePhase(snapshot: BuildSnapshot): BuildPhase {
@@ -1046,6 +1385,24 @@ export class BuildConversationOrchestrator {
     return target != null && target.calendarSync?.eventId == null;
   }
 
+  /**
+   * Whether the once-per-week schedule check-in has already been posted on this
+   * conversation. One `program_build` conversation always covers exactly one
+   * week's build, so a plain existence scan (no weekIndex filtering) suffices.
+   */
+  private async hasWeekCheckin(
+    userId: string,
+    conversationId: string,
+  ): Promise<boolean> {
+    const page = await this.conversations.listMessages(userId, conversationId, {
+      limit: 100,
+      order: 'desc',
+    });
+    return page.items.some(
+      (msg) => msg.role === 'assistant' && msg.meta?.weekCheckin === true,
+    );
+  }
+
   /** The latest assistant message's `slotProposal` meta, or null if none recent. */
   private async latestSlotProposal(
     userId: string,
@@ -1108,6 +1465,7 @@ export class BuildConversationOrchestrator {
       awaitingConfirmation: boolean;
       slotProposal?: MessageMeta['slotProposal'];
       buildRetry?: boolean;
+      weekCheckin?: boolean;
     },
   ): Promise<string> {
     const messageMeta: MessageMeta = {
@@ -1118,6 +1476,9 @@ export class BuildConversationOrchestrator {
     }
     if (meta.buildRetry) {
       messageMeta.buildRetry = true;
+    }
+    if (meta.weekCheckin) {
+      messageMeta.weekCheckin = true;
     }
     const { message } = await this.commandBus.execute<
       AppendMessageCommand,

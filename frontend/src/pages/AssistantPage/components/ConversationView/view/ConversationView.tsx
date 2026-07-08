@@ -50,9 +50,6 @@ export function ConversationView({
   const navigate = useNavigate();
   const { conversation, refresh, setMode, modePending } = useConversation(conversationId);
   const { closing, close } = useConversationClose(conversationId);
-  const approval = useChatApproval(conversation?.pendingCardBatchId ?? null, {
-    onResolved: refresh,
-  });
 
   const isBuild = conversation?.purpose === 'program_build';
 
@@ -87,11 +84,23 @@ export function ConversationView({
     retry,
     confirmSlot,
     resume,
+    reloadTurns,
   } = useAssistantThread(conversationId, {
     initialPrompt,
     onReplyComplete,
     onTurnComplete,
     isBuild,
+  });
+
+  // A resolved card posts follow-up messages out-of-band (approval ack /
+  // decline-ask), so re-derive the conversation AND reload the transcript.
+  const onCardResolved = useCallback((): void => {
+    refresh();
+    reloadTurns();
+  }, [refresh, reloadTurns]);
+
+  const approval = useChatApproval(conversation?.pendingCardBatchId ?? null, {
+    onResolved: onCardResolved,
   });
 
   // Re-greet an in-flight build on open. The server derives the live phase and

@@ -186,14 +186,25 @@ export class ApprovalService {
     // PlannedSessionResponse is structurally a CardSessionLike.
     const baseline = week.filter((s) => s.planState === 'committed');
     const draft = week.filter((s) => s.planState === 'tentative');
-    const cards = buildApprovalCards({ draft, baseline });
+    // Conversational build: the card reviews ONE freshly drafted session. The
+    // week's committed rows are the sessions already approved earlier in the
+    // build — NOT a prior version of this draft — so diffing against them would
+    // render them as "removed". Show only the draft, and always allow decline
+    // (it reopens the discussion; see rejectBuildSessionBatch).
+    const cards =
+      batch.kind === 'build_session'
+        ? buildApprovalCards({ draft })
+        : buildApprovalCards({ draft, baseline });
     return {
       programId: batch.programId,
       weekIndex: batch.weekIndex,
       cards,
-      allowedActions: allowedApprovalActions({
-        hasCommittedFallback: baseline.length > 0,
-      }),
+      allowedActions:
+        batch.kind === 'build_session'
+          ? ['approve', 'reject']
+          : allowedApprovalActions({
+              hasCommittedFallback: baseline.length > 0,
+            }),
       batchId: batch.id,
       status: batch.status,
       kind: batch.kind,
@@ -317,6 +328,15 @@ export class ApprovalService {
     batchId: string,
   ): Promise<DiscardTentativeWeekResult> {
     const batch = await this.requirePendingBatch(userId, batchId);
+
+    // Conversational build: rejecting a per-session card is never a dead end —
+    // it always reopens a discussion and redrafts, even for the week's very
+    // first session (which has no committed fallback yet). This bypasses
+    // `rejectWeek`/`approval.policy` entirely; see `rejectBuildSessionBatch`.
+    if (batch.kind === 'build_session') {
+      return this.rejectBuildSessionBatch(userId, batch);
+    }
+
     const week = await this.fetchWeek(userId, batch.programId, batch.weekIndex);
     const hasCommittedFallback = week.some((s) => s.planState === 'committed');
     const result = await this.rejectWeek(
@@ -327,6 +347,35 @@ export class ApprovalService {
     );
     await this.batches.setStatus(userId, batchId, 'rejected');
     return result;
+  }
+
+  /**
+   * Reject a conversational-build session card: mark the batch rejected and ask
+   * the orchestrator to reopen the discussion. With no feedback attached (the
+   * card's Decline button), the orchestrator posts a deterministic "I saw you
+   * passed on X — tell me what you'd like different" and awaits the answer,
+   * which then drives the redraft. No `DiscardTentativeWeekCommand`, and no
+   * committed-fallback check, since the tentative session isn't discarded here
+   * (a redraft naturally replaces it via `replaceTentativeWeek`). Mirrors
+   * `approveBuildSessionBatch`.
+   */
+  private async rejectBuildSessionBatch(
+    userId: string,
+    batch: PendingCardBatch,
+  ): Promise<DiscardTentativeWeekResult> {
+    await this.batches.setStatus(userId, batch.id, 'rejected');
+
+    if (batch.conversationId) {
+      await this.buildOrchestrator.openSessionRevision(
+        userId,
+        batch.conversationId,
+      );
+    }
+
+    this.logger.log(
+      `Rejected build session batch ${batch.id} for ${userId}: reopened discussion.`,
+    );
+    return { discarded: 0 };
   }
 
   private async requireBatch(

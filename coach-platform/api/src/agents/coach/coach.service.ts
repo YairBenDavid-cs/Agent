@@ -77,6 +77,7 @@ import {
   WeeklyTargetsCheck,
 } from './coach.guardrails';
 import { COACH_SYSTEM_PROMPT, INTERVIEW_DOCTRINE } from './coach.prompt';
+import { ConversationContextService } from '../conversation/application/conversation-context.service';
 
 /** Inputs the orchestrator hands the Coach to draft the next build session. */
 export interface DraftNextSessionOptions {
@@ -90,6 +91,32 @@ export interface DraftNextSessionOptions {
   committed: LoadProxyInput[];
   /** slotKeys already taken by committed sessions (collision guard). */
   committedSlotKeys: string[];
+  /** The conversation this draft belongs to — threads history into the run. */
+  conversationId: string;
+  /**
+   * The athlete's latest input about this session — an interview answer, a
+   * requested change, or post-decline feedback. Controlling input for the draft.
+   */
+  adjustment?: string;
+  /**
+   * True on the first turn of a session's step when nothing session-level has
+   * been discussed yet (the first session right after targets lock): the coach
+   * opens with the interview instead of drafting straight away.
+   */
+  openWithInterview?: boolean;
+}
+
+/** Inputs for composing the LLM-written build welcome message. */
+export interface ComposeWelcomeOptions {
+  /** 'app' — the very first build (post-onboarding); 'week' — every later week. */
+  kind: 'app' | 'week';
+  /** Zero-based week index of the build being opened. */
+  weekIndex: number;
+  /**
+   * Deterministic fact lines gathered by the orchestrator (profile snapshot or
+   * prior-week adherence). The model must build ONLY on these — no invention.
+   */
+  facts: string[];
 }
 
 /** Options for one weekly generation run. */
@@ -130,6 +157,7 @@ export class CoachService {
     private readonly programs: ProgramRepositoryPort,
     @Inject(PLANNED_SESSION_REPOSITORY)
     private readonly plannedSessions: PlannedSessionRepositoryPort,
+    private readonly conversationContext: ConversationContextService,
   ) {}
 
   /** Lay down / regenerate the ~12-week periodization skeleton. */
@@ -196,7 +224,17 @@ export class CoachService {
     userId: string,
     runId: string,
     discipline: EventDiscipline,
-    opts: { weekIndex?: number },
+    opts: {
+      weekIndex?: number;
+      conversationId: string;
+      /**
+       * True on the very first turn of the week-planning step (the build
+       * kickoff, before the user has said anything): the coach must OPEN the
+       * interview — one recommendation-led question, no tool call — so the
+       * week is planned WITH the athlete instead of proposed at them.
+       */
+      openWithInterview?: boolean;
+    },
   ): Promise<AgenticLoopResult<ProposeWeeklyTargetsResult>> {
     const seed = await this.seeds.buildCoachSeed(userId, discipline);
     const ctx: AgentToolContext = { userId, runId };
@@ -207,25 +245,111 @@ export class CoachService {
       this.proposeWeeklyTargetsTool(seed.programId),
     ];
 
+    const sequencing = opts.openWithInterview
+      ? `This is the OPENING turn of the week-planning step — do NOT call any ` +
+        `tool this turn. Open the interview instead: ask ONE short, open, ` +
+        `recommendation-led question about what matters most for this week ` +
+        `(their goal for the week, the session mix, or whatever would most ` +
+        `change the targets), leading with your data-grounded suggestion so ` +
+        `it's easy to just say "yes".`
+      : `Propose only once you and the athlete are ALIGNED on this week's ` +
+        `direction (from the conversation so far). If you're not aligned yet, ` +
+        `continue the interview: ask the ONE next question (with your ` +
+        `recommended answer + the data reason) and STOP without calling any ` +
+        `tool. Once aligned — or if they told you to just go with your ` +
+        `recommendations — call propose_weekly_targets exactly once with ` +
+        `programId "${seed.programId ?? ''}", then write a short, warm message ` +
+        `(2–4 sentences) proposing this week — name the session count and the ` +
+        `main intents — and ask whether it looks good or they'd like to adjust. ` +
+        `Do NOT lock anything yet.`;
+
+    const seedMessage =
+      `${seed.seedMessage}\n\n${INTERVIEW_DOCTRINE}\n\n` +
+      `== TASK (Conversational build — propose week targets) ==\n` +
+      `Settle the macro budget for week index ${targetWeek}: how many sessions, ` +
+      `the total native-unit volume (km for running, volume-load for strength), ` +
+      `and the key weekly goals.\n` +
+      sequencing;
+
+    const history = await this.conversationContext.buildHistory({
+      userId,
+      conversationId: opts.conversationId,
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seed: seedMessage,
+      nextUserMessage: '',
+    });
+
     return this.loop.run<ProposeWeeklyTargetsResult>({
       agentName: 'coach',
       systemPrompt: COACH_SYSTEM_PROMPT,
-      seedMessage:
-        `${seed.seedMessage}\n\n${INTERVIEW_DOCTRINE}\n\n` +
-        `== TASK (Conversational build — propose week targets) ==\n` +
-        `Settle the macro budget for week index ${targetWeek}: how many sessions, ` +
-        `the total native-unit volume (km for running, volume-load for strength), ` +
-        `and the key weekly goals.\n` +
-        `Per the interview style: if a decision-relevant detail is genuinely ` +
-        `unknown, ask ONE question (with your recommended answer + the data reason) ` +
-        `and STOP without calling any tool. Otherwise, call propose_weekly_targets ` +
-        `exactly once with programId "${seed.programId ?? ''}", then write a short, ` +
-        `warm message (2–4 sentences) proposing this first week — name the session ` +
-        `count and the main intents — and ask whether it looks good or they'd like ` +
-        `to adjust. Do NOT lock anything yet.`,
+      history,
+      seedMessage,
       tools,
       ctx,
     });
+  }
+
+  /**
+   * Compose the warm, personal welcome that opens a build conversation — an LLM
+   * text-only run (no tools, no writes). `kind: 'app'` welcomes the athlete to
+   * the app right after onboarding: Popvich introduces itself and the agent
+   * team, names what was learned at onboarding (from `facts`), explains that a
+   * full program is being built from it, and frames the journey starting NOW
+   * with week 1's goals. `kind: 'week'` welcomes them to a later week with a
+   * recap. Returns null when the run produced no usable text (caller falls back
+   * to deterministic copy).
+   */
+  async composeWelcome(
+    userId: string,
+    runId: string,
+    discipline: EventDiscipline,
+    opts: ComposeWelcomeOptions,
+  ): Promise<string | null> {
+    const ctx: AgentToolContext = { userId, runId };
+    const factLines = opts.facts.map((f) => `  • ${f}`).join('\n');
+
+    const task =
+      opts.kind === 'app'
+        ? `Write the very FIRST message this athlete sees after finishing ` +
+          `onboarding — their welcome to the app. Requirements:\n` +
+          `- Be genuinely warm and personal; congratulate them on taking the step.\n` +
+          `- Introduce yourself as Popvich, their head coach, and briefly mention ` +
+          `you work with a small team behind the scenes (a planner that finds ` +
+          `training times in their calendar, and a recovery watchdog that keeps ` +
+          `an eye on their readiness) — one light sentence, not a feature list.\n` +
+          `- Tell them you're building their full training program around what ` +
+          `they shared at onboarding — weave the facts below in naturally, as ` +
+          `proof you listened, not as a stats dump.\n` +
+          `- Explain what happens NOW: the journey starts by setting week 1's ` +
+          `goals together, then drafting each session one at a time for their ` +
+          `review, then finding calendar times. Make it clear they approve every ` +
+          `step.\n` +
+          `- End by leading into the first question about their week (do NOT ask ` +
+          `it — the next message will).\n` +
+          `- 4–7 sentences, plain text, no headings or bullet lists, no emojis.`
+        : `Write the opening message for planning week ${opts.weekIndex + 1} — ` +
+          `a warm welcome to the NEW week (they already know the app). ` +
+          `Requirements:\n` +
+          `- Cheer their last week using the recap facts below (be honest — if ` +
+          `adherence was low, be encouraging, not fake).\n` +
+          `- Frame what happens now: we set this week's goals together, then ` +
+          `draft the sessions one at a time.\n` +
+          `- End by leading into the first question about the week (do NOT ask ` +
+          `it — the next message will).\n` +
+          `- 2–5 sentences, plain text, no headings or bullet lists, no emojis.`;
+
+    const res = await this.loop.run({
+      agentName: 'coach',
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seedMessage:
+        `== TASK (Conversational build — welcome message) ==\n${task}\n\n` +
+        `Facts you may use (do not invent others):\n${factLines || '  (none)'}\n` +
+        `Discipline: ${discipline}.\n` +
+        `Do NOT call any tool. Reply with the message text only.`,
+      tools: [],
+      ctx,
+    });
+    return res.finalText?.trim() || null;
   }
 
   /**
@@ -293,7 +417,10 @@ export class CoachService {
    * agreed — possibly with a small tweak, applied first) via the terminal
    * `lock_weekly_targets` tool, OR re-proposes a revised quota via the
    * non-terminal `propose_weekly_targets` tool and explains the change
-   * (`finalText`). Both tools are available; the model picks based on intent.
+   * (`finalText`), OR — if they want changes but the specifics/why aren't clear
+   * yet — asks ONE open interview question and calls no tool at all, same as the
+   * initial proposal's interview step. All three are available; the model picks
+   * based on intent.
    */
   async resolveTargetsConsent(
     userId: string,
@@ -303,6 +430,7 @@ export class CoachService {
       weekIndex: number;
       proposed: { sessionCount: number; totalVolume: number; keyGoals: string[] };
       userMessage: string;
+      conversationId: string;
     },
   ): Promise<AgenticLoopResult<LockWeeklyTargetsResult>> {
     const seed = await this.seeds.buildCoachSeed(userId, discipline);
@@ -315,23 +443,42 @@ export class CoachService {
       this.lockWeeklyTargetsTool(seed.programId),
     ];
 
+    const seedMessage =
+      `${seed.seedMessage}\n\n${INTERVIEW_DOCTRINE}\n\n` +
+      `== TASK (Conversational build — targets consent) ==\n` +
+      `You previously PROPOSED these week-${opts.weekIndex} targets:\n` +
+      `  • sessions: ${sessionCount}\n  • total volume: ${totalVolume}\n` +
+      `  • key goals: ${keyGoals.join(', ') || '(none)'}\n\n` +
+      `The athlete replied:\n"""${opts.userMessage}"""\n\n` +
+      `Decide their intent:\n` +
+      `- If they AGREE / approve / say it looks good → call lock_weekly_targets ` +
+      `with programId "${seed.programId ?? ''}", weekIndex ${opts.weekIndex}, and ` +
+      `the agreed numbers (apply any small tweak they asked for). This finalizes ` +
+      `the week's quota.\n` +
+      `- If they want CHANGES and you already have enough to act on (their message ` +
+      `+ the conversation so far settle it) → call propose_weekly_targets with the ` +
+      `revised numbers, then write a short message explaining the update and asking ` +
+      `if it now looks good. Do NOT lock in that case.\n` +
+      `- If they want changes but a decision-relevant detail is genuinely unknown ` +
+      `(what specifically to change, or why) → per the interview style, ask ONE ` +
+      `open question (with your recommended answer + the data reason) and STOP ` +
+      `without calling any tool. Never ask a clarifying question AND "does this ` +
+      `look good" in the same message — only ask for approval once you're ready to ` +
+      `call propose_weekly_targets or lock_weekly_targets.`;
+
+    const history = await this.conversationContext.buildHistory({
+      userId,
+      conversationId: opts.conversationId,
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seed: seedMessage,
+      nextUserMessage: '',
+    });
+
     return this.loop.run<LockWeeklyTargetsResult>({
       agentName: 'coach',
       systemPrompt: COACH_SYSTEM_PROMPT,
-      seedMessage:
-        `${seed.seedMessage}\n\n== TASK (Conversational build — targets consent) ==\n` +
-        `You previously PROPOSED these week-${opts.weekIndex} targets:\n` +
-        `  • sessions: ${sessionCount}\n  • total volume: ${totalVolume}\n` +
-        `  • key goals: ${keyGoals.join(', ') || '(none)'}\n\n` +
-        `The athlete replied:\n"""${opts.userMessage}"""\n\n` +
-        `Decide their intent:\n` +
-        `- If they AGREE / approve / say it looks good → call lock_weekly_targets ` +
-        `with programId "${seed.programId ?? ''}", weekIndex ${opts.weekIndex}, and ` +
-        `the agreed numbers (apply any small tweak they asked for). This finalizes ` +
-        `the week's quota.\n` +
-        `- If they want CHANGES you should reconsider → call propose_weekly_targets ` +
-        `with the revised numbers, then write a short message explaining the update ` +
-        `and asking if it now looks good. Do NOT lock in that case.`,
+      history,
+      seedMessage,
       tools,
       ctx,
     });
@@ -397,28 +544,57 @@ export class CoachService {
         ? opts.committedSlotKeys.join(', ')
         : '(none yet)';
     const goals = opts.targets.keyGoals.join(', ') || '(none specified)';
+    const adjustmentNote = opts.adjustment?.trim()
+      ? `\nThe athlete's latest message about this session: ` +
+        `"${opts.adjustment.trim()}". Treat it as the CONTROLLING input — if it ` +
+        `settles the session's shape (or the change they want), act on it; if ` +
+        `the what or why is still unclear, interview per the style below.\n`
+      : '';
+
+    const sequencing = opts.openWithInterview
+      ? `This is the OPENING turn of this session's step and nothing about THIS ` +
+        `session has been discussed yet. Unless the athlete already told you to ` +
+        `just go with your recommendations, do NOT call any tool this turn — ` +
+        `open the interview instead: ask ONE short, open, recommendation-led ` +
+        `question about this session (its focus, structure, or whatever would ` +
+        `most change it), leading with your data-grounded suggestion.`
+      : `Per the interview style: reach a shared understanding of THIS session ` +
+        `before drafting — draft only when the conversation so far settles the ` +
+        `session's shape, or the athlete told you to just go ahead. If it isn't ` +
+        `settled yet, ask ONE question (with your recommended answer + the data ` +
+        `reason) and STOP without calling any tool. When you draft: draft ` +
+        `EXACTLY ONE new session — the next one — that fits the remaining ` +
+        `quota: call draft_next_session exactly once with programId ` +
+        `"${programId ?? ''}" and a unique slotKey, then write a short, warm ` +
+        `message (2–3 sentences) describing this session to the athlete and ask ` +
+        `if it looks good to add. Do not draft more than one session.`;
+
+    const seedMessage =
+      `${seed.seedMessage}\n\n${INTERVIEW_DOCTRINE}\n\n` +
+      `== TASK (Conversational build — draft session ` +
+      `${sessionNumber} of ${opts.targets.sessionCount}) ==\n` +
+      `Week index ${opts.weekIndex} (starts ${opts.weekStartDate}, timezone ` +
+      `${opts.timezone}). The week's LOCKED targets are:\n` +
+      `  • sessions: ${opts.targets.sessionCount}\n` +
+      `  • total volume: ${opts.targets.totalVolume}\n` +
+      `  • key goals: ${goals}\n` +
+      `Already committed slotKeys: ${committedList}.\n` +
+      adjustmentNote +
+      `\n${sequencing}`;
+
+    const history = await this.conversationContext.buildHistory({
+      userId,
+      conversationId: opts.conversationId,
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seed: seedMessage,
+      nextUserMessage: '',
+    });
 
     return this.loop.run<UpsertWeekSessionsResult>({
       agentName: 'coach',
       systemPrompt: COACH_SYSTEM_PROMPT,
-      seedMessage:
-        `${seed.seedMessage}\n\n${INTERVIEW_DOCTRINE}\n\n` +
-        `== TASK (Conversational build — draft session ` +
-        `${sessionNumber} of ${opts.targets.sessionCount}) ==\n` +
-        `Week index ${opts.weekIndex} (starts ${opts.weekStartDate}, timezone ` +
-        `${opts.timezone}). The week's LOCKED targets are:\n` +
-        `  • sessions: ${opts.targets.sessionCount}\n` +
-        `  • total volume: ${opts.targets.totalVolume}\n` +
-        `  • key goals: ${goals}\n` +
-        `Already committed slotKeys: ${committedList}.\n\n` +
-        `Per the interview style: if a detail that would change THIS session is ` +
-        `genuinely unknown, ask ONE question (with your recommended answer + the ` +
-        `data reason) and STOP without calling any tool. Otherwise, draft EXACTLY ` +
-        `ONE new session — the next one — that fits the remaining quota: call ` +
-        `draft_next_session exactly once with programId "${programId ?? ''}" and a ` +
-        `unique slotKey, then write a short, warm message (2–3 sentences) ` +
-        `describing this session to the athlete and ask if it looks good to add. ` +
-        `Do not draft more than one session.`,
+      history,
+      seedMessage,
       tools,
       ctx,
     });

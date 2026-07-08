@@ -57,7 +57,13 @@ function messageOf(err: unknown, fallback: string): string {
  * auth rejection (`auth_failed`) drops back to the credential form.
  */
 const SYNC_POLL_MS = 2000;
-const MAX_SYNC_POLLS = 30; // ~60s before we offer a manual retry
+// The initial 30-day backfill is fetched in chunks server-side and can take a
+// few minutes end to end. While the server keeps reporting 'syncing' we keep
+// polling up to this hard ceiling; only an explicit terminal status — or the
+// server becoming unreadable/never reaching a terminal state by the ceiling —
+// surfaces an error. The old 60s budget misreported healthy in-flight backfills
+// as failures.
+const MAX_SYNC_POLLS = 300; // ~10min hard ceiling
 export function ConnectStep({
   value,
   onChange,
@@ -191,10 +197,16 @@ export function ConnectStep({
             setGarminError(
               'Garmin rejected the connection. Please re-enter your email and password.',
             );
-          } else if (status === 'sync_failed' || polls >= MAX_SYNC_POLLS) {
+          } else if (status === 'sync_failed') {
             setGarminSync('sync_failed');
             setGarminError(
               'We connected to Garmin but couldn’t pull your data. Please retry.',
+            );
+          } else if (polls >= MAX_SYNC_POLLS) {
+            // Still no terminal status after the ceiling — something is stuck.
+            setGarminSync('sync_failed');
+            setGarminError(
+              'Your Garmin sync is taking longer than expected. Please retry.',
             );
           }
           // 'syncing' / null → keep polling.
@@ -274,7 +286,8 @@ export function ConnectStep({
     if (garminSync === 'syncing') {
       garminBody = (
         <div className={styles.syncing}>
-          <span className={styles.spinner} aria-hidden="true" /> Syncing your Garmin data…
+          <span className={styles.spinner} aria-hidden="true" /> Syncing your Garmin
+          data… The first sync pulls your last 30 days and can take a few minutes.
         </div>
       );
     } else if (garminSync === 'sync_failed') {

@@ -125,6 +125,13 @@ export interface MessageMeta {
   };
   /** The AutoModeRun this turn reports on, when posted by an `auto`-mode run. */
   autoModeRunId?: string;
+  /**
+   * BW3 — set on the one-off "anything different about your schedule this
+   * week?" check-in posted before the week's first slot proposal. Lets the
+   * orchestrator detect "already asked this week" from history so it fires at
+   * most once per week rather than once per session.
+   */
+  weekCheckin?: boolean;
 }
 
 export interface Message {

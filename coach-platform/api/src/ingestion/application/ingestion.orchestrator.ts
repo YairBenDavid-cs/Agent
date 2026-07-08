@@ -44,7 +44,16 @@ export class IngestionOrchestrator {
   ) {}
 
   /** Run for one tenant over [from, to]. Defaults to a config-driven backfill
-   * window ending today when no range is given. */
+   * window ending today when no range is given.
+   *
+   * The range is fetched in small chunks (INGESTION_FETCH_CHUNK_DAYS, default 5)
+   * rather than one call: the Python service pulls each day sequentially with a
+   * dozen-plus Garmin requests per day, so a wide window (e.g. the 30-day initial
+   * backfill) in a single /fetch call blows past FETCHER_TIMEOUT_MS and the whole
+   * run aborts with nothing persisted. Chunking keeps every call comfortably
+   * under the timeout and persists progress as it lands, so a failure mid-way
+   * loses only the remaining chunks — content_hash idempotency makes the retry
+   * over already-ingested days a no-op. */
   async runForUser(
     userId: string,
     range?: { from: string; to: string },
@@ -54,12 +63,6 @@ export class IngestionOrchestrator {
     await this.integrations.setGarminSyncStatus(userId, 'syncing');
     try {
       const auth = await this.integrations.getDecryptedGarminAuth(userId);
-      const result = await this.fetcher.fetch({ userId, auth, from, to });
-
-      // Cache a refreshed session so we are not re-authenticating every run.
-      if (result.session) {
-        await this.integrations.saveGarminSession(userId, result.session);
-      }
 
       const summary: IngestionSummary = {
         userId,
@@ -73,8 +76,24 @@ export class IngestionOrchestrator {
         daysWithIssues: 0,
       };
 
-      for (const day of result.days) {
-        await this.ingestDay(userId, day, summary);
+      for (const chunk of this.chunkRange(from, to)) {
+        const result = await this.fetcher.fetch({
+          userId,
+          auth,
+          from: chunk.from,
+          to: chunk.to,
+        });
+
+        // Cache the refreshed session and reuse it for the remaining chunks so
+        // we are not re-authenticating every call.
+        if (result.session) {
+          await this.integrations.saveGarminSession(userId, result.session);
+          auth.session = result.session;
+        }
+
+        for (const day of result.days) {
+          await this.ingestDay(userId, day, summary);
+        }
       }
 
       // A run that finished without throwing is a success — even with zero rows
@@ -185,6 +204,32 @@ export class IngestionOrchestrator {
     const from = new Date(to);
     from.setUTCDate(from.getUTCDate() - (days - 1));
     return { from: isoDate(from), to: isoDate(to) };
+  }
+
+  /** Split [from, to] into consecutive windows of at most
+   * INGESTION_FETCH_CHUNK_DAYS days each (inclusive bounds, oldest first). */
+  private chunkRange(
+    from: string,
+    to: string,
+  ): Array<{ from: string; to: string }> {
+    const chunkDays = Math.max(
+      1,
+      this.config.get<number>('INGESTION_FETCH_CHUNK_DAYS') ?? 5,
+    );
+    const chunks: Array<{ from: string; to: string }> = [];
+    const end = new Date(`${to}T00:00:00Z`);
+    let cursor = new Date(`${from}T00:00:00Z`);
+    while (cursor <= end) {
+      const chunkEnd = new Date(cursor);
+      chunkEnd.setUTCDate(chunkEnd.getUTCDate() + (chunkDays - 1));
+      chunks.push({
+        from: isoDate(cursor),
+        to: isoDate(chunkEnd < end ? chunkEnd : end),
+      });
+      cursor = new Date(chunkEnd);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return chunks;
   }
 }
 

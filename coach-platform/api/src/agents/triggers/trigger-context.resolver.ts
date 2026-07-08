@@ -57,15 +57,17 @@ export class TriggerContextResolver {
   }
 
   /**
-   * Chat variant of `resolve`: pins `weekIndex`/`weekWindow` to whichever
-   * skeleton week's date range actually contains today, falling back to
-   * `currentWeekIndex` only when no week matches (before the program starts,
-   * or past its last week). `currentWeekIndex` is a build pointer — a
+   * Date-matched variant of `resolve`: pins `weekIndex`/`weekWindow` to
+   * whichever skeleton week's date range actually contains today, falling
+   * back to `currentWeekIndex` only when no week matches (before the program
+   * starts, or past its last week). `currentWeekIndex` is a build pointer — a
    * scheduled build can lock and advance it onto next week before that week's
-   * `startDate` actually arrives, which would otherwise make "what's my
-   * session this week?" answer from a week that hasn't started yet.
+   * `startDate` actually arrives. Anything that acts on "the week the athlete
+   * is living in" (chat, the session-day fetch, injury/illness safety
+   * replans) must use this, not `resolve`, or it targets the future week
+   * during that gap.
    */
-  async resolveForChat(userId: string): Promise<ResolvedRunContext | null> {
+  async resolveForToday(userId: string): Promise<ResolvedRunContext | null> {
     const [program, user] = await Promise.all([
       this.queryBus.execute<GetActiveProgramQuery, ActiveProgramResponse>(
         new GetActiveProgramQuery(userId),

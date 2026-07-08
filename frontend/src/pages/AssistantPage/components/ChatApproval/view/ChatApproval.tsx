@@ -215,7 +215,9 @@ export function ChatApproval({
 
       {isRejected && (
         <div className={styles.footer}>
-          <p className={styles.dismissed}>Suggestion dismissed.</p>
+          <p className={styles.dismissed}>
+            No problem — I’ll leave it as is. Tell me below what you’d like different.
+          </p>
         </div>
       )}
     </div>

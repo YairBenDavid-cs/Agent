@@ -52,7 +52,10 @@ export class OutcomeTrigger {
 
     try {
       if (action === 'immediate_safety') {
-        const ctx = await this.resolver.resolve(userId);
+        // Date-matched, NOT the build pointer: an injury reported today must
+        // replan the remaining sessions of the week the athlete is actually
+        // in — never a next week that was built ahead of schedule.
+        const ctx = await this.resolver.resolveForToday(userId);
         if (!ctx) {
           return;
         }

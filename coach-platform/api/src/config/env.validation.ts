@@ -48,6 +48,12 @@ export const envValidationSchema = Joi.object({
     .max(365)
     .default(30),
 
+  // Max days per single /fetch call to the Python service. The fetcher pulls
+  // each day sequentially (a dozen-plus Garmin requests per day), so this keeps
+  // every call well under FETCHER_TIMEOUT_MS and lets wide backfills land
+  // incrementally instead of timing out as one giant request.
+  INGESTION_FETCH_CHUNK_DAYS: Joi.number().integer().min(1).max(30).default(5),
+
   // Google Calendar per-user OAuth ("Web application" client in Google Cloud).
   // Optional: unset/empty disables the Connect-Google-Calendar flow, which then
   // returns 503 GOOGLE_OAUTH_NOT_CONFIGURED instead of crashing at boot.

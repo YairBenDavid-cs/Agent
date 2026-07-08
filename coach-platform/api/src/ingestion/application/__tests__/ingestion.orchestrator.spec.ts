@@ -14,7 +14,9 @@ describe('IngestionOrchestrator sync-status transitions', () => {
   function build(fetchImpl: () => Promise<FetchResultDto>) {
     const setGarminSyncStatus = jest.fn().mockResolvedValue(undefined);
     const integrations = {
-      getDecryptedGarminAuth: jest.fn().mockResolvedValue(auth),
+      getDecryptedGarminAuth: jest
+        .fn()
+        .mockResolvedValue({ ...auth, credentials: { ...auth.credentials } }),
       saveGarminSession: jest.fn().mockResolvedValue(undefined),
       setGarminSyncStatus,
     };
@@ -30,7 +32,7 @@ describe('IngestionOrchestrator sync-status transitions', () => {
       events as never,
       config as never,
     );
-    return { orchestrator, setGarminSyncStatus, events };
+    return { orchestrator, setGarminSyncStatus, events, fetcher, integrations };
   }
 
   it('marks syncing then synced on a clean run, even with zero rows', async () => {
@@ -48,6 +50,35 @@ describe('IngestionOrchestrator sync-status transitions', () => {
     expect(last?.[2]).toMatchObject({ error: null });
     expect(typeof last?.[2].syncedAt).toBe('string');
     expect(events.emit).toHaveBeenCalledTimes(1); // INGESTION_COMPLETED
+  });
+
+  it('fetches a wide range in chunks and reuses the refreshed session', async () => {
+    const session = { token: 't1', expiresAt: '2027-01-01T00:00:00.000Z' };
+    const { orchestrator, fetcher, integrations, setGarminSyncStatus } = build(
+      async () => ({ session, days: [] }),
+    );
+
+    // chunk size mocked to 7 (config.get returns 7) → 30 days = 5 chunks.
+    await orchestrator.runForUser('u1', { from: '2026-06-09', to: '2026-07-08' });
+
+    const fetchCalls = fetcher.fetch.mock.calls as unknown as Array<
+      [{ from: string; to: string; auth: { session: unknown } }]
+    >;
+    const calls = fetchCalls.map(([input]) => ({
+      from: input.from,
+      to: input.to,
+    }));
+    expect(calls).toEqual([
+      { from: '2026-06-09', to: '2026-06-15' },
+      { from: '2026-06-16', to: '2026-06-22' },
+      { from: '2026-06-23', to: '2026-06-29' },
+      { from: '2026-06-30', to: '2026-07-06' },
+      { from: '2026-07-07', to: '2026-07-08' }, // final partial chunk
+    ]);
+    // The session minted by the first chunk is cached and reused afterwards.
+    expect(integrations.saveGarminSession).toHaveBeenCalledTimes(5);
+    expect(fetchCalls[1][0].auth.session).toBe(session);
+    expect(setGarminSyncStatus.mock.calls.at(-1)?.[1]).toBe('synced');
   });
 
   it('marks auth_failed and rethrows when the fetch is rejected for auth', async () => {
