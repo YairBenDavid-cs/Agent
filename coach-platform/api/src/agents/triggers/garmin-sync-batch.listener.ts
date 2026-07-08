@@ -153,18 +153,22 @@ export class GarminSyncBatchListener {
   ): string {
     const changed = view.cards.filter((c) => c.diffStatus !== 'unchanged');
     const lines = changed.map((c) => this.describeCard(c));
-    return [intro, ...lines, outro].join('\n');
+    // Lead with WHY — the persisted trigger + recovery rationale — so the user
+    // (and the assistant reading this thread) never sees unexplained changes.
+    const why = view.reason ? [`Why: ${view.reason}`] : [];
+    return [intro, ...why, ...lines, outro].join('\n');
   }
 
   private describeCard(card: ApprovalCard): string {
     const when = `${card.scheduledDate} ${card.startTime}`;
+    const note = card.coachNotes ? ` — ${card.coachNotes}` : '';
     switch (card.diffStatus) {
       case 'new':
-        return `- Added "${card.title}" on ${when}.`;
+        return `- Added "${card.title}" on ${when}.${note}`;
       case 'removed':
-        return `- Removed "${card.title}" (was ${when}).`;
+        return `- Removed "${card.title}" (was ${when}).${note}`;
       case 'modified':
-        return `- Updated "${card.title}" on ${when} (${card.changedFields.join(', ')}).`;
+        return `- Updated "${card.title}" on ${when} (${card.changedFields.join(', ')}).${note}`;
       default:
         return `- "${card.title}" on ${when}.`;
     }

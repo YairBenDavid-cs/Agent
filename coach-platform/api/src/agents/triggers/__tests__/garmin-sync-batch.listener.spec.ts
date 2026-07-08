@@ -35,6 +35,7 @@ function cardView(
     status: 'pending',
     kind: 'user_initiated',
     conversationId: null,
+    reason: null,
     ...overrides,
   };
 }

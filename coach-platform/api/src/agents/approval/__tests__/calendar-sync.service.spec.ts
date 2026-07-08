@@ -3,7 +3,8 @@ import { CalendarSyncService, SyncableSession } from '../calendar-sync.service';
 const session = (overrides: Partial<SyncableSession> = {}): SyncableSession => ({
   id: 'sess-1',
   title: 'Easy run',
-  coachNotes: 'base',
+  running: null,
+  strength: null,
   scheduledStartUtc: '2026-06-22T05:00:00.000Z',
   estDurationMin: 45,
   timezone: 'UTC',

@@ -180,6 +180,9 @@ export class CoachService {
       seedMessage: `${seed.seedMessage}\n\n== TASK ==\nGenerate the full periodization skeleton for this program. Call commit_program_skeleton exactly once.`,
       tools,
       ctx,
+      // A prose answer instead of the terminal tool would abort the whole
+      // pipeline — retry once forcing the tool before giving up.
+      coerceTerminalTool: true,
     });
   }
 
@@ -210,6 +213,9 @@ export class CoachService {
       seedMessage: `${seed.seedMessage}\n\n== TASK (Step A — weekly targets) ==\nDecide the macro budget for week index ${targetWeek}: how many sessions, the total native-unit volume (km for running, volume-load for strength), and the key weekly goals. Call lock_weekly_targets exactly once with programId "${seed.programId ?? ''}".`,
       tools,
       ctx,
+      // A prose answer instead of the terminal tool would abort the whole
+      // pipeline — retry once forcing the tool before giving up.
+      coerceTerminalTool: true,
     });
   }
 
@@ -346,6 +352,57 @@ export class CoachService {
         `Facts you may use (do not invent others):\n${factLines || '  (none)'}\n` +
         `Discipline: ${discipline}.\n` +
         `Do NOT call any tool. Reply with the message text only.`,
+      tools: [],
+      ctx,
+    });
+    return res.finalText?.trim() || null;
+  }
+
+  /**
+   * Compose the follow-up after the athlete DECLINED a drafted-session card
+   * without stating a reason — an LLM text-only run (no tools, no writes) with
+   * the full conversation history, so the acknowledgment + single clarifying
+   * question sounds like Popvich mid-conversation rather than canned copy. The
+   * message must ask what they'd like different (the answer drives the
+   * redraft). Returns null when the run produced no usable text (caller falls
+   * back to deterministic copy).
+   */
+  async composeDeclineAsk(
+    userId: string,
+    runId: string,
+    discipline: EventDiscipline,
+    opts: { conversationId: string; declinedTitle: string | null },
+  ): Promise<string | null> {
+    const ctx: AgentToolContext = { userId, runId };
+    const title = opts.declinedTitle ? `"${opts.declinedTitle}"` : 'the drafted session';
+
+    const seedMessage =
+      `== TASK (Conversational build — declined session follow-up) ==\n` +
+      `The athlete just DECLINED ${title} via the card's Decline button, ` +
+      `without saying why. Discipline: ${discipline}.\n` +
+      `Write ONE short, warm message that:\n` +
+      `- acknowledges you saw them pass on it — no guilt, their call;\n` +
+      `- asks ONE open question about what they'd like different (the type of ` +
+      `session, its structure, the day it lands on — anything), so you can ` +
+      `redraft it around their answer;\n` +
+      `- if the conversation so far hints at why they declined, lead with your ` +
+      `best guess so it's easy to confirm.\n` +
+      `Do NOT redraft anything yet and do NOT call any tool. 1–3 sentences, ` +
+      `plain text, no emojis. Reply with the message text only.`;
+
+    const history = await this.conversationContext.buildHistory({
+      userId,
+      conversationId: opts.conversationId,
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      seed: seedMessage,
+      nextUserMessage: '',
+    });
+
+    const res = await this.loop.run({
+      agentName: 'coach',
+      systemPrompt: COACH_SYSTEM_PROMPT,
+      history,
+      seedMessage,
       tools: [],
       ctx,
     });
@@ -511,6 +568,9 @@ export class CoachService {
       seedMessage: `${seed.seedMessage}\n\n== TASK ==\nGenerate concrete planned sessions for week index ${targetWeek}, timezone ${opts.timezone}.${readinessNote}\nCall upsert_week_sessions exactly once with programId "${seed.programId ?? ''}".`,
       tools,
       ctx,
+      // A prose answer instead of the terminal tool would abort the whole
+      // pipeline — retry once forcing the tool before giving up.
+      coerceTerminalTool: true,
     });
   }
 
@@ -665,6 +725,9 @@ export class CoachService {
         `changed (before/after) for the display diff.`,
       tools,
       ctx,
+      // A prose answer instead of the terminal tool would abort the whole
+      // pipeline — retry once forcing the tool before giving up.
+      coerceTerminalTool: true,
     });
   }
 

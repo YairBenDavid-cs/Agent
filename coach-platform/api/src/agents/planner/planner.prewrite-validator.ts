@@ -34,6 +34,9 @@ export interface PlacementValidationInput {
   hardBlocked: HardWindow[];
 }
 
+/** Minimum hours between the starts of any two placed sessions (recovery gap). */
+export const MIN_RECOVERY_GAP_HOURS = 12;
+
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
 function toMinutes(time: string): number {
@@ -117,6 +120,36 @@ export function validatePlacement(input: PlacementValidationInput): string[] {
       if (overlaps(intervals[i].iv, intervals[j].iv)) {
         violations.push(
           `Sessions ${intervals[i].entry.plannedSessionId} and ${intervals[j].entry.plannedSessionId} overlap each other.`,
+        );
+      }
+    }
+  }
+
+  // 6. One session per local day — two sessions on the same date is never a
+  //    valid week, even if their times don't overlap.
+  const byDate = new Map<string, PlacementEntry>();
+  for (const e of input.placed) {
+    const prior = byDate.get(e.scheduledDate);
+    if (prior) {
+      violations.push(
+        `Sessions ${prior.plannedSessionId} and ${e.plannedSessionId} are both on ${e.scheduledDate} — only one session per day.`,
+      );
+    } else {
+      byDate.set(e.scheduledDate, e);
+    }
+  }
+
+  // 7. Minimum recovery gap between the starts of consecutive sessions.
+  for (let i = 0; i < intervals.length; i++) {
+    for (let j = i + 1; j < intervals.length; j++) {
+      const a = intervals[i];
+      const b = intervals[j];
+      // Same-date pairs are already reported by check 6 — don't double-report.
+      if (a.entry.scheduledDate === b.entry.scheduledDate) continue;
+      const gapHours = Math.abs(a.iv.start - b.iv.start) / 3_600_000;
+      if (gapHours < MIN_RECOVERY_GAP_HOURS) {
+        violations.push(
+          `Sessions ${a.entry.plannedSessionId} and ${b.entry.plannedSessionId} start only ${Math.round(gapHours * 10) / 10}h apart — minimum recovery gap is ${MIN_RECOVERY_GAP_HOURS}h.`,
         );
       }
     }

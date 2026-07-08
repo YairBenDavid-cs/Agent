@@ -183,7 +183,8 @@ export class RevertAutoModeRunHandler
       {
         id: session.id,
         title: session.title,
-        coachNotes: session.coachNotes,
+        running: session.running,
+        strength: session.strength,
         scheduledStartUtc: session.scheduledStartUtc,
         estDurationMin: session.estDurationMin,
         timezone: session.timezone,

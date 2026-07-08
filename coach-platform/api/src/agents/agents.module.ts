@@ -8,6 +8,8 @@ import { ProgramModule } from '../program/program.module';
 import { IngestionModule } from '../ingestion/ingestion.module';
 import { PersonalizationModule } from '../personalization/personalization.module';
 import { PlannedSessionsModule } from '../planned-sessions/planned-sessions.module';
+import { ProgramMatchingModule } from '../program-matching/program-matching.module';
+import { SessionsModule } from '../sessions/sessions.module';
 import { AssistantController } from './assistant/interface/assistant.controller';
 import { WorkflowStreamController } from './assistant/interface/workflow-stream.controller';
 import { ApprovalController } from './approval/interface/approval.controller';
@@ -94,6 +96,8 @@ import { AutoModeReaperService } from './auto-mode/auto-mode-reaper.service';
     PlannedSessionsModule,
     IngestionModule,
     PersonalizationModule,
+    ProgramMatchingModule,
+    SessionsModule,
     MongooseModule.forFeature([
       { name: PendingCardBatchDoc.name, schema: PendingCardBatchSchema },
       { name: ScheduledWeekBuildDoc.name, schema: ScheduledWeekBuildSchema },

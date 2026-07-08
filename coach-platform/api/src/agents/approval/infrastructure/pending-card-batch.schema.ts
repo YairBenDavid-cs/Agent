@@ -27,6 +27,7 @@ export class PendingCardBatchDoc {
   @Prop({ type: String, required: true }) run_id!: string;
   @Prop({ type: String, default: null }) conversation_id!: string | null;
   @Prop({ type: String, default: null }) session_start_utc!: string | null;
+  @Prop({ type: String, default: null }) reason!: string | null;
 }
 
 export const PendingCardBatchSchema =

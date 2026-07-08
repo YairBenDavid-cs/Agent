@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { CommandBus } from '@nestjs/cqrs';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiError } from '../../common/errors/api-error';
 import { EventDiscipline } from '../../personalization/domain/preference-event.model';
 import { AppendMessageCommand } from '../conversation/application/commands/append-message.command';
@@ -19,8 +19,13 @@ import {
   AssistantLane,
   AssistantTurn,
   assistantTurnSchema,
+  WeekEdit,
 } from './assistant.contracts';
-import { decideActions } from './assistant.decision';
+import { decideActions, WeekBreachFacts } from './assistant.decision';
+import { GetActiveProgramQuery } from '../../program/application/queries/get-active-program.query';
+import { ActiveProgramResponse } from '../../program/application/dto/program.response';
+import { GetWeekQuery } from '../../planned-sessions/application/queries/get-week.query';
+import { PlannedSessionResponse } from '../../planned-sessions/application/dto/planned-session.response';
 import { signalToPendingCandidate } from './assistant.mapping';
 import { ASSISTANT_SYSTEM_PROMPT } from './assistant.prompt';
 import {
@@ -30,6 +35,7 @@ import {
 import { DelegationService } from './delegation';
 import { BuildConversationOrchestrator } from '../build/build-conversation.orchestrator';
 import { AutoModeOrchestratorService } from '../auto-mode/auto-mode-orchestrator.service';
+import { ApprovalService } from '../approval/approval.service';
 
 /** Appended to an ASK-mode reply when the user asked for a change we won't make. */
 const ASK_MODE_BLOCKED_HINT =
@@ -90,10 +96,12 @@ export class AssistantService {
     private readonly readTools: ReadToolRegistry,
     private readonly delegation: DelegationService,
     private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
     private readonly queue: PipelineQueue,
     private readonly conversationContext: ConversationContextService,
     private readonly buildOrchestrator: BuildConversationOrchestrator,
     private readonly autoModeOrchestrator: AutoModeOrchestratorService,
+    private readonly approval: ApprovalService,
     @Inject(CONVERSATION_REPOSITORY)
     private readonly conversations: ConversationRepositoryPort,
   ) {}
@@ -157,13 +165,25 @@ export class AssistantService {
 
     const seed = await this.seeds.buildCoachSeed(userId, opts.discipline);
 
+    // 1c. If this conversation carries a pending change proposal (e.g. it was
+    //     opened by a Garmin sync), inject the batch's WHY + per-card diff into
+    //     the seed. Without this the assistant literally cannot explain the
+    //     proposal it is presenting — it would guess.
+    const pendingBatchSection = await this.buildPendingBatchSection(
+      userId,
+      convo?.pendingCardBatchId ?? null,
+    );
+    const seedMessage = pendingBatchSection
+      ? `${seed.seedMessage}\n\n${pendingBatchSection}`
+      : seed.seedMessage;
+
     // 2. Assemble the tier-3 working memory (rolling summary + recent verbatim),
     //    compacting first if the projected prompt is near the token budget.
     const history = await this.conversationContext.buildHistory({
       userId,
       conversationId,
       systemPrompt: ASSISTANT_SYSTEM_PROMPT,
-      seed: seed.seedMessage,
+      seed: seedMessage,
       nextUserMessage: message,
     });
 
@@ -180,7 +200,7 @@ export class AssistantService {
       agentName: 'assistant',
       systemPrompt: ASSISTANT_SYSTEM_PROMPT,
       history,
-      seedMessage: `${seed.seedMessage}\n\n== USER MESSAGE ==\n${message}\n\nClassify and respond by calling assistant_turn exactly once.`,
+      seedMessage: `${seedMessage}\n\n== USER MESSAGE ==\n${message}\n\nClassify and respond by calling assistant_turn exactly once.`,
       tools,
       ctx: { userId, runId },
       temperature: 0.3,
@@ -223,7 +243,16 @@ export class AssistantService {
       (await this.conversations.findConversation(userId, conversationId))?.mode ??
       'plan';
 
-    const actions = decideActions(turn, opts.today, mode);
+    // Deterministic breach verification: fetch the edited week's locked budget
+    // + per-session volumes so `decideActions` can check the model's
+    // `breachesLockedTargets` judgment with real numbers (fail closed).
+    const weekFacts = await this.buildWeekBreachFacts(
+      userId,
+      opts.programId,
+      turn.weekEdit,
+    );
+
+    const actions = decideActions(turn, opts.today, mode, weekFacts);
 
     // In ASK mode, a mutation request wrote/fired nothing — append a hint that
     // the user must switch to Plan mode for the change to take effect.
@@ -270,6 +299,23 @@ export class AssistantService {
       }
     }
 
+    // Done-tense honesty: the prompt has the model phrase a confirmed edit's
+    // reply in past tense ("Done — moved it"), but a malformed edit resolves to
+    // NO pipeline (fail closed). Never let a done-tense reply stand when
+    // nothing will fire — correct the record instead.
+    if (
+      turn.weekEdit?.confirmed &&
+      !actions.awaitingConfirmation &&
+      !actions.intentBlocked &&
+      firingPipeline === null &&
+      actions.pipeline === null
+    ) {
+      reply =
+        "I couldn't apply that change — the request was missing details I need " +
+        '(like which session it targets). Nothing on your plan was changed. ' +
+        'Could you point me at the exact session or goal?';
+    }
+
     let pipelineRun: PipelineRunResult | null = null;
     if (firingPipeline) {
       pipelineRun = await this.queue.enqueue({
@@ -289,8 +335,14 @@ export class AssistantService {
           ...(actions.weekEditContext?.sessionEdit
             ? { sessionEdit: actions.weekEditContext.sessionEdit }
             : {}),
+          ...(actions.weekEditContext?.sessionEdits
+            ? { sessionEdits: actions.weekEditContext.sessionEdits }
+            : {}),
           ...(actions.weekEditContext?.targetRevision
             ? { targetRevision: actions.weekEditContext.targetRevision }
+            : {}),
+          ...(actions.weekEditContext?.sessionReschedule
+            ? { sessionReschedule: actions.weekEditContext.sessionReschedule }
             : {}),
         },
       });
@@ -304,6 +356,13 @@ export class AssistantService {
         reply =
           `I couldn't make that change: ${pipelineRun.abortReason ?? 'the update failed.'} ` +
           'Nothing on your plan was changed.';
+      } else if (pipelineRun?.superseded) {
+        // A newer run for the same week landed while this one worked — its
+        // output was invalidated, so a "Done" reply would be a lie.
+        reply =
+          'A newer change to the same week came in while I was working, so ' +
+          "this one was set aside — the newer change's proposal is the one " +
+          'to review.';
       }
     }
 
@@ -335,6 +394,57 @@ export class AssistantService {
       conversationId,
       assistantMessageId,
     };
+  }
+
+  /**
+   * Ground truth for verifying the model's breach judgment on a session
+   * content edit: the targeted week's locked total-volume budget + each
+   * session's current native volume (km / volume-load). Returns null when the
+   * turn carries no verifiable edit or the facts can't be read (verification
+   * is then skipped, never blocking the turn).
+   */
+  private async buildWeekBreachFacts(
+    userId: string,
+    programId: string,
+    edit: WeekEdit | null | undefined,
+  ): Promise<WeekBreachFacts | null> {
+    if (
+      !edit ||
+      edit.kind !== 'session_content_edit' ||
+      edit.newSessionVolume == null
+    ) {
+      return null;
+    }
+    try {
+      const [active, week] = await Promise.all([
+        this.queryBus.execute<GetActiveProgramQuery, ActiveProgramResponse>(
+          new GetActiveProgramQuery(userId),
+        ),
+        this.queryBus.execute<GetWeekQuery, PlannedSessionResponse[]>(
+          new GetWeekQuery(userId, programId, edit.weekIndex),
+        ),
+      ]);
+      const targets = active.program?.weeks?.find(
+        (w) => w.weekIndex === edit.weekIndex,
+      )?.weeklyTargets;
+      const sessionVolumes: Record<string, number> = {};
+      for (const s of week) {
+        const volume =
+          s.running?.totalDistanceKm ?? s.strength?.targetVolumeLoad ?? null;
+        if (volume != null) {
+          sessionVolumes[s.id] = volume;
+        }
+      }
+      return {
+        lockedTotalVolume: targets?.totalVolume ?? null,
+        sessionVolumes,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Could not build week breach facts for ${userId}: ${String(err)}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -408,6 +518,54 @@ export class AssistantService {
       conversationId,
       assistantMessageId: built.assistantMessageId,
     };
+  }
+
+  /**
+   * Seed section for the conversation's pending proposal, if one is linked and
+   * still pending. Best-effort: a lookup failure degrades to no section (the
+   * turn must not fail because bookkeeping was unreadable).
+   */
+  private async buildPendingBatchSection(
+    userId: string,
+    pendingCardBatchId: string | null,
+  ): Promise<string | null> {
+    if (!pendingCardBatchId) {
+      return null;
+    }
+    try {
+      const view = await this.approval.getBatchView(userId, pendingCardBatchId);
+      if (view.status !== 'pending') {
+        return null;
+      }
+      const lines = view.cards
+        .filter((c) => c.diffStatus !== 'unchanged')
+        .map((c) => {
+          const when = `${c.scheduledDate} ${c.startTime}`;
+          const note = c.coachNotes ? ` — ${c.coachNotes}` : '';
+          switch (c.diffStatus) {
+            case 'new':
+              return `- ADD "${c.title}" on ${when}.${note}`;
+            case 'removed':
+              return `- REMOVE "${c.title}" (was ${when}).${note}`;
+            default:
+              return `- CHANGE "${c.title}" on ${when} (${c.changedFields.join(', ')}).${note}`;
+          }
+        });
+      return [
+        '== PENDING PROPOSAL (awaiting the user\'s approval — NOT applied yet) ==',
+        `This conversation presents a proposed change to week ${view.weekIndex + 1}.`,
+        `Why it was proposed: ${view.reason ?? 'no recorded trigger.'}`,
+        'Proposed changes:',
+        ...(lines.length > 0 ? lines : ['- (no visible diff)']),
+        'When the user asks WHY, answer from the reason and notes above — never invent one.',
+        'The plan changes only after the user approves the proposal.',
+      ].join('\n');
+    } catch (err) {
+      this.logger.warn(
+        `Could not build pending-batch seed section for ${userId}/${pendingCardBatchId}: ${String(err)}`,
+      );
+      return null;
+    }
   }
 
   /** Persist the assistant reply (tier 2) and return the new message id. */

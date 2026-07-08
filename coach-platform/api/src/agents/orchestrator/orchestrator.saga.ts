@@ -1,15 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { AgenticLoopResult } from '../shared/llm/agentic-loop.runtime';
 import { CoachService } from '../coach/coach.service';
 import { PlacementReport } from '../planner/planner.contracts';
 import { PlannerService } from '../planner/planner.service';
 import { RecoveryService } from '../recovery/recovery.service';
 import { RecoveryVerdict } from '../recovery/recovery.contracts';
+import { CalendarSyncService } from '../approval/calendar-sync.service';
+import { GetWeekQuery } from '../../planned-sessions/application/queries/get-week.query';
+import { PlannedSessionResponse } from '../../planned-sessions/application/dto/planned-session.response';
+import { UpsertSessionScheduleCommand } from '../../planned-sessions/application/commands/upsert-session-schedule.command';
 import {
   Pipeline,
   PipelineRunContext,
   PipelineRunResult,
+  SessionEditRequest,
 } from './pipeline.types';
+import { resolveSessionReschedule } from './session-reschedule.policy';
 
 /**
  * The deterministic orchestrator. A plain state machine — NOT an LLM manager —
@@ -30,6 +37,9 @@ export class OrchestratorSaga {
     private readonly coach: CoachService,
     private readonly recovery: RecoveryService,
     private readonly planner: PlannerService,
+    private readonly queryBus: QueryBus,
+    private readonly commandBus: CommandBus,
+    private readonly calendarSync: CalendarSyncService,
   ) {}
 
   async run(
@@ -74,6 +84,10 @@ export class OrchestratorSaga {
 
         case Pipeline.TARGET_REVISION_REPLAN:
           await this.runTargetRevisionReplan(ctx, result);
+          break;
+
+        case Pipeline.SESSION_RESCHEDULE:
+          await this.runSessionReschedule(ctx, result);
           break;
       }
     } catch (err) {
@@ -192,9 +206,16 @@ export class OrchestratorSaga {
     ctx: PipelineRunContext,
     result: PipelineRunResult,
   ): Promise<void> {
-    const edit = ctx.sessionEdit;
-    if (!edit) {
-      throw new Error('SESSION_CONTENT_REPLAN requires ctx.sessionEdit.');
+    const edits: SessionEditRequest[] =
+      ctx.sessionEdits && ctx.sessionEdits.length > 0
+        ? ctx.sessionEdits
+        : ctx.sessionEdit
+          ? [ctx.sessionEdit]
+          : [];
+    if (edits.length === 0) {
+      throw new Error(
+        'SESSION_CONTENT_REPLAN requires ctx.sessionEdit or ctx.sessionEdits.',
+      );
     }
     if (!ctx.programId || ctx.weekIndex === undefined) {
       throw new Error(
@@ -202,31 +223,103 @@ export class OrchestratorSaga {
       );
     }
 
-    if (edit.revisedTargets) {
+    // Any confirmed target cascade rides on the first edit; revise ONCE so
+    // every subsequent redraft is bounded by the new locked budget.
+    const cascade = edits.find((e) => e.revisedTargets);
+    if (cascade?.revisedTargets) {
       result.stages.push('coach.reviseWeeklyTargets');
       await this.coach.reviseWeeklyTargets(
         ctx.userId,
         ctx.programId,
         ctx.weekIndex,
-        edit.revisedTargets,
+        cascade.revisedTargets,
         'session_edit',
-        `Session edit "${edit.plannedSessionId}": ${edit.requestedChangeDescription}`,
+        `Session edit "${cascade.plannedSessionId}": ${cascade.requestedChangeDescription}`,
       );
     }
 
-    result.stages.push('coach.reviseSessionContent');
-    this.requireTerminal(
-      await this.coach.reviseSessionContent(ctx.userId, ctx.runId, ctx.discipline, {
-        programId: ctx.programId,
-        weekIndex: ctx.weekIndex,
-        timezone: ctx.timezone,
-        plannedSessionId: edit.plannedSessionId,
-        requestedChangeDescription: edit.requestedChangeDescription,
-      }),
-      'coach.reviseSessionContent',
-    );
+    for (const edit of edits) {
+      result.stages.push('coach.reviseSessionContent');
+      this.requireTerminal(
+        await this.coach.reviseSessionContent(ctx.userId, ctx.runId, ctx.discipline, {
+          programId: ctx.programId,
+          weekIndex: ctx.weekIndex,
+          timezone: ctx.timezone,
+          plannedSessionId: edit.plannedSessionId,
+          requestedChangeDescription: edit.requestedChangeDescription,
+        }),
+        'coach.reviseSessionContent',
+      );
+    }
 
     await this.place(ctx, result);
+  }
+
+  /**
+   * 9: deterministic single-session move — NO LLM. Code computes the new
+   * schedule (end time from estDurationMin, UTC instant from the timezone),
+   * validates one-session-per-day + the minimum recovery gap against the rest
+   * of the week, and writes it directly. Content is untouched. A committed
+   * session's owned calendar event is re-synced in place.
+   */
+  private async runSessionReschedule(
+    ctx: PipelineRunContext,
+    result: PipelineRunResult,
+  ): Promise<void> {
+    const req = ctx.sessionReschedule;
+    if (!req) {
+      throw new Error('SESSION_RESCHEDULE requires ctx.sessionReschedule.');
+    }
+    if (!ctx.programId || ctx.weekIndex === undefined) {
+      throw new Error(
+        'SESSION_RESCHEDULE requires ctx.programId and ctx.weekIndex.',
+      );
+    }
+
+    result.stages.push('schedule.rescheduleSession');
+    const week = await this.queryBus.execute<
+      GetWeekQuery,
+      PlannedSessionResponse[]
+    >(new GetWeekQuery(ctx.userId, ctx.programId, ctx.weekIndex));
+
+    const target = week.find((s) => s.id === req.plannedSessionId);
+    if (!target) {
+      throw new Error(
+        `Session ${req.plannedSessionId} was not found in week ${ctx.weekIndex}.`,
+      );
+    }
+
+    const { schedule, violations } = resolveSessionReschedule(
+      {
+        plannedSessionId: target.id,
+        newDate: req.newDate ?? target.scheduledDate,
+        newStartTime: req.newStartTime ?? target.startTime,
+        timezone: target.timezone || ctx.timezone,
+        estDurationMin: target.estDurationMin,
+      },
+      week.map((s) => ({
+        id: s.id,
+        title: s.title,
+        scheduledDate: s.scheduledDate,
+        scheduledStartUtc: s.scheduledStartUtc,
+      })),
+    );
+    if (!schedule) {
+      throw new Error(`Cannot move the session: ${violations.join(' ')}`);
+    }
+
+    await this.commandBus.execute(
+      new UpsertSessionScheduleCommand(ctx.userId, target.id, schedule),
+    );
+
+    // A committed session already projects onto an owned calendar event —
+    // push the new time immediately (tentative sessions sync later, at commit).
+    if (target.planState === 'committed') {
+      result.stages.push('calendar.syncSession');
+      await this.calendarSync.syncWeek(ctx.userId, [
+        { ...target, ...schedule },
+      ]);
+    }
   }
 
   /**

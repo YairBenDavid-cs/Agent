@@ -4,7 +4,7 @@ import {
   listScheduledWeekBuilds,
   scheduleWeekBuild,
 } from '../api/assistantApi';
-import type { ScheduledWeekBuild } from '../types/assistant';
+import type { ScheduledWeekBuild, ScheduledWeekBuildMode } from '../types/assistant';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -14,7 +14,7 @@ interface UseScheduledWeekBuildResult {
   status: Status;
   error: string | null;
   refresh: () => Promise<void>;
-  schedule: (scheduledForUtc: string) => Promise<void>;
+  schedule: (scheduledForUtc: string, mode: ScheduledWeekBuildMode) => Promise<void>;
   cancel: () => Promise<void>;
 }
 
@@ -37,16 +37,19 @@ export function useScheduledWeekBuild(): UseScheduledWeekBuildResult {
     }
   }, []);
 
-  const schedule = useCallback(async (scheduledForUtc: string): Promise<void> => {
-    setError(null);
-    try {
-      const created = await scheduleWeekBuild(scheduledForUtc);
-      setPending(created);
-    } catch {
-      setError('Could not schedule the build — finish and lock this week first.');
-      throw new Error('schedule-failed');
-    }
-  }, []);
+  const schedule = useCallback(
+    async (scheduledForUtc: string, mode: ScheduledWeekBuildMode): Promise<void> => {
+      setError(null);
+      try {
+        const created = await scheduleWeekBuild(scheduledForUtc, mode);
+        setPending(created);
+      } catch {
+        setError('Could not schedule the build — finish and lock this week first.');
+        throw new Error('schedule-failed');
+      }
+    },
+    [],
+  );
 
   const cancel = useCallback(async (): Promise<void> => {
     if (!pending) {

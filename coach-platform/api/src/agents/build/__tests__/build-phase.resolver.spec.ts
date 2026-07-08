@@ -74,6 +74,7 @@ function batch(overrides: Partial<PendingCardBatch> = {}): PendingCardBatch {
     runId: 'r1',
     conversationId: 'c1',
     sessionStartUtc: null,
+    reason: null,
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
     ...overrides,

@@ -10,6 +10,16 @@
 
 .rowTheirs {
   justify-content: flex-start;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+/* Globe/orb mark rendered beside every assistant reply. */
+.avatar {
+  flex: none;
+  margin-top: 2px;
+  color: #9a9a9a;
+  line-height: 0;
 }
 
 .bubble {
@@ -18,33 +28,46 @@
   gap: 2px;
 }
 
-/* User turn: rounded gray bubble on the right, ChatGPT-style. */
+/* User turn: warm orange-tinted bubble on the right, with a squared-off
+   bottom-right corner so it reads as "sent". */
 .mine {
   max-width: 76%;
-  padding: var(--wa-space-2) var(--wa-space-3);
-  border-radius: var(--wa-radius-lg);
-  background: var(--wa-bubble-out);
+  padding: 14px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px 20px 6px 20px;
+  background: #2a2b30;
+  box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.5);
 }
 
-/* Assistant turn: plain text, no bubble, full column width. */
+/* Assistant turn: dark gradient bubble with a squared-off bottom-left corner,
+   so each reply reads as a distinct message rather than blending into the page. */
 .theirs {
-  max-width: 100%;
-  padding: var(--wa-space-2) 0;
-  background: transparent;
+  max-width: 82%;
+  padding: 15px 19px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 20px 20px 20px 6px;
+  background: linear-gradient(180deg, #212121, #181818);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.7);
+}
+
+/* The latest assistant message reads the same as the rest — no accent frame. */
+.latest {
+  border-color: rgba(255, 255, 255, 0.055);
 }
 
 .text {
   font-size: 16px;
-  line-height: 1.6;
-  color: var(--wa-text);
+  line-height: 1.45;
+  color: #ececec;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .time {
   align-self: flex-end;
-  font-size: 11px;
-  color: var(--wa-text-muted);
+  font-size: 12px;
+  color: #8d8d89;
+  padding-right: 4px;
 }
 
 /* The assistant turn reads as prose, so hide its timestamp. */

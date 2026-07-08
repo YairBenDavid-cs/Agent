@@ -94,15 +94,51 @@ describe('planner.prewrite-validator', () => {
     expect(v.some((m) => m.includes('overlap each other'))).toBe(true);
   });
 
-  it('allows back-to-back non-overlapping sessions', () => {
+  it('flags two sessions on the same day even without a time overlap', () => {
     const v = validatePlacement({
       placed: [
         entry({ plannedSessionId: 'a' }),
         entry({
           plannedSessionId: 'b',
-          startTime: '08:00',
-          endTime: '09:00',
-          scheduledStartUtc: '2026-07-06T08:00:00.000Z',
+          startTime: '18:00',
+          endTime: '19:00',
+          scheduledStartUtc: '2026-07-06T18:00:00.000Z',
+        }),
+      ],
+      busy: [],
+      hardBlocked: [],
+    });
+    expect(v.some((m) => m.includes('only one session per day'))).toBe(true);
+  });
+
+  it('flags starts on adjacent days closer than the minimum recovery gap', () => {
+    const v = validatePlacement({
+      placed: [
+        entry({ plannedSessionId: 'a', startTime: '21:00', endTime: '22:00', scheduledStartUtc: '2026-07-06T21:00:00.000Z' }),
+        entry({
+          plannedSessionId: 'b',
+          scheduledDate: '2026-07-07',
+          startTime: '06:00',
+          endTime: '07:00',
+          scheduledStartUtc: '2026-07-07T06:00:00.000Z',
+        }),
+      ],
+      busy: [],
+      hardBlocked: [],
+    });
+    expect(v.some((m) => m.includes('minimum recovery gap'))).toBe(true);
+  });
+
+  it('allows sessions on different days with a sufficient recovery gap', () => {
+    const v = validatePlacement({
+      placed: [
+        entry({ plannedSessionId: 'a' }),
+        entry({
+          plannedSessionId: 'b',
+          scheduledDate: '2026-07-07',
+          startTime: '07:00',
+          endTime: '08:00',
+          scheduledStartUtc: '2026-07-07T07:00:00.000Z',
         }),
       ],
       busy: [],

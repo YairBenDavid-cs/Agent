@@ -32,6 +32,12 @@ export enum Pipeline {
    * Coach reflows the week's (still-tentative) sessions → Planner re-place.
    */
   TARGET_REVISION_REPLAN = 'target_revision_replan',
+  /**
+   * 9. Deterministic single-session move (new day and/or start time). NO LLM:
+   * code validates one-session-per-day + the minimum recovery gap, then writes
+   * the schedule directly. Content is untouched.
+   */
+  SESSION_RESCHEDULE = 'session_reschedule',
 }
 
 /** Payload for {@link Pipeline.SESSION_CONTENT_REPLAN}. */
@@ -49,6 +55,15 @@ export interface SessionEditRequest {
     totalVolume: number;
     keyGoals: string[];
   } | null;
+}
+
+/** Payload for {@link Pipeline.SESSION_RESCHEDULE}. */
+export interface SessionRescheduleRequest {
+  plannedSessionId: string;
+  /** New local date (YYYY-MM-DD), or null to keep the current date. */
+  newDate: string | null;
+  /** New local start time (HH:mm), or null to keep the current start time. */
+  newStartTime: string | null;
 }
 
 /** Payload for {@link Pipeline.TARGET_REVISION_REPLAN}. */
@@ -81,10 +96,25 @@ export interface PipelineRunContext {
    * code-scheduled runs (the `fetch` cron has no conversation).
    */
   conversationId?: string | null;
+  /**
+   * WHY this run was triggered, when the trigger can articulate it (e.g. the
+   * Garmin-sync significance gate: "long run was missed", "unplanned load").
+   * Persisted onto the resulting pending card batch so proposals and the
+   * assistant can explain the change instead of guessing.
+   */
+  syncReason?: string | null;
   /** Set only when `pipeline === SESSION_CONTENT_REPLAN`. */
   sessionEdit?: SessionEditRequest;
+  /**
+   * Multi-session variant: the SAME requested change applied to several
+   * sessions in one run (e.g. "slow down all my runs this week"). When set,
+   * the saga iterates these; `sessionEdit` may be absent.
+   */
+  sessionEdits?: SessionEditRequest[];
   /** Set only when `pipeline === TARGET_REVISION_REPLAN`. */
   targetRevision?: TargetRevisionRequest;
+  /** Set only when `pipeline === SESSION_RESCHEDULE`. */
+  sessionReschedule?: SessionRescheduleRequest;
 }
 
 export interface PipelineRunResult {

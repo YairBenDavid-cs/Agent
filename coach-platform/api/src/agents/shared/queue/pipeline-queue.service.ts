@@ -157,6 +157,7 @@ export class PipelineQueue {
             : 'user_initiated',
         runId: job.ctx.runId,
         conversationId: job.ctx.conversationId ?? null,
+        reason: composeBatchReason(job.ctx, result),
       });
       if (job.ctx.runId.startsWith(`${GARMIN_SYNC_RUN_ID_PREFIX}:`)) {
         this.events.emit(
@@ -180,4 +181,27 @@ export class PipelineQueue {
       );
     }
   }
+}
+
+/**
+ * The persisted "why" for the batch: the trigger's own reason (e.g. the Garmin
+ * significance gate's findings) plus the Recovery verdict's rationale when the
+ * run flagged reduced readiness. Null when neither exists — an unexplained
+ * batch renders without a reason line, never with a guessed one.
+ */
+function composeBatchReason(
+  ctx: PipelineRunContext,
+  result: PipelineRunResult,
+): string | null {
+  const parts: string[] = [];
+  if (ctx.syncReason) {
+    parts.push(ctx.syncReason);
+  }
+  const verdict = result.recoveryVerdict;
+  if (verdict && verdict.readiness !== 'green') {
+    parts.push(
+      `Recovery readiness is ${verdict.readiness}: ${verdict.rationale}`,
+    );
+  }
+  return parts.length > 0 ? parts.join(' ') : null;
 }

@@ -19,6 +19,7 @@ export interface RecordBatchInput {
   kind: DraftKind;
   runId: string;
   conversationId?: string | null;
+  reason?: string | null;
 }
 
 /**
@@ -59,6 +60,7 @@ export class PendingCardBatchService {
       runId: input.runId,
       conversationId: input.conversationId ?? null,
       sessionStartUtc,
+      reason: input.reason ?? null,
     });
     this.logger.log(
       `Pending card batch ${batch.id} opened (${batch.kind}) for ${input.userId} week ${input.weekIndex}.`,

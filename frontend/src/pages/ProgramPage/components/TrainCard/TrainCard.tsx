@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import type { PlannedSession } from '../../domain/types';
-import { formatTimeRange, statusLabel } from '../../domain/format';
+import { statusLabel } from '../../domain/format';
 import { WorkoutBody } from '../WorkoutBody/WorkoutBody';
 import styles from './TrainCard.module.css';
 
@@ -28,10 +28,8 @@ export function TrainCard({ session, onDiscuss }: TrainCardProps): ReactElement 
           </span>
         </div>
         <span className={styles.meta}>
-          {session.scheduledDate} · {formatTimeRange(session.startTime, session.endTime)} ·{' '}
           {session.estDurationMin} min · {session.intensityLabel}
         </span>
-        {session.coachNotes !== null && <p className={styles.desc}>{session.coachNotes}</p>}
       </div>
 
       <WorkoutBody session={session} />

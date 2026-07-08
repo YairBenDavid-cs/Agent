@@ -34,6 +34,10 @@ function weekEdit(overrides: Partial<WeekEdit> = {}): WeekEdit {
     weekIndex: 3,
     kind: 'session_content_edit',
     plannedSessionId: 'sess-1',
+    plannedSessionIds: [],
+    newDate: null,
+    newStartTime: null,
+    newSessionVolume: null,
     requestedChangeDescription: 'make Friday run 15km instead of 10km',
     newTargets: null,
     breachesLockedTargets: false,
@@ -210,13 +214,15 @@ describe('assistant.decision', () => {
     it('confirmed session_content_edit fires SESSION_CONTENT_REPLAN with the resolved weekIndex', () => {
       const a = decideActions(turn({ weekEdit: weekEdit() }), TODAY);
       expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      const expectedEdit = {
+        plannedSessionId: 'sess-1',
+        requestedChangeDescription: 'make Friday run 15km instead of 10km',
+        revisedTargets: null,
+      };
       expect(a.weekEditContext).toEqual({
         weekIndex: 3,
-        sessionEdit: {
-          plannedSessionId: 'sess-1',
-          requestedChangeDescription: 'make Friday run 15km instead of 10km',
-          revisedTargets: null,
-        },
+        sessionEdit: expectedEdit,
+        sessionEdits: [expectedEdit],
       });
       expect(a.awaitingConfirmation).toBe(false);
       expect(a.writes).toEqual([]);
@@ -335,6 +341,122 @@ describe('assistant.decision', () => {
       expect(a.weekEditContext).toBeNull();
       expect(a.writes).toEqual([]);
       expect(a.intentBlocked).toBe(true);
+    });
+
+    it('multi-session edit builds one SessionEditRequest per id (cascade on the first only)', () => {
+      const newTargets = { sessionCount: 4, totalVolume: 50, keyGoals: [] };
+      const a = decideActions(
+        turn({
+          weekEdit: weekEdit({
+            plannedSessionId: 'sess-1',
+            plannedSessionIds: ['sess-1', 'sess-2', 'sess-3'],
+            breachesLockedTargets: true,
+            newTargets,
+          }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      const edits = a.weekEditContext?.sessionEdits ?? [];
+      expect(edits.map((e) => e.plannedSessionId)).toEqual([
+        'sess-1',
+        'sess-2',
+        'sess-3',
+      ]);
+      expect(edits[0].revisedTargets).toEqual(newTargets);
+      expect(edits[1].revisedTargets).toBeNull();
+      expect(edits[2].revisedTargets).toBeNull();
+    });
+
+    it('confirmed session_reschedule fires SESSION_RESCHEDULE with the move payload', () => {
+      const a = decideActions(
+        turn({
+          weekEdit: weekEdit({
+            kind: 'session_reschedule',
+            newDate: '2026-07-04',
+            newStartTime: '18:30',
+          }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_RESCHEDULE);
+      expect(a.weekEditContext).toEqual({
+        weekIndex: 3,
+        sessionReschedule: {
+          plannedSessionId: 'sess-1',
+          newDate: '2026-07-04',
+          newStartTime: '18:30',
+        },
+      });
+    });
+
+    it('session_reschedule with neither newDate nor newStartTime fails closed', () => {
+      const a = decideActions(
+        turn({ weekEdit: weekEdit({ kind: 'session_reschedule' }) }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.weekEditContext).toBeNull();
+    });
+  });
+
+  describe('deterministic breach verification (weekFacts)', () => {
+    const facts = {
+      lockedTotalVolume: 40,
+      sessionVolumes: { 'sess-1': 10, 'sess-2': 12, 'sess-3': 18 },
+    };
+
+    it('blocks a confirmed edit the model called non-breaching when the math says breach', () => {
+      // 15 km replacing 10 km → 45 vs 40 locked → 12.5% over the 10% tolerance.
+      const a = decideActions(
+        turn({ weekEdit: weekEdit({ newSessionVolume: 15 }) }),
+        TODAY,
+        'plan',
+        facts,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.awaitingConfirmation).toBe(true);
+      expect(a.reply).toContain('locked target');
+    });
+
+    it('lets a within-tolerance edit fire normally', () => {
+      // 12 km replacing 10 km → 42 vs 40 → 5%, inside tolerance.
+      const a = decideActions(
+        turn({ weekEdit: weekEdit({ newSessionVolume: 12 }) }),
+        TODAY,
+        'plan',
+        facts,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      expect(a.awaitingConfirmation).toBe(false);
+    });
+
+    it('does not intercept when the model flagged the breach AND carries newTargets (user confirmed cascade)', () => {
+      const newTargets = { sessionCount: 3, totalVolume: 45, keyGoals: [] };
+      const a = decideActions(
+        turn({
+          weekEdit: weekEdit({
+            newSessionVolume: 15,
+            breachesLockedTargets: true,
+            newTargets,
+          }),
+        }),
+        TODAY,
+        'plan',
+        facts,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      expect(a.weekEditContext?.sessionEdit?.revisedTargets).toEqual(newTargets);
+    });
+
+    it('skips verification when no weekFacts are available', () => {
+      const a = decideActions(
+        turn({ weekEdit: weekEdit({ newSessionVolume: 15 }) }),
+        TODAY,
+        'plan',
+        null,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
     });
   });
 });

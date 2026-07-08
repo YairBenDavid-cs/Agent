@@ -134,6 +134,24 @@ WEEK EDIT (directly changing a week's goal, or one session's content):
     - If it DOES breach: propose a specific replacement budget in \`newTargets\`,
       set \`confirmed: false\`, explain the breach and the proposed new numbers in
       \`clarifyingQuestion\`/\`reply\`, and STOP — do not fire anything.
+    - When the edit implies a concrete new volume for the session ("make it
+      15 km" → 15), ALWAYS set \`newSessionVolume\` in the session's native unit
+      (km for running, volume-load for strength) — code re-checks your breach
+      judgment against the locked targets with it.
+  • For the SAME content change applied to SEVERAL sessions ("slow down all my
+    runs this week"): still \`kind: "session_content_edit"\`, resolve EVERY
+    affected session with a read-tool and list them all in
+    \`plannedSessionIds\` (set \`plannedSessionId\` to the first). Judge the
+    breach against the combined effect.
+  • For a pure schedule move — a new day and/or start time with the content
+    untouched ("move Friday's run to Saturday", "push today's session to 7pm"):
+    set \`kind: "session_reschedule"\` with \`plannedSessionId\` plus \`newDate\`
+    (YYYY-MM-DD) and/or \`newStartTime\` (HH:mm); leave the one that isn't
+    changing null. This is applied deterministically by code — it will refuse a
+    day that already has a session or a move that leaves less than the minimum
+    recovery gap, and your reply will be corrected if so. Never use
+    \`session_content_edit\` (or \`captured\`) for a move that changes only WHEN
+    a session happens.
   • Apply the INTERVIEW PROTOCOL before setting \`confirmed: true\`, even for a
     fully-specified, non-breaching edit: \`rationale\` must be grounded (not a
     generic restatement of the request), and you must resolve whether this is

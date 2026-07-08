@@ -53,6 +53,7 @@ export class PendingCardBatchRepository
       run_id: input.runId,
       conversation_id: input.conversationId,
       session_start_utc: input.sessionStartUtc,
+      reason: input.reason,
     });
     return toBatch(doc.toObject() as BatchLean);
   }
@@ -114,6 +115,7 @@ function toBatch(d: BatchLean): PendingCardBatch {
     runId: d.run_id,
     conversationId: d.conversation_id,
     sessionStartUtc: d.session_start_utc,
+    reason: d.reason ?? null,
     createdAt: (d.createdAt ?? new Date()).toISOString(),
     updatedAt: (d.updatedAt ?? new Date()).toISOString(),
   };

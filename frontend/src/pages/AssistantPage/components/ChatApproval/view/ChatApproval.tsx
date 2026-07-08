@@ -1,17 +1,11 @@
 import type { ReactElement } from 'react';
 import type { ApprovalBatchView, ApprovalCard } from '@/pages/ProgramPage/api/approvalsApi';
 import type { ConversationMode } from '@/pages/AssistantPage/domain/assistant/types/assistant';
-import type { PlannedSession } from '@/pages/ProgramPage/domain/types';
-import { WorkoutBody } from '@/pages/ProgramPage/components/WorkoutBody/WorkoutBody';
 import { CheckIcon } from '@/shared/ui/icons/CheckIcon';
 import styles from './ChatApproval.module.css';
 
 interface ChatApprovalProps {
   batch: ApprovalBatchView;
-  // Full prescriptions for build_session cards, keyed by sessionId. When a card
-  // matches, we render the same workout body as the program page; otherwise we
-  // fall back to the compact line.
-  sessionsById: Map<string, PlannedSession>;
   mode: ConversationMode;
   actionPending: boolean;
   actionError: string | null;
@@ -19,16 +13,6 @@ interface ChatApprovalProps {
   onReject: () => void;
   onSwitchToPlan: () => void;
   onRefresh: () => void;
-}
-
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-// scheduledDate is a 'YYYY-MM-DD' string; parse the parts directly so the
-// weekday isn't shifted by the local timezone.
-function weekday(scheduledDate: string): string {
-  const [y, m, d] = scheduledDate.split('-').map(Number);
-  if (!y || !m || !d) return '';
-  return WEEKDAYS[new Date(y, m - 1, d).getDay()] ?? '';
 }
 
 const StarIcon = (
@@ -66,41 +50,27 @@ function cardsToShow(batch: ApprovalBatchView): ApprovalCard[] {
   return changed.length > 0 ? changed : batch.cards;
 }
 
-function CardBody({
-  cards,
-  sessionsById,
-}: {
-  cards: ApprovalCard[];
-  sessionsById: Map<string, PlannedSession>;
-}): ReactElement {
+// Deliberately minimal (decision: no prescription body, notes, or eyebrow in
+// the chat card): title, training type, and one meta line. The full workout
+// lives on the program page.
+function CardBody({ cards }: { cards: ApprovalCard[] }): ReactElement {
   return (
     <div className={styles.cards}>
-      {cards.map((card, i) => {
+      {cards.map((card) => {
         const removed = card.diffStatus === 'removed';
-        const day = weekday(card.scheduledDate);
-        // A build_session card whose full prescription we resolved renders the
-        // same workout body as the program page; a removed card or an unmatched
-        // one (week_review / mock / race) keeps the compact line.
-        const session = removed ? undefined : sessionsById.get(card.sessionId);
         return (
           <div key={card.sessionId} className={styles.card}>
-            <div className={styles.cardEyebrow}>
-              Session {i + 1}
-              {day && ` · ${day}`}
-            </div>
             <div className={removed ? `${styles.cardLine} ${styles.removed}` : styles.cardLine}>
               <span className={removed ? styles.lineIconMuted : styles.lineIcon}>
                 {removed ? MinusIcon : ArrowIcon}
               </span>
               <span className={styles.cardTitle}>{card.title}</span>
             </div>
+            <span className={styles.cardType}>{card.type.replace(/_/g, ' ')}</span>
             <span className={styles.cardMeta}>
-              {card.scheduledDate} · {card.startTime} · {card.intensityLabel} ·{' '}
-              {card.estDurationMin} min
+              {card.scheduledDate} · {card.startTime}–{card.endTime} · {card.estDurationMin} min ·{' '}
+              {card.intensityLabel}
             </span>
-            {session && <WorkoutBody session={session} className={styles.workout} />}
-            {card.coachNotes && <p className={styles.notes}>{card.coachNotes}</p>}
-            {card.placementNote && <p className={styles.placement}>{card.placementNote}</p>}
           </div>
         );
       })}
@@ -121,7 +91,6 @@ function CardBody({
  */
 export function ChatApproval({
   batch,
-  sessionsById,
   mode,
   actionPending,
   actionError,
@@ -140,7 +109,7 @@ export function ChatApproval({
     return (
       <div className={styles.panel}>
         <Header status="Superseded" />
-        <CardBody cards={cards} sessionsById={sessionsById} />
+        <CardBody cards={cards} />
         <div className={styles.footer}>
           <p className={styles.superseded}>This plan was superseded by a newer one.</p>
           <button type="button" className={styles.refresh} onClick={onRefresh}>
@@ -160,7 +129,7 @@ export function ChatApproval({
   return (
     <div className={styles.panel}>
       <Header status={status} />
-      <CardBody cards={cards} sessionsById={sessionsById} />
+      <CardBody cards={cards} />
 
       {isPending && actionError && <p className={styles.error}>{actionError}</p>}
 

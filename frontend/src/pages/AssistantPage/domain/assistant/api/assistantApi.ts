@@ -8,6 +8,7 @@ import type {
   MessageMeta,
   PipelineRunResult,
   ScheduledWeekBuild,
+  ScheduledWeekBuildMode,
 } from '../types/assistant';
 import {
   mockCreateConversation,
@@ -195,24 +196,36 @@ export function closeAssistantConversation(conversationId: string): Promise<void
   }).then(() => undefined);
 }
 
-export function listAssistantTurns(conversationId: string): Promise<AssistantTurn[]> {
+export async function listAssistantTurns(
+  conversationId: string,
+): Promise<AssistantTurn[]> {
   if (MOCK_API) {
     return Promise.resolve(mockListTurns(conversationId));
   }
-  return request<ApiPage<ApiMessage>>(
-    `/assistant/conversations/${conversationId}/messages?order=asc`,
-  ).then((page) =>
-    page.items
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({
-        id: m.id,
-        conversationId: m.conversationId,
-        role: m.role as AssistantTurn['role'],
-        text: m.content,
-        createdAt: m.createdAt,
-        meta: m.meta,
-      })),
-  );
+  // The API pages the transcript (default 30/page); follow the cursor so the
+  // full history renders — otherwise long conversations freeze at page one.
+  const items: ApiMessage[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: ApiPage<ApiMessage> = await request<ApiPage<ApiMessage>>(
+      `/assistant/conversations/${conversationId}/messages?order=asc&limit=100${
+        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''
+      }`,
+    );
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+
+  return items
+    .filter((m) => m.role !== 'system')
+    .map((m) => ({
+      id: m.id,
+      conversationId: m.conversationId,
+      role: m.role as AssistantTurn['role'],
+      text: m.content,
+      createdAt: m.createdAt,
+      meta: m.meta,
+    }));
 }
 
 /**
@@ -286,12 +299,21 @@ export function resumeBuild(
 }
 
 // POST /assistant/scheduled-week-builds — schedule the next week's "plan next
-// week" build to fire at `scheduledForUtc`. Backend-driven; no MOCK_API path.
-export function scheduleWeekBuild(scheduledForUtc: string): Promise<ScheduledWeekBuild> {
-  return request<{ id: string; targetWeekIndex: number; scheduledForUtc: string }>(
-    '/assistant/scheduled-week-builds',
-    { method: 'POST', body: { scheduledForUtc } },
-  ).then((res) => ({ ...res, status: 'pending' as const }));
+// week" build to fire at `scheduledForUtc`, in `mode` ('plan' = HITL chat,
+// 'auto' = autonomous build). Backend-driven; no MOCK_API path.
+export function scheduleWeekBuild(
+  scheduledForUtc: string,
+  mode: ScheduledWeekBuildMode,
+): Promise<ScheduledWeekBuild> {
+  return request<{
+    id: string;
+    targetWeekIndex: number;
+    scheduledForUtc: string;
+    mode: ScheduledWeekBuildMode;
+  }>('/assistant/scheduled-week-builds', {
+    method: 'POST',
+    body: { scheduledForUtc, mode },
+  }).then((res) => ({ ...res, status: 'pending' as const }));
 }
 
 // GET /assistant/scheduled-week-builds — the caller's pending schedule, if any.

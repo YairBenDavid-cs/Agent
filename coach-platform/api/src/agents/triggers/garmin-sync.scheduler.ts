@@ -15,7 +15,22 @@ import {
 import { GetUserQuery } from '../../users/application/queries/get-user.query';
 import { UserResponse } from '../../users/application/dto/user.response';
 import { GARMIN_SYNC_RUN_ID_PREFIX } from '../shared/queue/events/garmin-sync-batch-recorded.event';
+import { GetWeekQuery } from '../../planned-sessions/application/queries/get-week.query';
+import { PlannedSessionResponse } from '../../planned-sessions/application/dto/planned-session.response';
+import { SessionMatcherService } from '../../program-matching/application/session-matcher.service';
+import {
+  SESSIONS_REPOSITORY,
+  SessionsRepositoryPort,
+} from '../../sessions/domain/sessions.repository.port';
 import { FetchTrigger } from './fetch.trigger';
+import { TriggerContextResolver } from './trigger-context.resolver';
+import {
+  composeSyncReason,
+  evaluateSyncSignificance,
+} from './sync-significance.policy';
+
+/** Upper bound on observed activities considered by the significance gate. */
+const OBSERVED_SCAN_LIMIT = 200;
 
 /** Local "HH:mm" and "YYYY-MM-DD" for `tz`, read off one `Intl` pass. */
 function localClock(tz: string, now: Date): { hhmm: string; date: string } {
@@ -42,13 +57,21 @@ function localClock(tz: string, now: Date): { hhmm: string; date: string } {
  * state at fire time (never trusting anything cached), so a user who changes
  * their sync times or timezone sees it take effect on the very next tick.
  *
- * Each fire does two things, matching what the old two crons did an hour
- * apart from each other, but now deterministically chained:
+ * Each fire is a deterministic chain (replacing the old two crons an hour
+ * apart):
  *  1. `IngestionOrchestrator.runForUser` — pull fresh Garmin data.
- *  2. `FetchTrigger.runForUser` — enqueue FULL_SESSION_DAY (Recovery gate →
- *     Coach → Planner) tagged with a `garmin-sync:` runId, so
- *     `PipelineQueue.maybeRecordBatch` can attribute the resulting pending
- *     card batch back to this sync and gate Plan vs Auto mode on it.
+ *  2. `SessionMatcherService.reconcile` — AWAITED, against the committed week,
+ *     BEFORE any replan is considered. This fixes the old race where the
+ *     async ingestion listener matched concurrently with week regeneration
+ *     (tentative sessions are invisible to the matcher's `planned` filter).
+ *  3. `evaluateSyncSignificance` — the deterministic gate. Only when the
+ *     matched data suggests changing the week (deviation, missed session,
+ *     unplanned extra load) does the sync escalate; otherwise it ends silent.
+ *  4. `FetchTrigger.runForUser` — enqueue FULL_SESSION_DAY (Recovery gate →
+ *     Coach → Planner) tagged with a `garmin-sync:` runId AND the composed
+ *     significance reason, so `PipelineQueue.maybeRecordBatch` can attribute
+ *     the resulting pending card batch back to this sync, gate Plan vs Auto
+ *     mode on it, and persist WHY the change was proposed.
  */
 @Injectable()
 export class GarminSyncScheduler {
@@ -59,8 +82,12 @@ export class GarminSyncScheduler {
     private readonly users: UsersRepositoryPort,
     @Inject(GARMIN_SYNC_SCHEDULE_REPOSITORY)
     private readonly schedules: GarminSyncScheduleRepositoryPort,
+    @Inject(SESSIONS_REPOSITORY)
+    private readonly sessions: SessionsRepositoryPort,
     private readonly queryBus: QueryBus,
     private readonly orchestrator: IngestionOrchestrator,
+    private readonly matcher: SessionMatcherService,
+    private readonly resolver: TriggerContextResolver,
     private readonly fetchTrigger: FetchTrigger,
   ) {}
 
@@ -105,10 +132,67 @@ export class GarminSyncScheduler {
 
     this.logger.log(`Garmin sync firing for ${userId} at ${due} (${date}).`);
     await this.orchestrator.runForUser(userId);
+
+    const ctx = await this.resolver.resolveForToday(userId);
+    if (!ctx) {
+      return; // no active program / current week — nothing to reconcile or replan.
+    }
+
+    // Match FIRST (awaited), against the committed week — so the significance
+    // gate and any subsequent regeneration see fresh adherence outcomes.
+    await this.matcher.reconcile(
+      userId,
+      ctx.weekWindow.from,
+      ctx.weekWindow.to,
+    );
+
+    const [week, observed] = await Promise.all([
+      this.queryBus.execute<GetWeekQuery, PlannedSessionResponse[]>(
+        new GetWeekQuery(userId, ctx.programId, ctx.weekIndex),
+      ),
+      this.sessions.findRange(
+        userId,
+        ctx.weekWindow.from,
+        ctx.weekWindow.to,
+        null,
+        null,
+        OBSERVED_SCAN_LIMIT,
+      ),
+    ]);
+
+    const significance = evaluateSyncSignificance({
+      today: date,
+      plannedWeek: week
+        .filter((s) => s.planState === 'committed')
+        .map((s) => ({
+          id: s.id,
+          title: s.title,
+          scheduledDate: s.scheduledDate,
+          type: s.type,
+          outcome: {
+            status: s.outcome.status,
+            matchedActivityId: s.outcome.matchedActivityId,
+          },
+        })),
+      observedSessions: observed.map((o) => ({
+        activityId: o.activityId,
+        date: o.date,
+        type: o.type,
+      })),
+    });
+
+    if (!significance.significant) {
+      this.logger.log(
+        `Garmin sync for ${userId} at ${due} (${date}): no significant signal — staying silent.`,
+      );
+      return;
+    }
+
     await this.fetchTrigger.runForUser(
       userId,
       date,
       `${GARMIN_SYNC_RUN_ID_PREFIX}:${userId}:${date}:${due}`,
+      composeSyncReason(significance),
     );
   }
 }

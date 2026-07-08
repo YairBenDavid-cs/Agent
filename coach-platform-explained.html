@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coach Platform — Architecture Explained</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#2c2c2a;background:#fff;max-width:920px;margin:0 auto;padding:32px 24px 80px;line-height:1.7;font-size:16px}
+  h1{font-size:28px;font-weight:600;margin:0 0 4px}
+  h2{font-size:21px;font-weight:600;margin:48px 0 12px;border-bottom:1px solid #e5e3dc;padding-bottom:8px}
+  h3{font-size:17px;font-weight:600;margin:28px 0 8px}
+  p{margin:10px 0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.86em;background:#f4f2ec;padding:1px 5px;border-radius:4px}
+  .subtitle{color:#6b6a64;margin-bottom:24px}
+  .fig{margin:20px 0;padding:16px;border:1px solid #e5e3dc;border-radius:12px;background:#fcfbf9}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:14px 0}
+  th{text-align:left;padding:7px 10px;font-weight:600;border-bottom:2px solid #d3d1c7}
+  td{padding:6px 10px;border-bottom:1px solid #eceae3;vertical-align:top}
+  td.c{text-align:center}
+  th.c{text-align:center}
+  .ok{color:#0F6E56;font-weight:600}
+  .dash{color:#b4b2a9}
+  svg{display:block;margin:0 auto;max-width:100%}
+  svg text{fill:#3d3d3a}
+  .th{font-size:14px;font-weight:500}
+  .ts{font-size:12px;fill:#5F5E5A}
+  .arr{stroke:#73726c;stroke-width:1.5;fill:none}
+  .leader{stroke:#9c9a92;stroke-width:1;stroke-dasharray:4 4}
+  .c-purple rect{fill:#EEEDFE;stroke:#534AB7;stroke-width:.7}
+  .c-purple .th{fill:#3C3489}.c-purple .ts{fill:#534AB7}
+  .c-teal rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:.7}
+  .c-teal .th{fill:#085041}.c-teal .ts{fill:#0F6E56}
+  .c-gray rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:.7}
+  .c-gray .th{fill:#444441}.c-gray .ts{fill:#5F5E5A}
+  .c-amber rect{fill:#FAEEDA;stroke:#854F0B;stroke-width:.7}
+  .c-amber .th{fill:#633806}.c-amber .ts{fill:#854F0B}
+  .c-red rect{fill:#FCEBEB;stroke:#A32D2D;stroke-width:.7}
+  .c-red .th{fill:#791F1F}.c-red .ts{fill:#A32D2D}
+  .note{background:#FAEEDA;border-left:3px solid #854F0B;padding:10px 14px;border-radius:0 8px 8px 0;font-size:14px}
+</style>
+</head>
+<body>
+
+<h1>Coach Platform — architecture explained</h1>
+<p class="subtitle">A visual walkthrough of the codebase: system architecture, DB schemas, the OpenClaw-style memory engine, the Ask/Plan/Auto modes, the Garmin sync routine, and the next-week build flow. All file paths reference <code>coach-platform/api/src</code> unless noted.</p>
+
+<h2>1. System architecture</h2>
+<p>Three deployables and five external dependencies. The API owns everything: MongoDB state, the agent layer, Redis locks, LLM calls. The fetch service (<code>coach-platform/fetch-service</code>) is deliberately dumb — credentials in, metrics out, no database of its own.</p>
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 310" role="img"><title>System architecture</title>
+<defs><marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="c-purple"><rect x="40" y="50" width="160" height="56" rx="8"/><text class="th" x="120" y="70" text-anchor="middle" dominant-baseline="central">Frontend</text><text class="ts" x="120" y="90" text-anchor="middle" dominant-baseline="central">React chat, SSE</text></g>
+<g class="c-purple"><rect x="260" y="50" width="160" height="56" rx="8"/><text class="th" x="340" y="70" text-anchor="middle" dominant-baseline="central">API</text><text class="ts" x="340" y="90" text-anchor="middle" dominant-baseline="central">NestJS + agents</text></g>
+<g class="c-purple"><rect x="480" y="50" width="160" height="56" rx="8"/><text class="th" x="560" y="70" text-anchor="middle" dominant-baseline="central">Fetch service</text><text class="ts" x="560" y="90" text-anchor="middle" dominant-baseline="central">stateless Python</text></g>
+<line x1="202" y1="78" x2="256" y2="78" class="arr" marker-end="url(#a1)"/>
+<line x1="422" y1="78" x2="476" y2="78" class="arr" marker-end="url(#a1)"/>
+<g class="c-gray"><rect x="40" y="210" width="110" height="56" rx="8"/><text class="th" x="95" y="230" text-anchor="middle" dominant-baseline="central">MongoDB</text><text class="ts" x="95" y="250" text-anchor="middle" dominant-baseline="central">all state</text></g>
+<g class="c-gray"><rect x="162" y="210" width="110" height="56" rx="8"/><text class="th" x="217" y="230" text-anchor="middle" dominant-baseline="central">Redis</text><text class="ts" x="217" y="250" text-anchor="middle" dominant-baseline="central">run locks</text></g>
+<g class="c-gray"><rect x="284" y="210" width="110" height="56" rx="8"/><text class="th" x="339" y="230" text-anchor="middle" dominant-baseline="central">OpenAI</text><text class="ts" x="339" y="250" text-anchor="middle" dominant-baseline="central">GPT-4o calls</text></g>
+<g class="c-gray"><rect x="406" y="210" width="110" height="56" rx="8"/><text class="th" x="461" y="230" text-anchor="middle" dominant-baseline="central">Calendar</text><text class="ts" x="461" y="250" text-anchor="middle" dominant-baseline="central">via OAuth</text></g>
+<g class="c-gray"><rect x="528" y="210" width="110" height="56" rx="8"/><text class="th" x="583" y="230" text-anchor="middle" dominant-baseline="central">Garmin</text><text class="ts" x="583" y="250" text-anchor="middle" dominant-baseline="central">wearables</text></g>
+<line x1="340" y1="108" x2="97" y2="206" class="arr" marker-end="url(#a1)"/>
+<line x1="340" y1="108" x2="219" y2="206" class="arr" marker-end="url(#a1)"/>
+<line x1="340" y1="108" x2="339" y2="206" class="arr" marker-end="url(#a1)"/>
+<line x1="340" y1="108" x2="459" y2="206" class="arr" marker-end="url(#a1)"/>
+<line x1="560" y1="108" x2="583" y2="206" class="arr" marker-end="url(#a1)"/>
+</svg>
+</div>
+
+<h2>2. Database schemas</h2>
+<p>There are 12 collections. First the core training data — everything hangs off <code>user_id</code>, and the one real FK chain is <code>training_profiles → programs → planned_sessions</code>.</p>
+<div class="fig"><div id="erd1"></div></div>
+<p>Design decisions worth noticing:</p>
+<p>The plan/reality split is the heart of the model. <code>planned_sessions</code> is what the coach intends; <code>sessions</code> is what Garmin says actually happened. The <code>outcome</code> object on a planned session (status <code>completed</code> / <code>skipped</code> / <code>deviated</code>, plus <code>matched_activity_id</code>) is the bridge — <code>SessionMatcherService</code> fills it in after every sync. <code>programs</code> embeds its weeks as subdocuments, and each week carries <code>week_state</code> (<code>open</code> → <code>targets_locked</code> → <code>locked</code>) and a <code>weekly_targets</code> object — that lock state powers the "domino effect" fix. Every ingested document (<code>sessions</code>, <code>recovery_daily</code>, <code>performance_daily</code>) carries a <code>content_hash</code>, and <code>plan_state</code> on sessions is either <code>tentative</code> or <code>committed</code> — the entire HITL system rides on that one enum. A partial index on <code>programs</code> (<code>{user_id} unique where status='active'</code>) enforces one active program per user at the DB level, not in application code.</p>
+<p>Now the memory side — the collections behind the OpenClaw engine:</p>
+<div class="fig"><div id="erd2"></div></div>
+
+<h2>3. The OpenClaw-style memory engine</h2>
+<p>The pattern is "durable log as truth, rebuildable index as convenience." In OpenClaw the log is files and the index is search; here the log is <code>preference_events</code> and the index is the <code>user_preferences</code> projection. Nothing ever mutates the log — every "learning" the system does flows through this pipeline:</p>
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 646" role="img"><title>OpenClaw-style memory pipeline</title>
+<defs><marker id="a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="c-teal"><rect x="100" y="50" width="300" height="56" rx="8"/><text class="th" x="250" y="70" text-anchor="middle" dominant-baseline="central">preference_events</text><text class="ts" x="250" y="90" text-anchor="middle" dominant-baseline="central">append-only log, taxonomy v5</text></g>
+<g class="c-gray"><rect x="100" y="150" width="300" height="56" rx="8"/><text class="th" x="250" y="170" text-anchor="middle" dominant-baseline="central">DistillationService.distill()</text><text class="ts" x="250" y="190" text-anchor="middle" dominant-baseline="central">pure, deterministic replay</text></g>
+<g class="c-gray"><rect x="100" y="250" width="300" height="56" rx="8"/><text class="th" x="250" y="270" text-anchor="middle" dominant-baseline="central">PromotionService.buildEntry()</text><text class="ts" x="250" y="290" text-anchor="middle" dominant-baseline="central">evidence thresholds + decay</text></g>
+<g class="c-gray"><rect x="100" y="350" width="300" height="56" rx="8"/><text class="th" x="250" y="370" text-anchor="middle" dominant-baseline="central">ProjectionValidator</text><text class="ts" x="250" y="390" text-anchor="middle" dominant-baseline="central">6 invariants, auto-repair</text></g>
+<g class="c-teal"><rect x="100" y="450" width="300" height="56" rx="8"/><text class="th" x="250" y="470" text-anchor="middle" dominant-baseline="central">user_preferences</text><text class="ts" x="250" y="490" text-anchor="middle" dominant-baseline="central">rebuildable projection</text></g>
+<g class="c-purple"><rect x="100" y="550" width="300" height="56" rx="8"/><text class="th" x="250" y="570" text-anchor="middle" dominant-baseline="central">prompt-flattener</text><text class="ts" x="250" y="590" text-anchor="middle" dominant-baseline="central">[must] / [prefer] agent blocks</text></g>
+<line x1="250" y1="106" x2="250" y2="146" class="arr" marker-end="url(#a2)"/>
+<line x1="250" y1="206" x2="250" y2="246" class="arr" marker-end="url(#a2)"/>
+<line x1="250" y1="306" x2="250" y2="346" class="arr" marker-end="url(#a2)"/>
+<line x1="250" y1="406" x2="250" y2="446" class="arr" marker-end="url(#a2)"/>
+<line x1="250" y1="506" x2="250" y2="546" class="arr" marker-end="url(#a2)"/>
+<g class="c-gray"><rect x="440" y="272" width="200" height="56" rx="8"/><text class="th" x="540" y="292" text-anchor="middle" dominant-baseline="central">Rebuild endpoint</text><text class="ts" x="540" y="312" text-anchor="middle" dominant-baseline="central">replays log, byte-for-byte</text></g>
+<path d="M402 78 L540 78 L540 268" fill="none" stroke="#9c9a92" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#a2)"/>
+<path d="M540 330 L540 478 L406 478" fill="none" stroke="#9c9a92" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#a2)"/>
+</svg>
+</div>
+<h3>What each stage does</h3>
+<p><strong>The log</strong> (<code>personalization/domain/preference-event.model.ts</code>). Every signal — "I hate burpees", a skipped session, a session-end flush — becomes one immutable event. The key design choice is that <code>confidence</code> (<code>explicit</code> vs <code>inferred</code>) is a first-class field written at capture time, so "the user said it" and "the system guessed it" never get mixed. <code>raw_text</code> keeps the verbatim phrasing for audit, and <code>taxonomy_version</code> (currently 5) lets the tag vocabulary evolve without corrupting old events — that's how the <code>overreaching</code> safety tag landed as a clean v4→v5 bump.</p>
+<p><strong>Distillation</strong> (<code>DistillationService.distill()</code>). A pure function: it filters standing events for the discipline, groups them by logical bucket (avoid-lists, biases, setpoints, prescriptions), and builds entries. Same events + same <code>now</code> always yield the same projection — determinism comes from sorting by event date, never by insertion order. That purity is exactly what makes the rebuild endpoint possible: <code>RebuildProjectionHandler</code> fetches everything via <code>findAllForReplay(userId)</code>, re-distills, and upserts. Delete the projection, hit rebuild, and it comes back identical.</p>
+<p><strong>Promotion</strong> (<code>PromotionService.buildEntry</code>) is the threshold state machine:</p>
+<table>
+<thead><tr><th>Signal</th><th>Rule</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>explicit + standing</td><td>immediate</td><td><code>hard</code> preference</td></tr>
+<tr><td>inferred dislike</td><td>3+ occurrences within 90 days</td><td><code>soft</code> preference</td></tr>
+<tr><td>inferred like</td><td>2+ occurrences within 90 days</td><td><code>soft</code> preference</td></tr>
+<tr><td>inferred, under threshold</td><td>—</td><td>not materialized yet</td></tr>
+<tr><td>inferred, last reinforced &gt;90 days ago</td><td>—</td><td>decayed, pruned</td></tr>
+<tr><td>inferred later stated explicitly</td><td>—</td><td><code>hard</code> + <code>confirmed: true</code></td></tr>
+</tbody>
+</table>
+<p>The asymmetry (3 for dislike, 2 for like) is deliberate — the cost of wrongly avoiding an exercise is higher than wrongly preferring one, so dislikes need more evidence.</p>
+<p><strong>The validator</strong> (<code>ProjectionValidatorService</code>) is a guardrail on memory itself, re-checked after every distill: no inferred entry sitting at <code>hard</code> (demoted), no decayed entry left un-pruned (dropped), biases clamped to ±1.0, no entry without <code>sourceEventIds</code> provenance (dropped), <code>supportCount</code> must equal the evidence list length (reset), no duplicates (deduped). Breaches are repaired before persistence and surfaced for audit.</p>
+<p><strong>The read path</strong> (<code>prompt-flattener.ts</code>) is what makes any of this matter — the projection is rendered into plain <code>[must]</code> / <code>[prefer]</code> / <code>(inferred)</code> text blocks seeded into every agent's prompt. Cold start: a projection with <code>sourceEventCount: 0</code> signals a brand-new user, so agents fall back to the onboarding survey + wearable baseline instead of an empty preference block.</p>
+<p><strong>One layer below</strong>, the same delta-sync idea applies to raw physiology: <code>common/util/content-hash.ts</code> computes SHA-256 over sorted-key JSON, so re-polling Garmin for an unchanged day produces the same hash and writes nothing — zero DB churn, zero downstream token spend.</p>
+
+<h2>4. The engine every agent runs on: the agentic loop</h2>
+<p>Every agent — Coach, Recovery, Planner, Assistant — is the same bounded loop (<code>agents/shared/llm/agentic-loop.runtime.ts</code>):</p>
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 536" role="img"><title>Agentic loop runtime</title>
+<defs><marker id="a3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="c-gray"><rect x="170" y="40" width="340" height="56" rx="8"/><text class="th" x="340" y="60" text-anchor="middle" dominant-baseline="central">Seed context</text><text class="ts" x="340" y="80" text-anchor="middle" dominant-baseline="central">pre-curated; often zero tool calls</text></g>
+<g class="c-purple"><rect x="170" y="140" width="340" height="56" rx="8"/><text class="th" x="340" y="160" text-anchor="middle" dominant-baseline="central">LLM turn</text><text class="ts" x="340" y="180" text-anchor="middle" dominant-baseline="central">hard cap: 8 iterations</text></g>
+<g class="c-gray"><rect x="170" y="240" width="340" height="56" rx="8"/><text class="th" x="340" y="260" text-anchor="middle" dominant-baseline="central">Tool call, Zod-validated</text><text class="ts" x="340" y="280" text-anchor="middle" dominant-baseline="central">invalid args bounce back &#8635;</text></g>
+<g class="c-gray"><rect x="170" y="340" width="340" height="56" rx="8"/><text class="th" x="340" y="360" text-anchor="middle" dominant-baseline="central">Read tool executes</text><text class="ts" x="340" y="380" text-anchor="middle" dominant-baseline="central">result appended, back to turn &#8635;</text></g>
+<g class="c-teal"><rect x="170" y="440" width="340" height="56" rx="8"/><text class="th" x="340" y="460" text-anchor="middle" dominant-baseline="central">Terminal tool (terminal: true)</text><text class="ts" x="340" y="480" text-anchor="middle" dominant-baseline="central">loop exits with result</text></g>
+<line x1="340" y1="96" x2="340" y2="136" class="arr" marker-end="url(#a3)"/>
+<line x1="340" y1="196" x2="340" y2="236" class="arr" marker-end="url(#a3)"/>
+<line x1="340" y1="296" x2="340" y2="336" class="arr" marker-end="url(#a3)"/>
+<line x1="340" y1="396" x2="340" y2="436" class="arr" marker-end="url(#a3)"/>
+</svg>
+</div>
+<p>Three things make this loop safe and cheap. First, the exit condition is structural: the loop only ends when the model calls a tool marked <code>terminal: true</code> (e.g. <code>commitPlacementTool</code>), so "done" is a typed, validated payload — never free text parsed by hope. Second, the validator bounce: a failed Zod parse or a thrown handler error doesn't crash the run; it's fed back as a tool-result message ("Invalid arguments…") so the model self-corrects within the 8-turn budget. Third, if the budget exhausts without a terminal call, the loop returns <code>exhausted: true</code> — and the orchestrator's <code>requireTerminal()</code> then throws, aborting the whole pipeline. Since every stage writes tentative-only, an aborted run commits nothing user-visible.</p>
+
+<h2>5. The three modes — flow, tools, permissions</h2>
+<p>Modes live on the conversation (<code>conversations.mode</code>), and the crucial point is that all three run identical agent code — the mode only changes which write paths are reachable in <code>assistant.decision.ts</code>. The Assistant LLM classifies each turn into a lane: white (pure question), black (explicit order), gray (soft signal, needs one clarifying question). Then the mode gate applies:</p>
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 626" role="img"><title>Ask, Plan and Auto mode flows</title>
+<defs><marker id="a4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="c-gray"><rect x="250" y="40" width="180" height="44" rx="8"/><text class="th" x="340" y="62" text-anchor="middle" dominant-baseline="central">User message</text></g>
+<g class="c-gray"><rect x="230" y="124" width="220" height="56" rx="8"/><text class="th" x="340" y="144" text-anchor="middle" dominant-baseline="central">Lane classifier</text><text class="ts" x="340" y="164" text-anchor="middle" dominant-baseline="central">white / gray / black</text></g>
+<line x1="340" y1="84" x2="340" y2="120" class="arr" marker-end="url(#a4)"/>
+<line x1="340" y1="180" x2="132" y2="226" class="arr" marker-end="url(#a4)"/>
+<line x1="340" y1="180" x2="340" y2="226" class="arr" marker-end="url(#a4)"/>
+<line x1="340" y1="180" x2="548" y2="226" class="arr" marker-end="url(#a4)"/>
+<g class="c-gray"><rect x="40" y="230" width="180" height="56" rx="8"/><text class="th" x="130" y="250" text-anchor="middle" dominant-baseline="central">Ask mode</text><text class="ts" x="130" y="270" text-anchor="middle" dominant-baseline="central">read-only gate</text></g>
+<g class="c-purple"><rect x="250" y="230" width="180" height="56" rx="8"/><text class="th" x="340" y="250" text-anchor="middle" dominant-baseline="central">Plan mode</text><text class="ts" x="340" y="270" text-anchor="middle" dominant-baseline="central">HITL-gated writes</text></g>
+<g class="c-teal"><rect x="460" y="230" width="180" height="56" rx="8"/><text class="th" x="550" y="250" text-anchor="middle" dominant-baseline="central">Auto mode</text><text class="ts" x="550" y="270" text-anchor="middle" dominant-baseline="central">self-committing</text></g>
+<line x1="130" y1="286" x2="130" y2="326" class="arr" marker-end="url(#a4)"/>
+<line x1="340" y1="286" x2="340" y2="326" class="arr" marker-end="url(#a4)"/>
+<line x1="550" y1="286" x2="550" y2="326" class="arr" marker-end="url(#a4)"/>
+<g class="c-gray"><rect x="40" y="330" width="180" height="56" rx="8"/><text class="th" x="130" y="350" text-anchor="middle" dominant-baseline="central">Reply only</text><text class="ts" x="130" y="370" text-anchor="middle" dominant-baseline="central">intentBlocked = true</text></g>
+<g class="c-purple"><rect x="250" y="330" width="180" height="56" rx="8"/><text class="th" x="340" y="350" text-anchor="middle" dominant-baseline="central">Tag routing table</text><text class="ts" x="340" y="370" text-anchor="middle" dominant-baseline="central">picks 1 of the pipelines</text></g>
+<g class="c-teal"><rect x="460" y="330" width="180" height="56" rx="8"/><text class="th" x="550" y="350" text-anchor="middle" dominant-baseline="central">AutoModeGraph</text><text class="ts" x="550" y="370" text-anchor="middle" dominant-baseline="central">Coach - Recovery debate</text></g>
+<line x1="340" y1="386" x2="340" y2="426" class="arr" marker-end="url(#a4)"/>
+<line x1="550" y1="386" x2="550" y2="426" class="arr" marker-end="url(#a4)"/>
+<g class="c-purple"><rect x="250" y="430" width="180" height="56" rx="8"/><text class="th" x="340" y="450" text-anchor="middle" dominant-baseline="central">Tentative write</text><text class="ts" x="340" y="470" text-anchor="middle" dominant-baseline="central">approval card (HITL)</text></g>
+<g class="c-teal"><rect x="460" y="430" width="180" height="56" rx="8"/><text class="th" x="550" y="450" text-anchor="middle" dominant-baseline="central">Commit directly</text><text class="ts" x="550" y="470" text-anchor="middle" dominant-baseline="central">guardrails still apply</text></g>
+<g class="c-red"><rect x="40" y="530" width="600" height="56" rx="8"/><text class="th" x="340" y="550" text-anchor="middle" dominant-baseline="central">Safety bypass</text><text class="ts" x="340" y="570" text-anchor="middle" dominant-baseline="central">injury_or_illness and overreaching fire SAFETY_REPLAN immediately</text></g>
+</svg>
+</div>
+<h3>Mode by mode</h3>
+<p><strong>Ask</strong> is a structural read-only gate, not a polite prompt instruction. In <code>assistant.decision.ts</code>: if the lane isn't white or a week edit is present, the decision returns <code>intentBlocked: true</code> with a "switch to Plan mode" hint — nothing is captured, no pipeline fires, regardless of what the model outputs. You can still consult all 12 read tools for trends and stats.</p>
+<p><strong>Plan</strong> is where everything writeable happens, but two guards sit before any fire: a non-safety tag only triggers a pipeline if <code>affectsCurrentWeek: true</code> (otherwise it's just logged as a preference for future weeks — the <code>WRITE_ONLY</code> path), and an unconfirmed week edit that breaches locked targets sets a <code>clarifyingQuestion</code> and blocks until you confirm. The result of any fired pipeline is always tentative + an approval card.</p>
+<p><strong>Auto</strong> routes the turn to <code>AutoModeOrchestratorService</code>, which runs a Coach↔Recovery debate graph, applies its own guardrails (target swing, week volume, readiness degradation), and flips tentative→committed with no card. Every run is recorded as an <code>AutoModeRun</code> with full trace and diffs, so autonomy is auditable and revertible after the fact.</p>
+
+<h3>Read-tool grants per agent (all tenant-scoped by <code>ctx.userId</code>)</h3>
+<table>
+<thead><tr><th>Tool</th><th class="c">Coach</th><th class="c">Recovery</th><th class="c">Planner</th><th class="c">Assistant</th></tr></thead>
+<tbody>
+<tr><td><code>query_planned_sessions</code></td><td class="c ok">✓</td><td class="c dash">—</td><td class="c ok">✓</td><td class="c ok">✓</td></tr>
+<tr><td><code>get_week</code></td><td class="c ok">✓</td><td class="c dash">—</td><td class="c ok">✓</td><td class="c ok">✓</td></tr>
+<tr><td><code>query_sessions</code></td><td class="c ok">✓</td><td class="c ok">✓</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><code>query_performance</code></td><td class="c ok">✓</td><td class="c ok">✓</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><code>query_recovery</code></td><td class="c dash">—</td><td class="c ok">✓</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><code>get_preference_events</code></td><td class="c ok">✓</td><td class="c dash">—</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><code>search_exercise_catalog</code></td><td class="c ok">✓</td><td class="c dash">—</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><code>get_exercise_detail</code></td><td class="c ok">✓</td><td class="c dash">—</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><code>query_adherence</code></td><td class="c ok">✓</td><td class="c dash">—</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><code>list_calendar_events</code></td><td class="c dash">—</td><td class="c dash">—</td><td class="c ok">✓</td><td class="c ok">✓</td></tr>
+<tr><td><code>get_availability</code></td><td class="c dash">—</td><td class="c dash">—</td><td class="c ok">✓</td><td class="c ok">✓</td></tr>
+<tr><td><code>query_cross_source</code></td><td class="c dash">—</td><td class="c dash">—</td><td class="c dash">—</td><td class="c ok">✓</td></tr>
+<tr><td><strong>Total</strong></td><td class="c">8</td><td class="c">3</td><td class="c">4</td><td class="c">12</td></tr>
+</tbody>
+</table>
+<p>Two permission principles run through this table. Tenant scoping: every tool handler gets <code>ctx.userId</code> from the runtime context, and every CQRS query filters on it — the model can never pass a user id as an argument. Single-writer discipline: Recovery holds only 3 tools and no write path at all (advisory-only — it emits a readiness verdict, never touches a session); Coach owns content, Planner owns scheduling, and <code>query_cross_source</code> (joining planned outcomes with recovery by date) is Assistant-exclusive because only the chat surface needs cross-domain analytics.</p>
+
+<h3>Pipeline catalog (deterministic tag routing, never LLM-chosen)</h3>
+<table>
+<thead><tr><th>Pipeline</th><th>Fired by</th><th>Stages</th></tr></thead>
+<tbody>
+<tr><td><code>PROGRAM_GENERATION</code></td><td><code>primary_goal</code> tag, onboarding</td><td>coach.generateProgram → coach.generateWeeklyTargets → coach.generateWeek → planner.placeWeek</td></tr>
+<tr><td><code>SAFETY_REPLAN</code></td><td><code>injury_or_illness</code>, <code>overreaching</code> (immediate)</td><td>recovery.assessReadiness → coach.generateWeek → planner.placeWeek</td></tr>
+<tr><td><code>FULL_SESSION_DAY</code></td><td>significant Garmin sync</td><td>recovery.assessReadiness → coach.generateWeek → planner.placeWeek</td></tr>
+<tr><td><code>CONTENT_REPLAN</code></td><td>content tags (disliked_exercise, too_hard, volume_*, equipment_*…)</td><td>coach.generateWeek → planner.placeWeek</td></tr>
+<tr><td><code>TIMING_REPLACE</code></td><td>time-only tags (time_window_blocked…)</td><td>planner.placeWeek</td></tr>
+<tr><td><code>SESSION_CONTENT_REPLAN</code></td><td>confirmed single-session edit</td><td>coach.reviseWeeklyTargets (if needed) → coach.reviseSessionContent → planner.placeWeek</td></tr>
+<tr><td><code>TARGET_REVISION_REPLAN</code></td><td>confirmed target-breaking edit</td><td>coach.reviseWeeklyTargets → coach.generateWeek → planner.placeWeek</td></tr>
+<tr><td><code>WRITE_ONLY</code></td><td>weather, travel, other (no current-week impact)</td><td>append event + rebuild projection, no agents</td></tr>
+</tbody>
+</table>
+
+<h2>6. The routine flow — what a Garmin sync triggers</h2>
+<p>This is the "magic moment" chain, and it's fully deterministic until the pipeline itself runs:</p>
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 856" role="img"><title>Garmin sync routine flow</title>
+<defs><marker id="a5" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="c-gray"><rect x="60" y="40" width="320" height="56" rx="8"/><text class="th" x="220" y="60" text-anchor="middle" dominant-baseline="central">GarminSyncScheduler.sweep()</text><text class="ts" x="220" y="80" text-anchor="middle" dominant-baseline="central">@Cron every minute</text></g>
+<g class="c-gray"><rect x="60" y="130" width="320" height="56" rx="8"/><text class="th" x="220" y="150" text-anchor="middle" dominant-baseline="central">Slot check + atomic claim</text><text class="ts" x="220" y="170" text-anchor="middle" dominant-baseline="central">per-user times, up to 3x/day</text></g>
+<g class="c-gray"><rect x="60" y="220" width="320" height="56" rx="8"/><text class="th" x="220" y="240" text-anchor="middle" dominant-baseline="central">IngestionOrchestrator.runForUser</text><text class="ts" x="220" y="260" text-anchor="middle" dominant-baseline="central">decrypt creds, AES-256-GCM</text></g>
+<g class="c-gray"><rect x="60" y="310" width="320" height="56" rx="8"/><text class="th" x="220" y="330" text-anchor="middle" dominant-baseline="central">fetch-service (Python)</text><text class="ts" x="220" y="350" text-anchor="middle" dominant-baseline="central">day snapshots, 5-day chunks</text></g>
+<g class="c-gray"><rect x="460" y="310" width="180" height="56" rx="8"/><text class="th" x="550" y="330" text-anchor="middle" dominant-baseline="central">Garmin Connect</text><text class="ts" x="550" y="350" text-anchor="middle" dominant-baseline="central">HRV, sleep, activities</text></g>
+<line x1="382" y1="338" x2="456" y2="338" class="arr" marker-end="url(#a5)"/>
+<g class="c-teal"><rect x="60" y="400" width="320" height="56" rx="8"/><text class="th" x="220" y="420" text-anchor="middle" dominant-baseline="central">Content-hash upsert</text><text class="ts" x="220" y="440" text-anchor="middle" dominant-baseline="central">unchanged day = zero writes</text></g>
+<g class="c-gray"><rect x="60" y="490" width="320" height="56" rx="8"/><text class="th" x="220" y="510" text-anchor="middle" dominant-baseline="central">SessionMatcher.reconcile</text><text class="ts" x="220" y="530" text-anchor="middle" dominant-baseline="central">activities matched to plan</text></g>
+<g class="c-amber"><rect x="60" y="580" width="320" height="56" rx="8"/><text class="th" x="220" y="600" text-anchor="middle" dominant-baseline="central">Significance gate</text><text class="ts" x="220" y="620" text-anchor="middle" dominant-baseline="central">missed, unplanned, deviation</text></g>
+<g class="c-gray"><rect x="460" y="580" width="180" height="56" rx="8"/><text class="th" x="550" y="600" text-anchor="middle" dominant-baseline="central">Not significant</text><text class="ts" x="550" y="620" text-anchor="middle" dominant-baseline="central">sync ends, no replan</text></g>
+<line x1="382" y1="608" x2="456" y2="608" class="arr" marker-end="url(#a5)"/>
+<g class="c-gray"><rect x="60" y="670" width="320" height="56" rx="8"/><text class="th" x="220" y="690" text-anchor="middle" dominant-baseline="central">FetchTrigger enqueues pipeline</text><text class="ts" x="220" y="710" text-anchor="middle" dominant-baseline="central">Redis SET-NX + single-flight</text></g>
+<g class="c-purple"><rect x="60" y="760" width="320" height="56" rx="8"/><text class="th" x="220" y="780" text-anchor="middle" dominant-baseline="central">FULL_SESSION_DAY</text><text class="ts" x="220" y="800" text-anchor="middle" dominant-baseline="central">Recovery, Coach, Planner</text></g>
+<line x1="220" y1="96" x2="220" y2="126" class="arr" marker-end="url(#a5)"/>
+<line x1="220" y1="186" x2="220" y2="216" class="arr" marker-end="url(#a5)"/>
+<line x1="220" y1="276" x2="220" y2="306" class="arr" marker-end="url(#a5)"/>
+<line x1="220" y1="366" x2="220" y2="396" class="arr" marker-end="url(#a5)"/>
+<line x1="220" y1="456" x2="220" y2="486" class="arr" marker-end="url(#a5)"/>
+<line x1="220" y1="546" x2="220" y2="576" class="arr" marker-end="url(#a5)"/>
+<line x1="220" y1="636" x2="220" y2="666" class="arr" marker-end="url(#a5)"/>
+<line x1="220" y1="726" x2="220" y2="756" class="arr" marker-end="url(#a5)"/>
+</svg>
+</div>
+<p>The cron (<code>agents/triggers/garmin-sync.scheduler.ts</code>) sweeps every minute but fires per user only when one of their configured local sync times (timezone-aware, up to 3/day) comes due — and the slot is claimed atomically, so two app instances can't double-fire. <code>IngestionOrchestrator.runForUser</code> (<code>ingestion/application/ingestion.orchestrator.ts</code>) decrypts the Garmin credentials via <code>CryptoService</code> (AES-256-GCM, key from a secrets manager) and calls the fetch service in 5-day chunks; each returned day is routed to <code>UpsertRecoveryDay</code> / <code>UpsertPerformanceDay</code> / <code>UpsertSession</code> commands, which compare <code>content_hash</code> and return <code>{written: false}</code> on an unchanged day.</p>
+<p>The significance gate (<code>evaluateSyncSignificance</code>) is the part that makes Auto mode feel proactive without being noisy: only a new day with a missed session, unplanned load, or adherence deviation escalates. If it does, <code>FetchTrigger</code> enqueues <code>FULL_SESSION_DAY</code> with a <code>garmin-sync:{userId}:{date}</code> run id — Redis SET-NX (24h TTL) kills duplicate runs, a per-user lock plus the in-process promise chain in <code>pipeline-queue.service.ts</code> guarantees a scheduled sync and a simultaneous mid-chat edit never race, and a later run for the same week marks the earlier result <code>superseded</code> so stale approval cards die. The pipeline then runs Recovery → Coach → Planner: that's how a low-HRV morning becomes an already-downgraded session before you open the app. (<code>AutoModeReaperService</code> sweeps every 5 minutes for crashed auto runs.)</p>
+
+<h2>7. Building the next week</h2>
+<p>The build is a fixed stage sequence where every stage is paired with a code-level guardrail — this pairing is the answer to the "domino effect" problem:</p>
+<div class="fig">
+<svg width="100%" viewBox="0 0 680 636" role="img"><title>Next-week build flow with guardrails</title>
+<defs><marker id="a6" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#73726c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="c-purple"><rect x="40" y="40" width="280" height="56" rx="8"/><text class="th" x="180" y="60" text-anchor="middle" dominant-baseline="central">coach.generateProgram</text><text class="ts" x="180" y="80" text-anchor="middle" dominant-baseline="central">periodization skeleton</text></g>
+<g class="c-amber"><rect x="370" y="40" width="270" height="56" rx="8"/><text class="th" x="505" y="60" text-anchor="middle" dominant-baseline="central">validateSkeleton()</text><text class="ts" x="505" y="80" text-anchor="middle" dominant-baseline="central">deload every 4 weeks max</text></g>
+<g class="c-purple"><rect x="40" y="150" width="280" height="56" rx="8"/><text class="th" x="180" y="170" text-anchor="middle" dominant-baseline="central">coach.generateWeeklyTargets</text><text class="ts" x="180" y="190" text-anchor="middle" dominant-baseline="central">macro budget locked first</text></g>
+<g class="c-amber"><rect x="370" y="150" width="270" height="56" rx="8"/><text class="th" x="505" y="170" text-anchor="middle" dominant-baseline="central">validateAgainstWeeklyTargets</text><text class="ts" x="505" y="190" text-anchor="middle" dominant-baseline="central">frozen per-session budget</text></g>
+<g class="c-purple"><rect x="40" y="260" width="280" height="56" rx="8"/><text class="th" x="180" y="280" text-anchor="middle" dominant-baseline="central">coach.generateWeek</text><text class="ts" x="180" y="300" text-anchor="middle" dominant-baseline="central">drafts sessions vs budget</text></g>
+<g class="c-amber"><rect x="370" y="260" width="270" height="56" rx="8"/><text class="th" x="505" y="280" text-anchor="middle" dominant-baseline="central">validateWeek()</text><text class="ts" x="505" y="300" text-anchor="middle" dominant-baseline="central">10% load cap, readiness caps</text></g>
+<g class="c-purple"><rect x="40" y="370" width="280" height="56" rx="8"/><text class="th" x="180" y="390" text-anchor="middle" dominant-baseline="central">planner.placeWeek</text><text class="ts" x="180" y="410" text-anchor="middle" dominant-baseline="central">calendar placement</text></g>
+<g class="c-amber"><rect x="370" y="370" width="270" height="56" rx="8"/><text class="th" x="505" y="390" text-anchor="middle" dominant-baseline="central">validatePlacement()</text><text class="ts" x="505" y="410" text-anchor="middle" dominant-baseline="central">overlap, blocks, tz, fit</text></g>
+<g class="c-purple"><rect x="40" y="480" width="280" height="56" rx="8"/><text class="th" x="180" y="500" text-anchor="middle" dominant-baseline="central">Approval card batch</text><text class="ts" x="180" y="520" text-anchor="middle" dominant-baseline="central">approve, revise, reject</text></g>
+<g class="c-amber"><rect x="370" y="480" width="270" height="56" rx="8"/><text class="th" x="505" y="500" text-anchor="middle" dominant-baseline="central">assertOwned()</text><text class="ts" x="505" y="520" text-anchor="middle" dominant-baseline="central">app-tagged events only</text></g>
+<line x1="180" y1="96" x2="180" y2="146" class="arr" marker-end="url(#a6)"/>
+<line x1="180" y1="206" x2="180" y2="256" class="arr" marker-end="url(#a6)"/>
+<line x1="180" y1="316" x2="180" y2="366" class="arr" marker-end="url(#a6)"/>
+<line x1="180" y1="426" x2="180" y2="476" class="arr" marker-end="url(#a6)"/>
+<line class="leader" x1="322" y1="68" x2="368" y2="68"/>
+<line class="leader" x1="322" y1="178" x2="368" y2="178"/>
+<line class="leader" x1="322" y1="288" x2="368" y2="288"/>
+<line class="leader" x1="322" y1="398" x2="368" y2="398"/>
+<line class="leader" x1="322" y1="508" x2="368" y2="508"/>
+<g class="c-purple"><rect x="40" y="578" width="14" height="14" rx="3"/></g>
+<text class="ts" x="62" y="585" dominant-baseline="central">pipeline stage</text>
+<g class="c-amber"><rect x="180" y="578" width="14" height="14" rx="3"/></g>
+<text class="ts" x="202" y="585" dominant-baseline="central">code guardrail</text>
+</svg>
+</div>
+<p>The ordering is the whole trick. Targets get locked (<code>LockWeeklyTargetsCommand</code>, week flips to <code>targets_locked</code>) before a single session exists. From then on, every session the Coach drafts passes <code>validateAgainstWeeklyTargets(proposed, committedSoFar, targets)</code> — cumulative count and volume against a frozen budget. So "does this edit break the week?" stops being a reasoning problem and becomes arithmetic the code runs every time. A violation doesn't crash anything: it throws inside the tool handler, bounces back into the agentic loop as an error message, and the model redrafts within its 8-turn budget. <code>validateWeek()</code> (<code>agents/coach/coach.guardrails.ts</code>) adds the physiological caps: ≤+10% week-over-week load (waived on deloads), red readiness → 0 hard sessions, amber → 1, and every session must carry <code>coachNotes</code>. On the Planner side, <code>validatePlacement()</code> rejects overlaps, blocked-window hits, bad tz→UTC conversion, and doesn't-fit durations before the only irreversible external write — and even that write goes through <code>assertOwned()</code>, which refuses to touch any calendar event not tagged with the app's own <code>extendedProperties.private.appId</code>.</p>
+<p>There are two ways a week gets built. The batch path (what the diagram shows) runs all stages back-to-back and lands as one approval-card batch: per-session cards with the coach rationale, planner placement note, and a diff vs the committed baseline (<code>new</code> / <code>modified</code> / <code>unchanged</code> / <code>removed</code>, keyed by <code>slot_key</code>). Approve flips tentative→committed and syncs the calendar; reject discards the draft and falls back to the previous committed week — and <code>approval.policy.ts</code> only offers reject when a committed fallback actually exists, so a first-ever week can't be rejected into nothingness. The interactive path (<code>agents/build/build-conversation.orchestrator.ts</code>) is the Q&amp;A loop: the Coach first proposes targets conversationally, then drafts one session at a time, the Planner offers 3 candidate slots per session and you pick — approval happens inline per session, so there's no separate card batch at the end.</p>
+
+<div class="note"><strong>Submission note:</strong> the proposal says "a fixed catalog of 6 pipelines," but the code's routing table resolves to 8 distinct entries (<code>SESSION_CONTENT_REPLAN</code>, <code>TARGET_REVISION_REPLAN</code>, and <code>WRITE_ONLY</code> alongside the main five) — align the number or clarify the counting before judging.</div>
+
+<script type="module">
+import mermaid from 'https://esm.sh/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  themeVariables: {
+    fontSize: '13px',
+    lineColor: '#73726c',
+    textColor: '#3d3d3a',
+    primaryColor: '#EEEDFE',
+    primaryBorderColor: '#534AB7',
+    primaryTextColor: '#26215C',
+  },
+});
+const r1 = await mermaid.render('erd1svg', `erDiagram
+  USERS ||--|| USER_INTEGRATIONS : "has creds"
+  USERS ||--o{ TRAINING_PROFILES : onboards
+  TRAINING_PROFILES ||--o{ PROGRAMS : seeds
+  PROGRAMS ||--o{ PLANNED_SESSIONS : contains
+  USERS ||--o{ SESSIONS : logs
+  USERS ||--o{ RECOVERY_DAILY : "per day"
+  USERS ||--o{ PERFORMANCE_DAILY : "per day"
+  PLANNED_SESSIONS }o--o| SESSIONS : "outcome matches"
+  USERS {
+    string user_id PK
+    string email
+    string timezone
+    boolean auto_mode_opt_in
+  }
+  USER_INTEGRATIONS {
+    string user_id FK
+    string garmin_password_enc
+    string gcal_refresh_token_enc
+    string sync_status
+  }
+  TRAINING_PROFILES {
+    string user_id FK
+    enum discipline
+    object goal
+    array availability_slots
+  }
+  PROGRAMS {
+    string user_id FK
+    string training_profile_id FK
+    enum discipline
+    enum status
+    number current_week_index
+    array weeks_embedded
+  }
+  PLANNED_SESSIONS {
+    string program_id FK
+    string user_id FK
+    number week_index
+    string slot_key
+    enum plan_state
+    string scheduled_start_utc
+    object outcome
+    object calendar_sync
+  }
+  SESSIONS {
+    string user_id FK
+    number activity_id
+    string date
+    string content_hash
+    object running_or_strength
+  }
+  RECOVERY_DAILY {
+    string user_id FK
+    string date
+    string content_hash
+    number hrv_last_night
+    number acwr_ratio
+    number readiness_score
+  }
+  PERFORMANCE_DAILY {
+    string user_id FK
+    string date
+    string content_hash
+    object running_weekly
+    object strength_weekly
+  }`);
+document.getElementById('erd1').innerHTML = r1.svg;
+const r2 = await mermaid.render('erd2svg', `erDiagram
+  USERS ||--o{ PREFERENCE_EVENTS : "append-only writes"
+  PREFERENCE_EVENTS }o--|| USER_PREFERENCES : "distilled into"
+  USERS ||--o{ USER_PREFERENCES : "one per discipline"
+  USERS ||--o{ CONVERSATIONS : chats
+  USERS ||--o{ HEALTH_CONSTRAINTS : tracks
+  PREFERENCE_EVENTS {
+    string user_id FK
+    string event_date
+    enum source "chat, outcome, session_flush"
+    enum scope "global, session, exercise"
+    enum durability "standing, one_off"
+    string expires_at "one_off only"
+    enum tag_type "65 values"
+    enum tag_polarity "avoid, prefer, inc, dec"
+    enum tag_confidence "explicit, inferred"
+    string raw_text "verbatim audit"
+    number taxonomy_version "v5"
+  }
+  USER_PREFERENCES {
+    string user_id FK
+    enum discipline
+    array avoidedExercises "PrefEntry[]"
+    array blockedTimeWindows "PrefEntry[]"
+    entry volumeBias "clamped to 1"
+    entry sessionDurationMin
+    number sourceEventCount "0 = cold start"
+    number taxonomyVersion
+    string rebuiltAt
+  }
+  CONVERSATIONS {
+    string user_id FK
+    enum mode "plan, ask, auto"
+    enum status
+    string pending_card_batch_id
+  }
+  HEALTH_CONSTRAINTS {
+    string user_id FK
+    enum type "injury, medical..."
+    enum severity "avoid, caution"
+    enum status "active, resolved"
+    array source_event_ids
+  }`);
+document.getElementById('erd2').innerHTML = r2.svg;
+</script>
+</body>
+</html>

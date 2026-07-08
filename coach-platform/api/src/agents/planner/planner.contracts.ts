@@ -52,3 +52,61 @@ export interface PlacementReport {
   placedCount: number;
   unplaceable: Unplaceable[];
 }
+
+/**
+ * BW3 conversational slot offer — the LLM's terminal contract when talking a
+ * user into a time. Every pick is either a pool candidate (matched by
+ * scheduledDate+startTime) or an exact athlete-requested time that the handler
+ * validates LIVE (availability + busy + hard windows + one-session-per-day);
+ * anything unfree bounces, so the model can never offer a clashing time.
+ */
+export const offerSlotsSchema = z.object({
+  message: z
+    .string()
+    .min(1)
+    .describe(
+      'The chat message shown above the slot picks. Warm, short, no emojis. ' +
+        'Do NOT restate the times in the text — the picks render below it.',
+    ),
+  picks: z
+    .array(
+      z.object({
+        scheduledDate: isoDate,
+        startTime: hhmm,
+      }),
+    )
+    .min(1)
+    .max(3)
+    .describe(
+      '1–3 slots, best first: from the candidate pool, or an exact time the ' +
+        'athlete requested (validated live; bounced with the reason if unfree).',
+    ),
+});
+export type OfferSlotsArgs = z.infer<typeof offerSlotsSchema>;
+
+/**
+ * BW3 mid-conversation preference capture: when the athlete explicitly states
+ * a scheduling preference meant to outlive this pick ("I generally prefer
+ * evenings", "never before 8", "this week only mornings"), the model records
+ * it into the personalization log before offering.
+ */
+export const saveTimePreferenceSchema = z.object({
+  kind: z
+    .enum(['preferred', 'blocked'])
+    .describe('preferred = they want this window; blocked = keep away from it.'),
+  durability: z
+    .enum(['standing', 'one_off'])
+    .describe('standing = general/going forward; one_off = this week only.'),
+  summary: z
+    .string()
+    .min(1)
+    .describe(
+      'Compact window descriptor, e.g. "evenings 19:00-21:00", ' +
+        '"weekday mornings", "mon".',
+    ),
+  rawText: z
+    .string()
+    .min(1)
+    .describe("The athlete's own words that stated this preference."),
+});
+export type SaveTimePreferenceArgs = z.infer<typeof saveTimePreferenceSchema>;

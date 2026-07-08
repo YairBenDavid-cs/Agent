@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MutableRefObject, ReactElement } from 'react';
 import { Spinner } from '@/shared/ui/Spinner/Spinner';
@@ -103,17 +103,6 @@ export function ConversationView({
     onResolved: onCardResolved,
   });
 
-  // Re-greet an in-flight build on open. The server derives the live phase and
-  // only posts when it sits on an unperformed step (decision 12); otherwise it's
-  // a no-op and we just render the transcript. Once per conversation open.
-  const resumedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (isBuild && status === 'ready' && resumedRef.current !== conversationId) {
-      resumedRef.current = conversationId;
-      resume();
-    }
-  }, [isBuild, status, conversationId, resume]);
-
   // Derive the live build affordances from the latest assistant turn's meta, so
   // they survive a transcript reload / reopen (the meta lives on the message).
   const lastAssistant = [...turns].reverse().find((t) => t.role === 'assistant');
@@ -194,15 +183,20 @@ export function ConversationView({
 
   const mode = conversation?.mode ?? 'plan';
 
+  // A card approve/reject kicks off backend work (commit + the coach drafting
+  // the next step) before the transcript reloads — surface the same "thinking"
+  // indicator as a chat turn so the user sees Popvich working, not a dead chat.
+  const displayPhase = approval.actionPending ? 'thinking' : phase;
+  const busy = isBusy || approval.actionPending;
+
   return (
     <div className={styles.conversation}>
       <div className={styles.scrollArea}>
-        <TurnList turns={turns} phase={phase} progress={progress} />
+        <TurnList turns={turns} phase={displayPhase} progress={progress} />
 
         {showApprovalCard && approval.batch !== null && (
           <ChatApproval
             batch={approval.batch}
-            sessionsById={approval.sessionsById}
             mode={mode}
             actionPending={approval.actionPending}
             actionError={approval.actionError}
@@ -213,15 +207,15 @@ export function ConversationView({
           />
         )}
 
-        {slotProposal !== null && !isBusy && (
+        {slotProposal !== null && !busy && (
           <SlotProposal
             candidates={slotProposal.candidates}
-            disabled={isBusy}
+            disabled={busy}
             onPick={confirmSlot}
           />
         )}
 
-        {buildRetry && !isBusy && (
+        {buildRetry && !busy && (
           <div className={styles.consent}>
             <span className={styles.consentText}>
               I couldn’t reach your coach. Want me to try again?
@@ -236,7 +230,7 @@ export function ConversationView({
         {/* Generic yes/no consent (e.g. lock weekly targets). Suppressed when a card,
             slot picker, or retry already owns the decision. */}
         {awaitingConfirmation &&
-          !isBusy &&
+          !busy &&
           !showApprovalCard &&
           slotProposal === null &&
           !buildRetry && (
@@ -254,7 +248,7 @@ export function ConversationView({
             </div>
           )}
 
-        {intentBlocked && !isBusy && (
+        {intentBlocked && !busy && (
           <div className={styles.consent}>
             <span className={styles.consentText}>
               This chat is in <strong>Ask</strong> mode, so I can’t change your program.
@@ -278,7 +272,7 @@ export function ConversationView({
 
       <footer className={styles.footer}>
         <div className={styles.composerBar}>
-          <ModeToggle mode={mode} disabled={modePending || isBusy} onChange={onChangeMode} />
+          <ModeToggle mode={mode} disabled={modePending || busy} onChange={onChangeMode} />
           {isBusy ? (
             <button type="button" className={styles.stop} onClick={stop}>
               Stop
@@ -294,7 +288,7 @@ export function ConversationView({
             </button>
           )}
         </div>
-        <AssistantComposer onSend={onSend} disabled={isBusy} autoFocus />
+        <AssistantComposer onSend={onSend} disabled={busy} autoFocus />
       </footer>
     </div>
   );

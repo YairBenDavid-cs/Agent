@@ -35,6 +35,7 @@ export class FetchTrigger {
     userId: string,
     today: string,
     runId: string = `fetch:${userId}:${today}`,
+    syncReason: string | null = null,
   ): Promise<PipelineRunResult | null> {
     // Date-matched, NOT the build pointer: after a scheduled build advances
     // `currentWeekIndex` onto next week early, the session-day pipeline must
@@ -53,6 +54,7 @@ export class FetchTrigger {
         weekWindow: ctx.weekWindow,
         weekIndex: ctx.weekIndex,
         programId: ctx.programId,
+        syncReason,
       },
     });
   }

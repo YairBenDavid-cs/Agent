@@ -72,10 +72,20 @@ function isCommitted(session: BuildSession): boolean {
   return session.planState === 'committed';
 }
 
-/** A committed session is "scheduled" once its calendar event has been written. */
-function isScheduled(session: BuildSession): boolean {
-  return session.calendarSync?.eventId != null;
+/**
+ * A committed session is "scheduled" once its calendar event has been written —
+ * OR once the event push was attempted and failed (`syncState: 'failed'`). The
+ * app-side schedule is the source of truth and the Google event is a downstream
+ * projection (re-synced later), so a failed push must not wedge the build in
+ * PROPOSE_SLOTS re-proposing the same session forever.
+ */
+export function isSessionScheduled(session: BuildSession): boolean {
+  return (
+    session.calendarSync?.eventId != null ||
+    session.calendarSync?.syncState === 'failed'
+  );
 }
+const isScheduled = isSessionScheduled;
 
 /**
  * Whether a week's build is functionally done: quota met, every committed

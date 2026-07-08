@@ -3,6 +3,7 @@ import { ConversationMode } from '../conversation/domain/conversation.model';
 import {
   Pipeline,
   SessionEditRequest,
+  SessionRescheduleRequest,
   TargetRevisionRequest,
 } from '../orchestrator/pipeline.types';
 import { pipelineForTag } from '../orchestrator/tag-routing.table';
@@ -48,8 +49,27 @@ export interface AssistantActions {
 export interface WeekEditPipelineContext {
   weekIndex: number;
   sessionEdit?: SessionEditRequest;
+  /** Multi-session variant of `sessionEdit` (same change, several sessions). */
+  sessionEdits?: SessionEditRequest[];
   targetRevision?: TargetRevisionRequest;
+  sessionReschedule?: SessionRescheduleRequest;
 }
+
+/**
+ * Deterministic ground truth for verifying the model's breach judgment on a
+ * session_content_edit. Assembled by the caller from the targeted week's locked
+ * targets + per-session native volumes (km for running, volume-load for
+ * strength). Null/absent → verification is skipped (model judgment stands).
+ */
+export interface WeekBreachFacts {
+  /** The week's locked total-volume budget, or null when nothing is locked. */
+  lockedTotalVolume: number | null;
+  /** Current native volume per plannedSessionId. */
+  sessionVolumes: Record<string, number>;
+}
+
+/** Relative tolerance before a volume delta counts as a locked-target breach. */
+const BREACH_TOLERANCE = 0.1;
 
 /** Tags that bypass the firing boundary and always re-plan immediately. */
 const SAFETY_TAGS = new Set(['injury_or_illness', 'injury', 'overreaching']);
@@ -65,6 +85,7 @@ const PIPELINE_PRECEDENCE: Record<Pipeline, number> = {
   [Pipeline.SESSION_CONTENT_REPLAN]: 4,
   [Pipeline.FULL_SESSION_DAY]: 3,
   [Pipeline.CONTENT_REPLAN]: 2,
+  [Pipeline.SESSION_RESCHEDULE]: 1.5,
   [Pipeline.TIMING_REPLACE]: 1,
   [Pipeline.WRITE_ONLY]: 0,
 };
@@ -73,6 +94,7 @@ export function decideActions(
   turn: AssistantTurn,
   today: string,
   mode: ConversationMode = 'plan',
+  weekFacts: WeekBreachFacts | null = null,
 ): AssistantActions {
   // ASK mode is a hard read-only boundary: regardless of lane, write nothing and
   // fire nothing. A non-white turn (including an unconfirmed/confirmed weekEdit)
@@ -85,6 +107,16 @@ export function decideActions(
 
   if (turn.lane === 'white') {
     return base(turn, [], false, null, false);
+  }
+
+  // Deterministic breach verification: if the code's own math says a confirmed
+  // session edit breaches the locked targets but the model declared no breach
+  // (so the user never confirmed a cascade), fail closed — fire nothing and
+  // ask for the go-ahead with the numbers attached.
+  const unverifiedBreach = detectUnhandledBreach(turn.weekEdit, weekFacts);
+  if (unverifiedBreach) {
+    const asked = { ...turn, reply: `${turn.reply}\n\n${unverifiedBreach}` };
+    return base(asked, [], false, null, true);
   }
 
   if (turn.lane === 'gray') {
@@ -140,19 +172,46 @@ function resolveWeekEditPipeline(
     return null;
   }
 
-  if (edit.kind === 'session_content_edit') {
-    if (!edit.plannedSessionId) {
+  if (edit.kind === 'session_reschedule') {
+    // Deterministic move: needs the session and at least one of date/time.
+    if (!edit.plannedSessionId || (!edit.newDate && !edit.newStartTime)) {
       return null;
     }
-    const sessionEdit: SessionEditRequest = {
+    const sessionReschedule: SessionRescheduleRequest = {
       plannedSessionId: edit.plannedSessionId,
-      requestedChangeDescription: edit.requestedChangeDescription,
-      revisedTargets:
-        edit.breachesLockedTargets && edit.newTargets ? edit.newTargets : null,
+      newDate: edit.newDate ?? null,
+      newStartTime: edit.newStartTime ?? null,
     };
     return {
+      pipeline: Pipeline.SESSION_RESCHEDULE,
+      context: { weekIndex: edit.weekIndex, sessionReschedule },
+    };
+  }
+
+  if (edit.kind === 'session_content_edit') {
+    const ids = dedupe([
+      ...(edit.plannedSessionId ? [edit.plannedSessionId] : []),
+      ...edit.plannedSessionIds,
+    ]);
+    if (ids.length === 0) {
+      return null;
+    }
+    const revisedTargets =
+      edit.breachesLockedTargets && edit.newTargets ? edit.newTargets : null;
+    const sessionEdits: SessionEditRequest[] = ids.map((id, i) => ({
+      plannedSessionId: id,
+      requestedChangeDescription: edit.requestedChangeDescription,
+      // The target cascade (if any) rides on the first edit only — the saga
+      // revises the week's locked targets once, then redrafts each session.
+      revisedTargets: i === 0 ? revisedTargets : null,
+    }));
+    return {
       pipeline: Pipeline.SESSION_CONTENT_REPLAN,
-      context: { weekIndex: edit.weekIndex, sessionEdit },
+      context: {
+        weekIndex: edit.weekIndex,
+        sessionEdit: sessionEdits[0],
+        sessionEdits,
+      },
     };
   }
 
@@ -167,6 +226,72 @@ function resolveWeekEditPipeline(
     pipeline: Pipeline.TARGET_REVISION_REPLAN,
     context: { weekIndex: edit.weekIndex, targetRevision },
   };
+}
+
+/**
+ * Code-side verification of the model's breach judgment. Returns a user-facing
+ * confirmation note when the math says a confirmed session_content_edit would
+ * push the week outside its locked total-volume budget (±10%) but the model
+ * declared `breachesLockedTargets: false` (or supplied no replacement targets)
+ * — i.e. the user never confirmed the cascade. Null when no verification is
+ * possible or the edit is within budget.
+ */
+export function detectUnhandledBreach(
+  edit: WeekEdit | null,
+  facts: WeekBreachFacts | null,
+): string | null {
+  if (
+    !edit ||
+    !edit.confirmed ||
+    edit.kind !== 'session_content_edit' ||
+    edit.newSessionVolume == null ||
+    !facts ||
+    facts.lockedTotalVolume == null ||
+    facts.lockedTotalVolume <= 0
+  ) {
+    return null;
+  }
+  // The model already flagged the breach AND carries replacement targets → the
+  // user confirmed the cascade; nothing to intercept.
+  if (edit.breachesLockedTargets && edit.newTargets) {
+    return null;
+  }
+
+  const editedIds = new Set(
+    [
+      ...(edit.plannedSessionId ? [edit.plannedSessionId] : []),
+      ...edit.plannedSessionIds,
+    ].filter((id) => id in facts.sessionVolumes),
+  );
+  if (editedIds.size === 0) {
+    return null;
+  }
+
+  let newTotal = 0;
+  for (const [id, volume] of Object.entries(facts.sessionVolumes)) {
+    newTotal += editedIds.has(id) ? edit.newSessionVolume : volume;
+  }
+
+  const budget = facts.lockedTotalVolume;
+  if (Math.abs(newTotal - budget) / budget <= BREACH_TOLERANCE) {
+    return null;
+  }
+
+  const direction = newTotal > budget ? 'above' : 'below';
+  return (
+    `Heads up — this change would put the week at ${round1(newTotal)} total ` +
+    `volume, which is ${direction} the locked target of ${round1(budget)}. ` +
+    `Applying it means revising the week's goals too. Want me to go ahead ` +
+    `with both?`
+  );
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+function dedupe(ids: string[]): string[] {
+  return [...new Set(ids)];
 }
 
 /** The higher-precedence of two pipelines (either may be null). */

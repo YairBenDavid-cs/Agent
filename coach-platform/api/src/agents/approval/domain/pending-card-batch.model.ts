@@ -42,6 +42,13 @@ export interface PendingCardBatch {
   runId: string;
   /** Chat thread that fired the run, if any (null for the scheduled fetch). */
   conversationId: string | null;
+  /**
+   * WHY this draft was produced — the trigger's significance reason (e.g.
+   * missed/deviated/unplanned sessions from a Garmin sync) plus the Recovery
+   * verdict's rationale when the run produced one. Rendered on the proposal
+   * and injected into the assistant's context so "why?" is answerable.
+   */
+  reason: string | null;
   /** Earliest session start (commit deadline for a session-day draft). */
   sessionStartUtc: string | null;
   createdAt: string;

@@ -111,11 +111,48 @@ export const weekEditSchema = z.object({
       "The program week this edit targets, resolved via get_week / " +
         "query_planned_sessions — NEVER assumed to be the current week.",
     ),
-  kind: z.enum(['session_content_edit', 'target_revision']),
+  kind: z.enum(['session_content_edit', 'target_revision', 'session_reschedule']),
   plannedSessionId: z
     .string()
     .nullable()
-    .describe('Required for session_content_edit; null for target_revision.'),
+    .describe(
+      'Required for session_content_edit and session_reschedule; null for ' +
+        'target_revision.',
+    ),
+  plannedSessionIds: z
+    .array(z.string())
+    .default([])
+    .describe(
+      'For a session_content_edit that applies the SAME change to several ' +
+        'sessions (e.g. "slow down all my runs this week"): every affected ' +
+        'plannedSessionId. Leave empty for a single-session edit.',
+    ),
+  newDate: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      'session_reschedule only: the new local date (YYYY-MM-DD), or null to ' +
+        'keep the current date and change only the time.',
+    ),
+  newStartTime: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      'session_reschedule only: the new local start time (HH:mm), or null to ' +
+        'keep the current start time and change only the date.',
+    ),
+  newSessionVolume: z
+    .number()
+    .nullable()
+    .default(null)
+    .describe(
+      "session_content_edit only: the edited session's resulting volume in " +
+        'the native unit (km for running, volume-load for strength), when the ' +
+        'request implies one (e.g. "make it 15km" → 15). Code uses this to ' +
+        'verify your breach judgment against the locked weekly targets.',
+    ),
   requestedChangeDescription: z
     .string()
     .min(1)

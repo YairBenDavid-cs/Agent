@@ -10,7 +10,9 @@
     "start:prod": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint \"src/**/*.ts\" --fix",
-    "test": "jest"
+    "test": "jest",
+    "db:reset": "mongosh \"mongodb://localhost:27017/coach_platform?replicaSet=rs0\" --quiet --eval \"db.dropDatabase()\"",
+    "db:user": "node scripts/show-user-data.js"
   },
   "dependencies": {
     "@langchain/core": "^1.2.1",

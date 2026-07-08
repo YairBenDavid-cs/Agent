@@ -107,6 +107,10 @@ export interface PendingPrompt {
   text: string;
 }
 
+// How a scheduled build runs when it fires, mirrored from the backend:
+// 'plan' opens a HITL planning chat; 'auto' builds and commits autonomously.
+export type ScheduledWeekBuildMode = 'plan' | 'auto';
+
 // The user's pending "plan next week" schedule, mirrored from the backend
 // (agents/build/scheduled-build/domain/scheduled-week-build.model.ts). The
 // sidebar only ever shows `pending` tasks — terminal ones are dropped server-side.
@@ -114,5 +118,6 @@ export interface ScheduledWeekBuild {
   id: string;
   targetWeekIndex: number;
   scheduledForUtc: string;
+  mode: ScheduledWeekBuildMode;
   status: 'pending' | 'executed' | 'cancelled' | 'failed';
 }

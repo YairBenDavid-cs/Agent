@@ -38,13 +38,20 @@ import {
   CalendarSyncService,
   SyncableSession,
 } from '../approval/calendar-sync.service';
-import { SlotCandidate } from './slot-proposer';
+import {
+  hasSlotWish,
+  matchesSlotWish,
+  parseSlotWish,
+  resolveRelativeWish,
+  SlotCandidate,
+} from './slot-proposer';
 import { PendingCardBatchService } from '../approval/pending-card-batch.service';
 import { AgentTelemetryService } from '../shared/llm/agent-telemetry.service';
 import { computeAdherence } from '../shared/read-tools/aggregates';
 import {
   BuildPhase,
   BuildSnapshot,
+  isSessionScheduled,
   isWeekBuildComplete,
   resolveBuildPhase,
 } from './build-phase.resolver';
@@ -84,6 +91,14 @@ const SESSIONS_COMPLETE_HANDOFF =
   "Amazing — that's every session for the week drafted and approved. Your week " +
   "has real shape now. One last step: let's find a time on your calendar for " +
   'each session.';
+/** Posted when the live calendar couldn't be read while proposing slots. */
+const CALENDAR_UNAVAILABLE =
+  "I couldn't check your calendar just now — that's on the calendar service, " +
+  "not you. Reply (or hit retry) and I'll look again.";
+/** Posted when the schedule saved but the Google event write failed. */
+const CALENDAR_WRITE_FAILED =
+  "I've saved that time for the session, but I couldn't add it to your Google " +
+  "Calendar just now — I'll sync it later, no action needed.";
 /** Posted when no clash-free calendar slot exists for the session being placed. */
 const NO_SLOTS_AVAILABLE =
   "I couldn't find a free, clash-free time for this session in your calendar " +
@@ -288,12 +303,13 @@ export class BuildConversationOrchestrator {
         );
       case 'PROPOSE_SLOTS':
         // No proposal on the table yet → compute + offer slots for the next
-        // unscheduled session.
-        return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+        // unscheduled session, honoring any day/time wish in the message.
+        return this.runProposeSlots(userId, conversationId, snapshot, sessions, message);
       case 'AWAIT_SLOT_CONSENT':
-        // A free-text reply while slots are on the table means "none of these" —
-        // re-propose a fresh set. The actual pick comes through confirmSlot.
-        return this.runProposeSlots(userId, conversationId, snapshot, sessions);
+        // A free-text reply while slots are on the table: parse it — a named
+        // day/time filters the candidates; anything else means "none of these",
+        // so offer different ones. The actual pick comes through confirmSlot.
+        return this.runProposeSlots(userId, conversationId, snapshot, sessions, message);
       case 'COMPLETE':
         // Everything is scheduled; flip the week to locked (if needed) and
         // confirm. Idempotent — a locked week just re-confirms.
@@ -318,6 +334,7 @@ export class BuildConversationOrchestrator {
   async advanceAfterSessionApproved(
     userId: string,
     conversationId: string,
+    approvedTitle?: string | null,
   ): Promise<string | null> {
     const convo = await this.conversations.findConversation(
       userId,
@@ -351,8 +368,12 @@ export class BuildConversationOrchestrator {
     // Record the approval in the transcript. The card decision happens
     // out-of-band (POST /approvals), so without this the conversation history
     // the LLM sees would jump from "does this look good?" straight to the next
-    // draft with no trace of the user's decision.
-    await this.append(userId, conversationId, SESSION_APPROVED_ACK, {
+    // draft with no trace of the user's decision. Personalized with the
+    // approved session's title when the approval flow passes it along.
+    const ack = approvedTitle
+      ? `Nice — "${approvedTitle}" is locked in and added to your week.`
+      : SESSION_APPROVED_ACK;
+    await this.append(userId, conversationId, ack, {
       awaitingConfirmation: false,
     });
 
@@ -438,16 +459,32 @@ export class BuildConversationOrchestrator {
       return res.reply;
     }
 
-    // Decline with no stated reason — acknowledge + open the revision interview.
+    // Decline with no stated reason — acknowledge + open the revision
+    // interview. LLM-composed with the conversation history (so it sounds like
+    // Popvich, and can lead with a best guess at why); the deterministic copy
+    // remains as fallback so the clarifying question is ALWAYS asked.
     const declined = sessions.find((s) => s.planState === 'tentative');
-    const ask = SESSION_DECLINED_ASK.replace(
+    const fallbackAsk = SESSION_DECLINED_ASK.replace(
       '{title}',
       declined ? `"${declined.title}"` : 'that session',
     );
-    await this.append(userId, conversationId, ask, {
+    let ask: string | null = null;
+    try {
+      const discipline = await this.resolveDiscipline(userId);
+      ask = await this.coach.composeDeclineAsk(
+        userId,
+        `build:decline:${userId}:${randomUUID()}`,
+        discipline,
+        { conversationId, declinedTitle: declined?.title ?? null },
+      );
+    } catch (err) {
+      this.logger.warn(`composeDeclineAsk failed for ${userId}: ${String(err)}`);
+    }
+    const text = ask ?? fallbackAsk;
+    await this.append(userId, conversationId, text, {
       awaitingConfirmation: false,
     });
-    return ask;
+    return text;
   }
 
   /**
@@ -771,20 +808,29 @@ export class BuildConversationOrchestrator {
   }
 
   /**
-   * Propose calendar slots for the next committed-but-unscheduled session. Picks
-   * the earliest such session, asks the Planner for clash-free candidates (live
-   * calendar minus busy + hard windows), and posts them as an assistant message
-   * carrying `meta.slotProposal` so the UI renders pickable chips. When no slot
-   * fits, posts a "free up a window" prompt instead.
+   * Find a calendar time for the next committed-but-unscheduled session,
+   * LLM-first: the Planner's slot conversation sees the session, availability,
+   * live calendar, the VALIDATED candidate pool (the only offerable times), and
+   * the chat history — then either offers 1–3 picks (posted with
+   * `meta.slotProposal` so the UI renders pickable chips) or asks one interview
+   * question in plain text. When the pool is empty it posts a "free up a
+   * window" prompt.
+   *
+   * If the LLM turn fails, a deterministic fallback reads `userMessage` itself:
+   * a named day / time of day / clock time / "later" / "earlier" filters the
+   * candidates toward the wish; any other non-empty reply while a proposal is
+   * outstanding means "none of these", so previously offered start instants are
+   * excluded and different options are shown.
    */
   private async runProposeSlots(
     userId: string,
     conversationId: string,
     snapshot: BuildSnapshot,
     sessions: PlannedSessionResponse[],
+    userMessage?: string,
   ): Promise<BuildTurnResult> {
     const next = sessions.find(
-      (s) => s.planState === 'committed' && s.calendarSync?.eventId == null,
+      (s) => s.planState === 'committed' && !isSessionScheduled(s),
     );
     if (!next) {
       // Nothing left to place — flip to complete.
@@ -819,19 +865,137 @@ export class BuildConversationOrchestrator {
 
     const week = snapshot.week;
     const timezone = next.timezone || (await this.resolveTimezone(userId));
+    // One session per day: days already holding a scheduled session this week
+    // are excluded from the candidate pool entirely.
+    const takenDates = [
+      ...new Set(
+        sessions
+          .filter((s) => isSessionScheduled(s) && s.scheduledDate)
+          .map((s) => s.scheduledDate),
+      ),
+    ];
+
+    // LLM-led turn: the model sees the session, availability, live calendar,
+    // the validated candidate pool, and the chat — and decides whether to offer
+    // picks (terminal tool, pool-only) or ask an interview question first. Any
+    // LLM failure falls back to the deterministic wish/exclude path below.
     try {
-      const candidates = await this.planner.proposeSlotsForSession(userId, {
+      const outcome = await this.planner.converseSlot(userId, randomUUID(), {
+        conversationId,
+        userMessage: userMessage?.trim() ?? '',
+        session: {
+          id: next.id,
+          title: next.title,
+          durationMin: next.estDurationMin,
+          preferredDate: next.scheduledDate,
+        },
+        weekWindow: { from: week.startDate, to: week.endDate },
+        timezone,
+        takenDates,
+      });
+      if (outcome.kind === 'question') {
+        // An interview/clarifying question — the user answers by typing.
+        return this.handled(userId, conversationId, outcome.message, false);
+      }
+      const assistantMessageId = await this.append(
+        userId,
+        conversationId,
+        outcome.message,
+        {
+          awaitingConfirmation: true,
+          slotProposal: {
+            plannedSessionId: next.id,
+            candidates: outcome.slots.map((c) => ({
+              scheduledDate: c.scheduledDate,
+              startTime: c.startTime,
+              endTime: c.endTime,
+              scheduledStartUtc: c.scheduledStartUtc,
+            })),
+          },
+        },
+      );
+      return {
+        reply: outcome.message,
+        assistantMessageId,
+        awaitingConfirmation: true,
+        pendingCardBatchId: null,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `converseSlot failed for ${userId}; falling back to deterministic ` +
+          `slot proposal: ${String(err)}`,
+      );
+    }
+
+    try {
+      // Deterministic fallback — reading of the user's reply: named day /
+      // time-of-day / clock time / "later" / "earlier" → a wish to honor; any
+      // other non-empty reply → "none of these", so exclude what was offered.
+      const trimmedMessage = userMessage?.trim() ?? '';
+      const prior = trimmedMessage
+        ? await this.latestSlotProposal(userId, conversationId)
+        : null;
+      const priorForSession =
+        prior && prior.plannedSessionId === next.id ? prior : null;
+      const wish = resolveRelativeWish(
+        parseSlotWish(userMessage),
+        priorForSession?.candidates.map((c) => c.startTime) ?? [],
+      );
+      const wished = hasSlotWish(wish);
+      const exclude =
+        !wished && trimmedMessage && priorForSession
+          ? priorForSession.candidates.map((c) => c.scheduledStartUtc)
+          : [];
+
+      // Fetch a wide pool so wish-filtering / exclusion still leaves options.
+      const pool = await this.planner.proposeSlotsForSession(userId, {
         weekWindow: { from: week.startDate, to: week.endDate },
         timezone,
         durationMin: next.estDurationMin,
         preferredDate: next.scheduledDate,
+        limit: 24,
+        exclude,
+        excludeDates: takenDates,
       });
-      if (candidates.length === 0) {
+      if (pool.length === 0) {
+        if (exclude.length > 0) {
+          // Everything else inside their availability is taken — the prior
+          // options stay pickable (the outstanding proposal is unchanged).
+          return this.handled(
+            userId,
+            conversationId,
+            'I can only book inside your usual availability windows, and those ' +
+              'are the only clash-free times left in them this week. Pick one of ' +
+              'the options above, name a specific day or time, or update your ' +
+              "availability and reply — I'll look again.",
+            false,
+          );
+        }
         // "Free up a window and reply" — a typed reply, not a consent decision.
         return this.handled(userId, conversationId, NO_SLOTS_AVAILABLE, false);
       }
 
-      const text = this.formatSlotProposal(next.title, candidates);
+      let candidates = pool.slice(0, 3);
+      let leadIn =
+        `Let's find a time for "${next.title}". Here are a few open slots — ` +
+        'pick the one that works:';
+      if (wished) {
+        const matching = pool.filter((c) => matchesSlotWish(c, wish));
+        if (matching.length > 0) {
+          candidates = matching.slice(0, 3);
+          leadIn = `Sure — here's what's open then for "${next.title}". Pick the one that works:`;
+        } else {
+          leadIn =
+            "I couldn't find a free time matching that inside your usual " +
+            'availability windows this week (I only book within them). ' +
+            `Here's what is open for "${next.title}" — or update your ` +
+            'availability and ask me again:';
+        }
+      } else if (exclude.length > 0) {
+        leadIn = `No problem — here are some other options for "${next.title}":`;
+      }
+
+      const text = this.formatSlotProposal(leadIn, candidates);
       const assistantMessageId = await this.append(
         userId,
         conversationId,
@@ -856,8 +1020,10 @@ export class BuildConversationOrchestrator {
         pendingCardBatchId: null,
       };
     } catch (err) {
+      // The only external dependency here is the live calendar read — surface
+      // an honest, calendar-specific retry rather than "couldn't reach your coach".
       this.logger.error(`runProposeSlots failed for ${userId}: ${String(err)}`);
-      return this.failed(userId, conversationId, FALLBACK_COACH_UNAVAILABLE);
+      return this.failed(userId, conversationId, CALENDAR_UNAVAILABLE);
     }
   }
 
@@ -946,13 +1112,22 @@ export class BuildConversationOrchestrator {
     const syncable: SyncableSession = {
       id: session.id,
       title: session.title,
-      coachNotes: session.coachNotes,
+      running: session.running,
+      strength: session.strength,
       scheduledStartUtc: slot.scheduledStartUtc,
       estDurationMin: session.estDurationMin,
       timezone,
       calendarSync: session.calendarSync,
     };
-    await this.calendarSync.syncWeek(userId, [syncable]);
+    const sync = await this.calendarSync.syncWeek(userId, [syncable]);
+    // The app-side schedule is committed either way; a failed Google write marks
+    // the session `syncState: 'failed'` (still "placed" for the resolver, synced
+    // later) — tell the user honestly instead of silently re-proposing forever.
+    if (sync.failed > 0) {
+      await this.append(userId, conversationId, CALENDAR_WRITE_FAILED, {
+        awaitingConfirmation: false,
+      });
+    }
 
     // Advance: re-load fresh state and either propose the next session's slots
     // or finish the build (lock the week).
@@ -1076,9 +1251,9 @@ export class BuildConversationOrchestrator {
     }
   }
 
-  /** Render a short, warm slot proposal naming the session + candidate times. */
+  /** Render a slot proposal: the given lead-in + a numbered candidate list. */
   private formatSlotProposal(
-    sessionTitle: string,
+    leadIn: string,
     candidates: SlotCandidate[],
   ): string {
     const lines = candidates
@@ -1087,10 +1262,7 @@ export class BuildConversationOrchestrator {
           `${i + 1}. ${this.formatSlotLabel(c)}`,
       )
       .join('\n');
-    return (
-      `Let's find a time for "${sessionTitle}". Here are a few open slots — ` +
-      `pick the one that works:\n${lines}`
-    );
+    return `${leadIn}\n${lines}`;
   }
 
   /** Human-readable "Mon Jul 6, 07:00–08:00" label for one candidate. */
@@ -1382,7 +1554,7 @@ export class BuildConversationOrchestrator {
       return false;
     }
     const target = sessions.find((s) => s.id === proposal.plannedSessionId);
-    return target != null && target.calendarSync?.eventId == null;
+    return target != null && !isSessionScheduled(target);
   }
 
   /**

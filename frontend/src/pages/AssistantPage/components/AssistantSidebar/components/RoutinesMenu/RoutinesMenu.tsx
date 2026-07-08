@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { ScheduleIcon } from '@/shared/ui/icons/ScheduleIcon';
 import { useScheduledWeekBuild } from '@/pages/AssistantPage/domain/assistant/hooks/useScheduledWeekBuild';
+import type { ScheduledWeekBuildMode } from '@/pages/AssistantPage/domain/assistant/types/assistant';
 import { useGarminSyncSchedule } from '@/pages/AssistantPage/domain/garmin/useGarminSyncSchedule';
 import type { GarminSyncMode } from '@/pages/OnboardingPage/api/connections';
 import sidebarStyles from '../../view/AssistantSidebar.module.css';
@@ -13,6 +14,11 @@ const DEFAULT_NEW_TIME = '12:00';
 const MODE_HINT: Record<GarminSyncMode, string> = {
   plan: "When data changes something, I'll open a chat with the recommendation and wait for your call.",
   auto: "I'll apply recovery-based adjustments to your plan automatically and log what changed.",
+};
+
+const WEEK_MODE_HINT: Record<ScheduledWeekBuildMode, string> = {
+  plan: "I'll open a planning chat with next week's draft and wait for your approval before anything is committed.",
+  auto: "I'll build and commit next week automatically, then open a chat explaining what I planned and why.",
 };
 
 /** Local `datetime-local` value at least a minute in the future, for the input's `min`. */
@@ -58,6 +64,7 @@ export function RoutinesMenu({ garminVisible, onToast }: RoutinesMenuProps): Rea
 
   const [planEnabled, setPlanEnabled] = useState(true);
   const [datetime, setDatetime] = useState(minLocalValue());
+  const [weekMode, setWeekMode] = useState<ScheduledWeekBuildMode>('plan');
   const [weekSubmitting, setWeekSubmitting] = useState(false);
   const {
     pending,
@@ -99,10 +106,11 @@ export function RoutinesMenu({ garminVisible, onToast }: RoutinesMenuProps): Rea
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [open, weekStatus, refreshWeek, garminVisible, garminStatus, refreshGarmin]);
 
-  // Reflect an already-scheduled build: prefill the time and flip the toggle on.
+  // Reflect an already-scheduled build: prefill the time + mode and flip the toggle on.
   useEffect(() => {
     if (pending) {
       setDatetime(toLocalInputValue(pending.scheduledForUtc));
+      setWeekMode(pending.mode ?? 'plan');
       setPlanEnabled(true);
     }
   }, [pending]);
@@ -137,7 +145,7 @@ export function RoutinesMenu({ garminVisible, onToast }: RoutinesMenuProps): Rea
         await cancelWeek();
       }
       const scheduledForUtc = chosen.toISOString();
-      await scheduleWeek(scheduledForUtc);
+      await scheduleWeek(scheduledForUtc, weekMode);
       onToast(
         `Next week's build is ${wasPending ? 'rescheduled' : 'scheduled'} for ${formatScheduledFor(scheduledForUtc)}.`,
       );
@@ -298,6 +306,40 @@ export function RoutinesMenu({ garminVisible, onToast }: RoutinesMenuProps): Rea
                             onChange={(e) => setDatetime(e.target.value)}
                           />
                           <span className={styles.whenLabel}>next run</span>
+                        </div>
+                        <p className={`${styles.sectionLabel} ${styles.sectionLabelSpaced}`}>On build</p>
+                        <div className={styles.segmented}>
+                          <button
+                            type="button"
+                            className={`${styles.segButton} ${weekMode === 'plan' ? styles.segButtonActive : ''}`}
+                            onClick={() => setWeekMode('plan')}
+                          >
+                            Plan &amp; wait
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.segButton} ${weekMode === 'auto' ? styles.segButtonActive : ''}`}
+                            onClick={() => setWeekMode('auto')}
+                          >
+                            Auto-apply
+                          </button>
+                        </div>
+                        <div className={styles.modeNote}>
+                          <svg
+                            className={styles.modeNoteIcon}
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="#e8894f"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 8h.01M11 12h1v4h1" />
+                          </svg>
+                          <p className={styles.modeNoteText}>{WEEK_MODE_HINT[weekMode]}</p>
                         </div>
                         <button
                           type="button"

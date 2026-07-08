@@ -14,6 +14,7 @@ export interface NewCardBatch {
   runId: string;
   conversationId: string | null;
   sessionStartUtc: string | null;
+  reason: string | null;
 }
 
 /**

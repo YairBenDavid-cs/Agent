@@ -51,6 +51,8 @@ export interface ApprovalBatchView extends ApprovalCardBatch {
   status: PendingCardBatch['status'];
   kind: PendingCardBatch['kind'];
   conversationId: string | null;
+  /** WHY this draft exists (trigger + recovery rationale); null if unexplained. */
+  reason: string | null;
 }
 
 export interface ApproveResult {
@@ -134,7 +136,8 @@ export class ApprovalService {
       sessions.map((s) => ({
         id: s.id,
         title: s.title,
-        coachNotes: s.coachNotes,
+        running: s.running,
+        strength: s.strength,
         scheduledStartUtc: s.scheduledStartUtc,
         estDurationMin: s.estDurationMin,
         timezone: s.timezone,
@@ -209,6 +212,7 @@ export class ApprovalService {
       status: batch.status,
       kind: batch.kind,
       conversationId: batch.conversationId,
+      reason: batch.reason,
     };
   }
 
@@ -273,11 +277,22 @@ export class ApprovalService {
     await this.batches.setStatus(userId, batch.id, 'approved');
 
     // Hand back to the build choreography: draft the next session or wrap up.
+    // The approved session's title personalizes the transcript acknowledgment.
+    // Best-effort: the commit already landed, so a downstream failure (LLM,
+    // calendar) must NOT fail this request — the build resumes on the next
+    // reply/reopen (resolveBuildPhase re-derives the step).
     if (batch.conversationId) {
-      await this.buildOrchestrator.advanceAfterSessionApproved(
-        userId,
-        batch.conversationId,
-      );
+      try {
+        await this.buildOrchestrator.advanceAfterSessionApproved(
+          userId,
+          batch.conversationId,
+          tentative[0]?.title ?? null,
+        );
+      } catch (err) {
+        this.logger.error(
+          `advanceAfterSessionApproved failed for ${userId} (batch ${batch.id}): ${String(err)}`,
+        );
+      }
     }
 
     this.logger.log(
@@ -365,11 +380,19 @@ export class ApprovalService {
   ): Promise<DiscardTentativeWeekResult> {
     await this.batches.setStatus(userId, batch.id, 'rejected');
 
+    // Best-effort (mirrors approve): the batch is already rejected, so a
+    // failure to post the follow-up question must not fail this request.
     if (batch.conversationId) {
-      await this.buildOrchestrator.openSessionRevision(
-        userId,
-        batch.conversationId,
-      );
+      try {
+        await this.buildOrchestrator.openSessionRevision(
+          userId,
+          batch.conversationId,
+        );
+      } catch (err) {
+        this.logger.error(
+          `openSessionRevision failed for ${userId} (batch ${batch.id}): ${String(err)}`,
+        );
+      }
     }
 
     this.logger.log(

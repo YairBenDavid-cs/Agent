@@ -1,6 +1,7 @@
 import { GetGarminSyncScheduleQuery } from '../../../ingestion/garmin-sync-schedule/application/queries/get-garmin-sync-schedule.query';
 import { GarminSyncSchedule } from '../../../ingestion/garmin-sync-schedule/domain/garmin-sync-schedule.model';
 import { GetUserQuery } from '../../../users/application/queries/get-user.query';
+import { GetWeekQuery } from '../../../planned-sessions/application/queries/get-week.query';
 import { GarminSyncScheduler } from '../garmin-sync.scheduler';
 
 function schedule(overrides: Partial<GarminSyncSchedule> = {}): GarminSyncSchedule {
@@ -20,6 +21,11 @@ function makeScheduler(opts: {
   userIds: string[];
   schedules: Record<string, GarminSyncSchedule>;
   timezone?: string;
+  /** Committed planned week returned by GetWeekQuery (default: empty). */
+  week?: unknown[];
+  /** Observed activities in the week window (default: one unplanned run —
+   *  a significant signal, so existing fire-path tests still reach fetch). */
+  observed?: unknown[];
 }) {
   const users = { findActiveIds: jest.fn().mockResolvedValue(opts.userIds) };
   const schedules = { markFired: jest.fn().mockResolvedValue(undefined) };
@@ -31,20 +37,57 @@ function makeScheduler(opts: {
       if (q instanceof GetUserQuery) {
         return { timezone: opts.timezone ?? 'UTC' };
       }
+      if (q instanceof GetWeekQuery) {
+        return opts.week ?? [];
+      }
       return null;
     }),
   };
   const orchestrator = { runForUser: jest.fn().mockResolvedValue(undefined) };
   const fetchTrigger = { runForUser: jest.fn().mockResolvedValue(undefined) };
+  const matcher = {
+    reconcile: jest
+      .fn()
+      .mockResolvedValue({ userId: 'u1', sessionsScanned: 0, matched: 0 }),
+  };
+  const resolver = {
+    resolveForToday: jest.fn().mockResolvedValue({
+      programId: 'p1',
+      discipline: 'running',
+      timezone: opts.timezone ?? 'UTC',
+      weekIndex: 1,
+      weekWindow: { from: '2026-07-06', to: '2026-07-12' },
+    }),
+  };
+  const sessions = {
+    findRange: jest
+      .fn()
+      .mockResolvedValue(
+        opts.observed ?? [{ activityId: 99, date: '2026-07-07', type: 'running' }],
+      ),
+  };
 
   const scheduler = new GarminSyncScheduler(
     users as never,
     schedules as never,
+    sessions as never,
     queryBus as never,
     orchestrator as never,
+    matcher as never,
+    resolver as never,
     fetchTrigger as never,
   );
-  return { scheduler, users, schedules, queryBus, orchestrator, fetchTrigger };
+  return {
+    scheduler,
+    users,
+    schedules,
+    queryBus,
+    orchestrator,
+    fetchTrigger,
+    matcher,
+    resolver,
+    sessions,
+  };
 }
 
 describe('GarminSyncScheduler.sweep', () => {
@@ -62,7 +105,43 @@ describe('GarminSyncScheduler.sweep', () => {
       'u1',
       '2026-07-08',
       'garmin-sync:u1:2026-07-08:04:00',
+      'Unplanned running activity on 2026-07-07 — extra load on top of the plan.',
     );
+  });
+
+  it('reconciles matches BEFORE enqueueing the replan', async () => {
+    const { scheduler, matcher, fetchTrigger } = makeScheduler({
+      userIds: ['u1'],
+      schedules: { u1: schedule({ syncTimesLocal: ['04:00'] }) },
+    });
+    const order: string[] = [];
+    matcher.reconcile.mockImplementation(async () => {
+      order.push('reconcile');
+      return { userId: 'u1', sessionsScanned: 0, matched: 0 };
+    });
+    fetchTrigger.runForUser.mockImplementation(async () => {
+      order.push('fetch');
+      return null;
+    });
+
+    await scheduler.sweep(new Date('2026-07-08T04:00:00.000Z'));
+
+    expect(matcher.reconcile).toHaveBeenCalledWith('u1', '2026-07-06', '2026-07-12');
+    expect(order).toEqual(['reconcile', 'fetch']);
+  });
+
+  it('stays silent (no replan) when the sync produced no significant signal', async () => {
+    const { scheduler, matcher, fetchTrigger } = makeScheduler({
+      userIds: ['u1'],
+      schedules: { u1: schedule({ syncTimesLocal: ['04:00'] }) },
+      week: [],
+      observed: [],
+    });
+
+    await scheduler.sweep(new Date('2026-07-08T04:00:00.000Z'));
+
+    expect(matcher.reconcile).toHaveBeenCalled();
+    expect(fetchTrigger.runForUser).not.toHaveBeenCalled();
   });
 
   it('does not fire when the schedule is disabled', async () => {

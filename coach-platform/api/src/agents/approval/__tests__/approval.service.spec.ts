@@ -60,6 +60,7 @@ const batch: PendingCardBatch = {
   runId: 'run-1',
   conversationId: null,
   sessionStartUtc: null,
+  reason: null,
   createdAt: '2026-06-29T00:00:00.000Z',
   updatedAt: '2026-06-29T00:00:00.000Z',
 };
