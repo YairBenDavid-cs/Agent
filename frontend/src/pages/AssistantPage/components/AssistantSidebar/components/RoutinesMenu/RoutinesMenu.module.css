@@ -1,0 +1,478 @@
+/*
+ * This surface is intentionally a self-contained DARK panel (see the approved
+ * "Routines modal" plan / claude_design mockup), distinct from the app's light
+ * --wa-* theme — hence the hard-coded hexes rather than tokens.
+ */
+
+.container {
+  position: relative;
+  display: inline-flex;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 44px 16px;
+  overflow-y: auto;
+  background: rgba(6, 4, 3, 0.62);
+  backdrop-filter: blur(2px);
+  animation: fade 0.12s ease;
+}
+
+.card {
+  width: 452px;
+  max-width: 100%;
+  background: linear-gradient(180deg, #171310 0%, #141110 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 22px;
+  box-shadow:
+    0 34px 80px -24px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(232, 89, 12, 0.04);
+  overflow: hidden;
+  font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  animation: pop 0.14s ease;
+}
+
+/* ---- Header ---- */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 20px 22px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.headerIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(150deg, #e8590c, #b53f07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px -4px rgba(232, 89, 12, 0.6);
+  flex-shrink: 0;
+}
+
+.headerText {
+  flex: 1;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #f6f2ec;
+  letter-spacing: -0.01em;
+}
+
+.headerSubtitle {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #8b847a;
+}
+
+/* ---- Body ---- */
+.body {
+  padding: 16px 18px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---- Routine cards ---- */
+.routineCard {
+  background: #1a1613;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.routineCardHighlight {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(165deg, rgba(232, 89, 12, 0.1), rgba(232, 89, 12, 0.02));
+  border: 1px solid rgba(232, 89, 12, 0.22);
+  padding: 16px 16px 15px;
+}
+
+.cardGlow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(70% 120% at 92% 0%, rgba(232, 89, 12, 0.14), transparent 60%);
+  pointer-events: none;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+}
+
+.cardIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cardIconAccent {
+  background: rgba(232, 89, 12, 0.16);
+  border: 1px solid rgba(232, 89, 12, 0.3);
+}
+
+.cardIconMuted {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cardBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f6f2ec;
+}
+
+.badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f2a06b;
+  background: rgba(232, 89, 12, 0.14);
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.cardDesc {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #9a9288;
+  margin: 5px 0 0;
+}
+
+/* ---- Toggle switch ---- */
+.switch {
+  width: 42px;
+  height: 24px;
+  border-radius: 99px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  transition: background 0.18s;
+  background: rgba(255, 255, 255, 0.13);
+  position: relative;
+}
+
+.switchOn {
+  background: linear-gradient(180deg, #f26518, #d64d06);
+}
+
+.knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 99px;
+  background: #fff;
+  transition: left 0.18s;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+}
+
+.knobOn {
+  left: 21px;
+}
+
+/* ---- Plan card expanded ---- */
+.whenRow {
+  position: relative;
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+}
+
+.whenInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #eceae6;
+  font-size: 13.5px;
+  font-family: inherit;
+  color-scheme: dark;
+}
+
+.whenLabel {
+  font-size: 11.5px;
+  color: #6f6960;
+  white-space: nowrap;
+}
+
+.scheduleButton {
+  position: relative;
+  margin-top: 10px;
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  padding: 12px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #f26518, #d64d06);
+  box-shadow: 0 8px 20px -8px rgba(232, 89, 12, 0.7);
+  transition: filter 0.15s;
+}
+
+.scheduleButton:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.scheduleButton:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* ---- Garmin card expanded ---- */
+.expanded {
+  margin-top: 14px;
+}
+
+.sectionLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6f6960;
+  margin: 0 0 9px;
+}
+
+.sectionLabelSpaced {
+  margin-top: 16px;
+}
+
+.times {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timeRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 11px;
+  padding: 4px 6px 4px 12px;
+}
+
+.timeInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #eceae6;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  color-scheme: dark;
+  letter-spacing: 0.02em;
+}
+
+.removeButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #6f6960;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.removeButton:hover {
+  background: rgba(232, 89, 12, 0.14);
+  color: #f28a4c;
+}
+
+.addButton {
+  margin-top: 9px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  padding: 10px;
+  color: #a49c91;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.addButton:hover {
+  border-color: rgba(232, 89, 12, 0.4);
+  color: #f28a4c;
+}
+
+/* ---- Segmented control ---- */
+.segmented {
+  display: flex;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.segButton {
+  flex: 1;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px;
+  border-radius: 9px;
+  transition: all 0.16s;
+  background: transparent;
+  color: #8b847a;
+}
+
+.segButtonActive {
+  background: rgba(232, 89, 12, 0.16);
+  color: #f4a06b;
+  box-shadow: inset 0 0 0 1px rgba(232, 89, 12, 0.4);
+}
+
+.modeNote {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+  padding: 11px 12px;
+  background: rgba(232, 89, 12, 0.06);
+  border: 1px solid rgba(232, 89, 12, 0.14);
+  border-radius: 11px;
+}
+
+.modeNoteIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.modeNoteText {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b7ad9f;
+}
+
+.loading {
+  font-size: 12.5px;
+  color: #8b847a;
+  margin: 4px 0 0;
+}
+
+.error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #f0876b;
+}
+
+/* ---- Footer ---- */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.cancelButton {
+  padding: 12px 18px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #c7c0b6;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cancelButton:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #f6f2ec;
+}
+
+.saveButton {
+  flex: 1;
+  padding: 12px;
+  border-radius: 11px;
+  border: none;
+  background: linear-gradient(180deg, #f26518, #d64d06);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 8px 20px -8px rgba(232, 89, 12, 0.7);
+  transition: filter 0.15s;
+}
+
+.saveButton:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.saveButton:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}

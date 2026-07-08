@@ -82,3 +82,55 @@ describe('TriggerContextResolver', () => {
     expect(await resolver.resolve('user-1')).toBeNull();
   });
 });
+
+describe('TriggerContextResolver.resolveForChat', () => {
+  it('resolves to the week matching today, even when currentWeekIndex has already advanced ahead of it', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(
+      new Date(),
+    );
+    const resolver = makeResolver({
+      // currentWeekIndex points at a locked-early next week whose startDate
+      // is still in the future — chat should stay pinned to the week
+      // actually covering today, not the build pointer.
+      program: programWith({
+        currentWeekIndex: 2,
+        weeks: [
+          { weekIndex: 1, startDate: today, endDate: today },
+          { weekIndex: 2, startDate: '2099-01-01', endDate: '2099-01-07' },
+        ],
+      }),
+      user: { timezone: 'UTC' },
+    });
+
+    const ctx = await resolver.resolveForChat('user-1');
+
+    expect(ctx).toEqual({
+      programId: 'prog-1',
+      discipline: 'running',
+      timezone: 'UTC',
+      weekIndex: 1,
+      weekWindow: { from: today, to: today },
+    });
+  });
+
+  it('falls back to currentWeekIndex when no skeleton week covers today', async () => {
+    const resolver = makeResolver({
+      program: programWith(),
+      user: { timezone: 'UTC' },
+    });
+
+    const ctx = await resolver.resolveForChat('user-1');
+
+    expect(ctx?.weekIndex).toBe(2);
+    expect(ctx?.weekWindow).toEqual({ from: '2026-06-22', to: '2026-06-28' });
+  });
+
+  it('returns null when neither a date match nor currentWeekIndex resolves', async () => {
+    const resolver = makeResolver({
+      program: programWith({ currentWeekIndex: 99 }),
+      user: { timezone: 'UTC' },
+    });
+
+    expect(await resolver.resolveForChat('user-1')).toBeNull();
+  });
+});

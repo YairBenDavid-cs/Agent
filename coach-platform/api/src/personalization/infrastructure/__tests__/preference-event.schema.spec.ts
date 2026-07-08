@@ -15,6 +15,7 @@ const ALL_TAG_TYPES: Record<PreferenceTagType, true> = {
   too_easy: true,
   no_motivation: true,
   injury_or_illness: true,
+  overreaching: true,
   time_constraint: true,
   weather: true,
   travel: true,

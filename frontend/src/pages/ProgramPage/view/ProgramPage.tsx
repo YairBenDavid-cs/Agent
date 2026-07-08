@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { Spinner } from '@/shared/ui/Spinner/Spinner';
-import type { PlannedSession, Program, ProgramWeek } from '../domain/types';
+import type { PlannedSession, ProgramWeek } from '../domain/types';
 import { formatDayLabel, themeLabel } from '../domain/format';
 import { useProgram } from '../hooks/useProgram';
 import { TrainCard } from '../components/TrainCard/TrainCard';
@@ -31,9 +31,6 @@ export function ProgramPage(): ReactElement {
     actionError,
     approve,
     reject,
-    autoModeRunning,
-    autoModeError,
-    triggerAutoMode,
   } = useProgram();
 
   if (loading) {
@@ -66,7 +63,6 @@ export function ProgramPage(): ReactElement {
   if (generating) {
     return (
       <Shell>
-        <GoalHeader program={program} />
         <div className={styles.generating}>
           <Spinner />
           <p className={styles.muted}>{progressText || 'Your coach is building your program…'}</p>
@@ -78,7 +74,6 @@ export function ProgramPage(): ReactElement {
   if (genError !== null) {
     return (
       <Shell>
-        <GoalHeader program={program} />
         <p className={styles.error}>{genError}</p>
         <button type="button" className={styles.retry} onClick={retry}>
           Try again
@@ -103,21 +98,8 @@ export function ProgramPage(): ReactElement {
     });
   };
 
-  const handleAutoMode = async (): Promise<void> => {
-    const outcome = await triggerAutoMode();
-    if (outcome !== null) {
-      navigate(`/assistant/${outcome.conversationId}`);
-    }
-  };
-
   return (
-    <Shell
-      onAutoMode={handleAutoMode}
-      autoModeRunning={autoModeRunning}
-      autoModeError={autoModeError}
-    >
-      <GoalHeader program={program} />
-
+    <Shell>
       {buildConversationId !== null && (
         <BuildBanner onOpen={() => navigate(`/assistant/${buildConversationId}`)} />
       )}
@@ -212,28 +194,9 @@ function BuildBanner({ onOpen }: { onOpen: () => void }): ReactElement {
   );
 }
 
-// The goal banner — shown across the loading, generating, and ready states so
-// the user always sees what their program is aiming at.
-function GoalHeader({ program }: { program: Program }): ReactElement {
-  return (
-    <header className={styles.goal}>
-      <span className={styles.goalEyebrow}>Your goal</span>
-      <h1 className={styles.goalTitle}>{program.goalSnapshot.primaryGoal}</h1>
-      {program.goalSnapshot.note !== null && (
-        <p className={styles.goalNote}>{program.goalSnapshot.note}</p>
-      )}
-      <p className={styles.adaptNote}>
-        Your plan adapts each week to your performance and readiness, always aiming at this goal.
-        The next two weeks are shown — later weeks are sketched and may change.
-      </p>
-    </header>
-  );
-}
-
-// Compact lock + weekly-targets strip shown under the week nav. The backend
-// commits a week's quota (Step A) into `weeklyTargets` and flips `weekState` to
-// 'locked' once its sessions are final; a locked week can't be edited inline,
-// so we surface a "make changes in chat" CTA instead.
+// Compact lock strip shown under the week nav. The backend flips `weekState` to
+// 'locked' once a week's sessions are final; a locked week can't be edited
+// inline, so we surface a "make changes in chat" CTA instead.
 function WeekMeta({
   week,
   onDiscuss,
@@ -242,52 +205,23 @@ function WeekMeta({
   onDiscuss: () => void;
 }): ReactElement | null {
   const locked = week.weekState === 'locked';
-  const targets = week.weeklyTargets ?? null;
-  if (!locked && targets === null) {
+  if (!locked) {
     return null;
   }
 
   return (
     <div className={styles.weekMeta}>
-      {targets !== null && (
-        <p className={styles.targets}>
-          <span className={styles.targetsStat}>{targets.sessionCount} sessions</span>
-          <span className={styles.targetsDot}>·</span>
-          <span className={styles.targetsStat}>{targets.totalVolume} load</span>
-          {targets.keyGoals.length > 0 && (
-            <>
-              <span className={styles.targetsDot}>·</span>
-              <span className={styles.targetsGoals}>{targets.keyGoals.join(', ')}</span>
-            </>
-          )}
-        </p>
-      )}
-      {locked && (
-        <div className={styles.lockRow}>
-          <span className={styles.lockBadge}>Locked</span>
-          <button type="button" className={styles.lockCta} onClick={onDiscuss}>
-            Make changes in chat
-          </button>
-        </div>
-      )}
+      <div className={styles.lockRow}>
+        <span className={styles.lockBadge}>Locked</span>
+        <button type="button" className={styles.lockCta} onClick={onDiscuss}>
+          Make changes in chat
+        </button>
+      </div>
     </div>
   );
 }
 
-function Shell({
-  children,
-  onAutoMode,
-  autoModeRunning,
-  autoModeError,
-}: {
-  children: ReactNode;
-  // Only the fully-loaded program view passes these — Auto Mode needs an
-  // active program + selected week, which the loading/error/generating states
-  // don't have.
-  onAutoMode?: () => void;
-  autoModeRunning?: boolean;
-  autoModeError?: string | null;
-}): ReactElement {
+function Shell({ children }: { children: ReactNode }): ReactElement {
   const navigate = useNavigate();
   const location = useLocation();
   const navState = location.state as
@@ -312,16 +246,6 @@ function Shell({
             <span className={styles.brandName}>AgentiCoach</span>
           </div>
           <div className={styles.topBarActions}>
-            {onAutoMode && (
-              <button
-                type="button"
-                className={styles.autoModeBtn}
-                onClick={onAutoMode}
-                disabled={autoModeRunning}
-              >
-                {autoModeRunning ? 'Auto Mode running…' : 'Auto Mode'}
-              </button>
-            )}
             {!fromOnboarding && (
               <button
                 type="button"
@@ -333,9 +257,6 @@ function Shell({
             )}
           </div>
         </div>
-        {autoModeError !== null && autoModeError !== undefined && (
-          <p className={styles.error}>{autoModeError}</p>
-        )}
         {children}
       </div>
     </div>

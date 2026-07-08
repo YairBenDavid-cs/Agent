@@ -21,6 +21,7 @@ import {
 import { EventDiscipline } from '../../../personalization/domain/preference-event.model';
 import { GetActiveProgramQuery } from '../../../program/application/queries/get-active-program.query';
 import { ActiveProgramResponse } from '../../../program/application/dto/program.response';
+import { ProgramWeek } from '../../../program/domain/program.model';
 import { GetCalendarRangeQuery } from '../../../planned-sessions/application/queries/get-calendar-range.query';
 import { PlannedSessionResponse } from '../../../planned-sessions/application/dto/planned-session.response';
 import { FindSessionsQuery } from '../../../sessions/application/queries/find-sessions.query';
@@ -54,6 +55,13 @@ export interface CoachSeed {
   } | null;
   programId: string | null;
   currentWeekIndex: number | null;
+  /**
+   * The skeleton week whose `startDate`/`endDate` actually contains today —
+   * what "this week" means to the athlete. Differs from `currentWeekIndex`
+   * (a build pointer) whenever a scheduled build has already locked and
+   * advanced onto next week before that week's `startDate` arrives.
+   */
+  thisWeekIndex: number | null;
   skeletonWeeks: unknown[];
   plannedRecent: PlannedSessionResponse[];
   observedSessions: unknown[];
@@ -178,6 +186,7 @@ export class SeedContextBuilder {
       goal,
       programId: p?.id ?? null,
       currentWeekIndex: p?.currentWeekIndex ?? null,
+      thisWeekIndex: resolveWeekIndexForDate(p?.weeks ?? [], todayIso()),
       skeletonWeeks: p?.weeks ?? [],
       plannedRecent,
       observedSessions: sessions.items,
@@ -280,6 +289,17 @@ export class SeedContextBuilder {
   }
 }
 
+/** The skeleton week whose date range contains `dateIso`, or null if none does. */
+function resolveWeekIndexForDate(
+  weeks: ProgramWeek[],
+  dateIso: string,
+): number | null {
+  const week = weeks.find(
+    (w) => w.startDate <= dateIso && dateIso <= w.endDate,
+  );
+  return week?.weekIndex ?? null;
+}
+
 function weeksUntil(horizonDate: string): number | null {
   const horizon = new Date(horizonDate).getTime();
   if (Number.isNaN(horizon)) return null;
@@ -307,7 +327,8 @@ function renderCoachSeed(seed: CoachSeed): string {
       'Program skeleton (weeks) — weeklyTargets here (when set) is the LOCKED current plan',
       seed.skeletonWeeks,
     ),
-    `Current week index: ${seed.currentWeekIndex ?? 'n/a'}`,
+    `Build pointer week index (currentWeekIndex, may already be ahead of today if next week was built early): ${seed.currentWeekIndex ?? 'n/a'}`,
+    `This week by today's date (thisWeekIndex — use this one for "this/current week" questions): ${seed.thisWeekIndex ?? 'n/a'}`,
     jsonBlock('Planned sessions (current + last 2 weeks)', seed.plannedRecent),
     jsonBlock('Observed sessions (last 7 days)', seed.observedSessions),
     jsonBlock('Performance daily (latest)', seed.performanceDaily),

@@ -14,6 +14,7 @@ const ALL_TAGS: PreferenceTagType[] = [
   'too_easy',
   'no_motivation',
   'injury_or_illness',
+  'overreaching',
   'time_constraint',
   'weather',
   'travel',
@@ -57,6 +58,7 @@ describe('tag-routing.table', () => {
   it('routes safety tags to SAFETY_REPLAN (Recovery gate first)', () => {
     expect(pipelineForTag('injury_or_illness')).toBe(Pipeline.SAFETY_REPLAN);
     expect(pipelineForTag('injury')).toBe(Pipeline.SAFETY_REPLAN);
+    expect(pipelineForTag('overreaching')).toBe(Pipeline.SAFETY_REPLAN);
   });
 
   it('routes a major goal change to PROGRAM_GENERATION', () => {

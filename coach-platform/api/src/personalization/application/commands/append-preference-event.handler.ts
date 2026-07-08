@@ -56,6 +56,7 @@ export class AppendPreferenceEventHandler
         confidence: dto.tag.confidence,
       },
       rawText: dto.rawText ?? '',
+      rationale: dto.rationale ?? null,
       appliedToProjection,
       consumedAt: null,
       taxonomyVersion: CURRENT_TAXONOMY_VERSION,

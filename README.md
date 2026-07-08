@@ -50,7 +50,7 @@ The system is three deployable pieces plus a multi-agent reasoning layer.
 
 | Piece | Stack | Responsibility |
 |-------|-------|----------------|
-| **API / backend** (`coach-platform/api`) | NestJS 10, MongoDB (Mongoose), CQRS, BullMQ + Redis | Sole owner of all domain data and writes; hosts the agent layer and orchestrator. |
+| **API / backend** (`coach-platform/api`) | NestJS 10, MongoDB (Mongoose), CQRS, Redis (hand-rolled idempotency store + pipeline queue) | Sole owner of all domain data and writes; hosts the agent layer and orchestrator. |
 | **Fetch service** (`coach-platform/fetch-service`) | Python, FastAPI, `garminconnect` | Stateless Garmin authenticator + metric extractor. Owns **no** database — credentials/session in, normalized metrics out. |
 | **Frontend** (`frontend`) | React 18 + Vite + TypeScript, React Router | Onboarding, auth, program view, and the live chat/assistant surface that streams the agentic workflow (SSE). |
 
@@ -104,8 +104,9 @@ write ownership and all guardrails stay centralized.
 tool-using agentic-loop runtime (capped iterations, pre-seeded context so the common case
 needs zero tool calls), a **shared read-tool registry** (defined/tested once, granted by
 reference — assistant gets the union, specialists get scoped subsets), Zod-backed
-structured output, a BullMQ pipeline queue, a Redis idempotency store, and seed/cold-start
-context builders.
+structured output, a hand-rolled Redis-backed pipeline queue (per-user single-flight
+serialization, not BullMQ — BullMQ is a listed dependency but unused), a Redis
+idempotency store, and seed/cold-start context builders.
 
 **Pipeline catalog** (orchestrator picks deterministically via a tag-routing table):
 
@@ -187,27 +188,40 @@ HR) and their private calendar.
 **Guardrails / defense in depth:**
 
 - **Numeric safety encoded in prompts *and* enforced by code** — a post-generation
-  validator caps weekly load increase (~10%), keeps ACWR ≤ ~1.3, enforces deload cadence,
-  and caps intensity when readiness is low. The LLM advises; code enforces.
+  validator caps weekly load increase (~10%), enforces deload cadence, and caps
+  intensity when readiness is low. The LLM advises; code enforces those three.
+  The ACWR ≤1.3 threshold is currently prompt guidance only — not yet a
+  code-level check like the other three — and is disclosed as a known gap
+  rather than overclaimed (see the Known Gaps note below).
 - **Pre-write validators** — the Planner's irreversible calendar write is guarded by a
   thin code validator (rejects overlaps, hard blocked-window violations, bad tz→UTC,
   duration-doesn't-fit) that bounces invalid placements back to the LLM.
 - **Fail-safe saga** — all writes are tentative until approval; the real Google event is
   created only at commit. Retries exhausted → abort and write nothing → zero user-visible
-  damage. Failed runs go to a dead-letter queue.
-- **Idempotency + single-flight** — a Redis-backed idempotency key prevents double-writes
-  on retry; a per-user BullMQ queue (concurrency = 1) serializes a scheduled fetch and a
+  damage. (There is no dead-letter queue today — a failed run aborts cleanly rather than
+  being persisted for replay; that's a gap, not a shipped feature.)
+- **Idempotency + single-flight** — a Redis-backed idempotency key (SET-NX with TTL)
+  prevents double-writes on retry; a hand-rolled per-user pipeline queue (in-process
+  promise chain + Redis mutex, concurrency = 1) serializes a scheduled fetch and a
   simultaneous mid-chat change so they never race.
 
 **Human-in-the-loop:** Generated and revised weeks are never applied silently — they
 arrive as per-session approval cards (approve / revise / reject), each showing its
 rationale and diff. Any negative or missed session triggers a clarifying question rather
-than a silent guess. The only immediate-fire exception is a safety signal
-(`injury_or_illness`).
+than a silent guess. The only immediate-fire exceptions are safety signals
+(`injury_or_illness`, `overreaching`).
 
 **Real vs. fake data:** the platform is built around *real* user biometric and calendar
 data — there is no synthetic-data masking layer, which is exactly why credential
 encryption, least-privilege calendar writes, and fail-safe approvals matter.
+
+**Known gaps, disclosed rather than hidden:**
+- The ACWR ≤1.3 threshold is currently prompt guidance only, not yet a code-level
+  check the way the 10% weekly load cap is.
+- There is no dead-letter queue; a failed pipeline run aborts and writes nothing
+  rather than persisting for replay.
+- `BullMQ` is a listed `package.json` dependency but is not actually used — the
+  pipeline queue and idempotency store are hand-rolled on top of Redis directly.
 
 ---
 

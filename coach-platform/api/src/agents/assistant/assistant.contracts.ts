@@ -32,6 +32,7 @@ const TAG_TYPES = [
   'too_easy',
   'no_motivation',
   'injury_or_illness',
+  'overreaching',
   'time_constraint',
   'weather',
   'travel',
@@ -85,6 +86,12 @@ export const capturedSignalSchema = z.object({
     .nullable()
     .optional(),
   rawText: z.string().optional(),
+  /**
+   * Why this signal was captured — grounded from the message/conversation via
+   * the interview protocol, never invented. Required so WHY always rides
+   * along into the persisted preference event.
+   */
+  rationale: z.string().min(1),
 });
 export type CapturedSignal = z.infer<typeof capturedSignalSchema>;
 

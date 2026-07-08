@@ -42,6 +42,7 @@ export function signalToPreferenceItem(
       confidence,
     },
     rawText: s.rawText,
+    rationale: s.rationale,
   };
 }
 
@@ -77,6 +78,7 @@ export function signalToPendingCandidate(
     affectsCurrentWeek: s.affectsCurrentWeek,
     target: normalizeTarget(s),
     rawText: s.rawText,
+    rationale: s.rationale,
     capturedAt,
   };
 }

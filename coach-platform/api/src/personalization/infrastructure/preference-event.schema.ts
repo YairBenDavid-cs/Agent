@@ -33,6 +33,7 @@ export const TAG_TYPES = [
   'too_easy',
   'no_motivation',
   'injury_or_illness',
+  'overreaching',
   'time_constraint',
   'weather',
   'travel',
@@ -115,6 +116,7 @@ export class PreferenceEventDoc {
   // Not `required`: Mongoose's String required-validator rejects empty strings,
   // and inferred/outcome-derived events legitimately have no verbatim text.
   @Prop({ type: String, default: '' }) raw_text!: string;
+  @Prop({ type: String, default: null }) rationale!: string | null;
   @Prop({ type: Boolean, required: true, default: false })
   applied_to_projection!: boolean;
   @Prop({ type: String, default: null }) consumed_at!: string | null;

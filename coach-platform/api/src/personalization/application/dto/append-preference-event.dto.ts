@@ -124,5 +124,7 @@ export class AppendPreferenceEventDto {
 
   @IsOptional() @IsString() rawText?: string;
 
+  @IsOptional() @IsString() rationale?: string | null;
+
   @IsOptional() @IsBoolean() appliedToProjection?: boolean;
 }

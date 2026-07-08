@@ -141,6 +141,9 @@ Set the API's `FETCHER_BASE_URL` to this service (default `http://localhost:8000
 
 - `@nestjs/schedule` + an in-process event seam drive ingestion today. When runs
   need durability, retries across restarts, or fan-out to the coach agent, the
-  scheduler is the single place that graduates to a queue (BullMQ).
+  scheduler is the single place that graduates to a durable queue (a real
+  BullMQ adoption, or extending the existing hand-rolled Redis queue used
+  elsewhere in the codebase, is unused today — see the API README's Known Gaps
+  note).
 - User preferences (run types, weekly volume, muscle groups, etc.) are
   intentionally deferred.

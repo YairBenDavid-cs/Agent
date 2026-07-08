@@ -47,6 +47,7 @@ describe('salvageAssistantTurn', () => {
             scope: 'global',
             discipline: 'running',
             affectsCurrentWeek: true,
+            rationale: 'Friday conflicts with a recurring work commitment.',
           },
         ],
       }) +

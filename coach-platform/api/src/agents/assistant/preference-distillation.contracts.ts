@@ -36,7 +36,7 @@ Rules:
 - Net out repeated adjustments to the same thing. Example: "lower pace by 30s" followed by "raise pace by 15s" collapses to a single "lower pace by 15s".
 - Drop adjustments that fully cancel (end state equals start state) — emit nothing for them.
 - The latest explicit statement about a given target wins over earlier ones.
-- Preserve each surviving signal's tagType, target, scope, discipline, durability and polarity. Recompute only the value when netting numeric deltas.
+- Preserve each surviving signal's tagType, target, scope, discipline, durability, polarity and rationale. Recompute only the value when netting numeric deltas; if multiple staged candidates collapse into one, keep the rationale from the latest one.
 - Keep the lane: a signal the user stated as a firm order is "black" (hard); a tentative or inferred nuance is "gray" (soft).
 - Do NOT invent signals that were never staged.
 

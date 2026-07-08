@@ -141,6 +141,15 @@ function setup() {
     updateContent: jest.fn(),
     updateCalendarSync: jest.fn(),
   };
+  const conversationContext = {
+    buildHistory: jest.fn(() => Promise.resolve([])),
+  };
+  const readTools = {
+    all: jest.fn(() => []),
+  };
+  const preferenceIngestion = {
+    ingest: jest.fn(() => Promise.resolve({ batchId: null, eventIds: [], constraintIds: [] })),
+  };
 
   const orchestrator = new AutoModeOrchestratorService(
     graph as never,
@@ -148,12 +157,28 @@ function setup() {
     explanation as never,
     loop as never,
     commandBus as never,
+    conversationContext as never,
+    readTools as never,
+    preferenceIngestion as never,
     runs as never,
     programs as never,
     plannedSessions as never,
   );
 
-  return { orchestrator, graph, lock, explanation, loop, commandBus, runs, programs, plannedSessions };
+  return {
+    orchestrator,
+    graph,
+    lock,
+    explanation,
+    loop,
+    commandBus,
+    runs,
+    programs,
+    plannedSessions,
+    conversationContext,
+    readTools,
+    preferenceIngestion,
+  };
 }
 
 function baseInput(overrides: Partial<RunAutoModeInput> = {}): RunAutoModeInput {
@@ -305,6 +330,7 @@ describe('AutoModeOrchestratorService', () => {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
+        today: '2026-07-08',
       });
 
       expect(runs.create).not.toHaveBeenCalled();
@@ -333,6 +359,7 @@ describe('AutoModeOrchestratorService', () => {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
+        today: '2026-07-08',
       });
 
       expect(spy).toHaveBeenCalledWith(
@@ -369,6 +396,7 @@ describe('AutoModeOrchestratorService', () => {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
+        today: '2026-07-08',
       });
 
       expect(spy).toHaveBeenCalledWith(
@@ -398,6 +426,7 @@ describe('AutoModeOrchestratorService', () => {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
+        today: '2026-07-08',
       });
 
       expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sessionEditRequest: null }));
@@ -421,6 +450,7 @@ describe('AutoModeOrchestratorService', () => {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
+        today: '2026-07-08',
       });
 
       expect(spy).toHaveBeenCalledWith(
@@ -455,9 +485,119 @@ describe('AutoModeOrchestratorService', () => {
         programId: 'p1',
         weekIndex: 2,
         timezone: 'UTC',
+        today: '2026-07-08',
       });
 
       expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sessionTimeEditRequest: null }));
+    });
+
+    it('pauses on a clarifyingQuestion: posts it as a plain reply and never starts a run', async () => {
+      const { orchestrator, loop, graph, runs, commandBus } = setup();
+      loop.run.mockResolvedValueOnce({
+        terminalResult: {
+          scenario: null,
+          reason: null,
+          clarifyingQuestion: 'Is this just for this week, or going forward?',
+          standingPreference: null,
+        },
+      });
+
+      const result = await orchestrator.handleChatMessage('u1', 'conv-1', 'cut my volume', {
+        programId: 'p1',
+        weekIndex: 2,
+        timezone: 'UTC',
+        today: '2026-07-08',
+      });
+
+      expect(graph.run).not.toHaveBeenCalled();
+      expect(runs.create).not.toHaveBeenCalled();
+      expect(result.reply).toBe('Is this just for this week, or going forward?');
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-1',
+          role: 'assistant',
+          content: 'Is this just for this week, or going forward?',
+        }),
+      );
+    });
+
+    it('ingests a confirmed standingPreference through the preference log once the run is dispatched', async () => {
+      const { orchestrator, loop, graph, preferenceIngestion } = setup();
+      graph.run.mockResolvedValueOnce(graphState({ status: 'committed', trace: [], diff: {} }));
+      loop.run.mockResolvedValueOnce({
+        terminalResult: {
+          scenario: 'weekly_targets_edit',
+          sessionCount: 4,
+          totalVolume: 30,
+          keyGoals: null,
+          reason: 'cutting back after a hard block',
+          clarifyingQuestion: null,
+          standingPreference: {
+            tagType: 'volume_too_high',
+            value: 30,
+            polarity: 'decrease',
+            durability: 'standing',
+            scope: 'global',
+            discipline: 'running',
+            affectsCurrentWeek: false,
+            rationale: 'Athlete confirmed 30km should be the new standing weekly cap.',
+          },
+        },
+      });
+
+      await orchestrator.handleChatMessage('u1', 'conv-1', 'cap my weekly km at 30 going forward', {
+        programId: 'p1',
+        weekIndex: 2,
+        timezone: 'UTC',
+        today: '2026-07-08',
+      });
+
+      expect(preferenceIngestion.ingest).toHaveBeenCalledWith(
+        'u1',
+        'chat',
+        [
+          expect.objectContaining({
+            eventDate: '2026-07-08',
+            tag: expect.objectContaining({ type: 'volume_too_high', confidence: 'explicit' }),
+            rationale: 'Athlete confirmed 30km should be the new standing weekly cap.',
+          }),
+        ],
+        false,
+      );
+    });
+
+    it('threads conversation history and read-tools into the classification loop', async () => {
+      const { orchestrator, loop, graph, conversationContext, readTools } = setup();
+      graph.run.mockResolvedValueOnce(graphState({ status: 'committed', trace: [], diff: {} }));
+      const history = [{ role: 'user' as const, content: 'earlier message' }];
+      conversationContext.buildHistory.mockResolvedValueOnce(history as never);
+      const readTool = { name: 'get_preference_events' };
+      readTools.all.mockReturnValueOnce([readTool as never]);
+      loop.run.mockResolvedValueOnce({
+        terminalResult: {
+          scenario: 'new_week',
+          reason: 'start of a new training week',
+          clarifyingQuestion: null,
+          standingPreference: null,
+        },
+      });
+
+      await orchestrator.handleChatMessage('u1', 'conv-1', 'build next week', {
+        programId: 'p1',
+        weekIndex: 2,
+        timezone: 'UTC',
+        today: '2026-07-08',
+      });
+
+      expect(conversationContext.buildHistory).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'u1', conversationId: 'conv-1' }),
+      );
+      expect(loop.run).toHaveBeenCalledWith(
+        expect.objectContaining({
+          history,
+          tools: expect.arrayContaining([readTool]),
+        }),
+      );
     });
   });
 });

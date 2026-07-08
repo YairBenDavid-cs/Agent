@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { EventDiscipline } from '../../personalization/domain/preference-event.model';
+import { PreferenceIngestionService } from '../../personalization/application/services/preference-ingestion.service';
 import {
   PROGRAM_REPOSITORY,
   ProgramRepositoryPort,
@@ -11,12 +12,16 @@ import {
   PlannedSessionRepositoryPort,
 } from '../../planned-sessions/domain/planned-session.repository.port';
 import { AppendMessageCommand } from '../conversation/application/commands/append-message.command';
+import { ConversationContextService } from '../conversation/application/conversation-context.service';
 import {
   StartConversationCommand,
   StartConversationResult,
 } from '../conversation/application/commands/start-conversation.command';
 import { AgentToolContext, AnyAgentTool, defineTool } from '../shared/llm/agent-tool';
 import { AgenticLoopRuntime } from '../shared/llm/agentic-loop.runtime';
+import { ReadToolRegistry } from '../shared/read-tools/read-tool-registry.service';
+import { INTERVIEW_PROTOCOL } from '../shared/prompts/interview-protocol.prompt';
+import { signalToPreferenceItem } from '../assistant/assistant.mapping';
 import { AutoModeExplanationBuilder } from './auto-mode-explanation.builder';
 import { AutoModeLockService } from './auto-mode-lock.service';
 import { AutoModeGraph } from './auto-mode.graph';
@@ -32,13 +37,40 @@ import {
   WeeklyTargetsEditRequest,
 } from './auto-mode.state';
 
-const AUTO_MODE_INTENT_PROMPT =
-  "You classify one athlete chat message into an autonomous auto-mode edit. " +
-  'Pick exactly one scenario: new_week (generate/build next week), ' +
-  'weekly_targets_edit (change session count / volume / focus for the CURRENT ' +
-  "week), session_edit (change one session's content — type, duration, structure), " +
-  'or session_time_edit (move one session to a different day/time). Fill only the ' +
-  'fields that scenario needs; leave the rest null. Always give a short `reason`.';
+const AUTO_MODE_INTENT_PROMPT = `You classify one athlete chat message, sent while a conversation is in
+autonomous \`auto\` mode, into an auto-mode edit. You are the ONLY place a
+scenario is inferred from prose — once you finalize, the scenario runs
+straight through to a guardrailed commit with no further confirmation, so
+you must be sure before you finalize.
+
+You have read-tools available: use them to ground which week/session the
+athlete means, what today's locked targets/sessions already are, and whether
+a matching standing preference already exists (\`get_preference_events\`) —
+prefer checking data over asking whenever the data can answer it. You also
+see the recent conversation history, so a pending question you asked earlier
+carries forward into the athlete's next reply.
+
+${INTERVIEW_PROTOCOL}
+
+Once WHY and LOCAL-vs-GENERAL (and any other real dependency) are grounded,
+finalize by picking exactly one scenario: new_week (generate/build next
+week), weekly_targets_edit (change session count / volume / focus for the
+CURRENT week), session_edit (change one session's content — type, duration,
+structure), or session_time_edit (move one session to a different day/time).
+Fill only the fields that scenario needs; leave the rest null. \`reason\` is
+this classifier's WHY field — it must be the grounded reason, never a generic
+restatement of the request.
+
+If, instead, a real dependency is still ungrounded after checking the data,
+call emit_intent with \`clarifyingQuestion\` set to ONE open-ended, short
+question and leave \`scenario\`/\`reason\` null — do not finalize.
+
+If the athlete confirms this change should ALSO become a standing rule
+beyond this run's week-scoped edit (LOCAL-vs-GENERAL resolving to GENERAL),
+populate \`standingPreference\` with that signal (including its own
+\`rationale\`) in the SAME call that finalizes \`scenario\`.
+
+Call emit_intent exactly once per turn.`;
 
 export interface RunAutoModeInput {
   userId: string;
@@ -80,6 +112,9 @@ export class AutoModeOrchestratorService {
     private readonly explanation: AutoModeExplanationBuilder,
     private readonly loop: AgenticLoopRuntime,
     private readonly commandBus: CommandBus,
+    private readonly conversationContext: ConversationContextService,
+    private readonly readTools: ReadToolRegistry,
+    private readonly preferenceIngestion: PreferenceIngestionService,
     @Inject(AUTO_MODE_RUN_REPOSITORY)
     private readonly runs: AutoModeRunRepositoryPort,
     @Inject(PROGRAM_REPOSITORY)
@@ -185,14 +220,20 @@ export class AutoModeOrchestratorService {
    * `auto` mode) into a scenario + request, then runs it. This is the only
    * place a scenario is inferred from prose — `AutoModeGraph` itself always
    * receives an explicit scenario.
+   *
+   * Per the shared INTERVIEW PROTOCOL, the classifier may instead pause with a
+   * `clarifyingQuestion`: nothing runs this turn, the question is posted as a
+   * plain reply, and the athlete's next message re-enters this method with the
+   * question now visible in history, letting the classifier resolve it (or ask
+   * up to 4 more) before ever finalizing a scenario.
    */
   async handleChatMessage(
     userId: string,
     conversationId: string,
     message: string,
-    opts: { programId: string; weekIndex: number; timezone: string },
+    opts: { programId: string; weekIndex: number; timezone: string; today: string },
   ): Promise<{ reply: string; assistantMessageId: string }> {
-    const intent = await this.classifyIntent(userId, message);
+    const intent = await this.classifyIntent(userId, conversationId, message);
     if (!intent) {
       const reply =
         "I couldn't tell which change you meant. Try naming the session, or say " +
@@ -200,32 +241,55 @@ export class AutoModeOrchestratorService {
       return { reply, assistantMessageId: await this.postPlainReply(userId, conversationId, reply) };
     }
 
+    if (intent.clarifyingQuestion) {
+      return {
+        reply: intent.clarifyingQuestion,
+        assistantMessageId: await this.postPlainReply(
+          userId,
+          conversationId,
+          intent.clarifyingQuestion,
+        ),
+      };
+    }
+    // The schema's refine guarantees scenario/reason are set once clarifyingQuestion is null.
+    const scenario = intent.scenario as AutoModeScenario;
+    const reason = intent.reason as string;
+
+    if (intent.standingPreference) {
+      await this.preferenceIngestion.ingest(
+        userId,
+        'chat',
+        [signalToPreferenceItem(intent.standingPreference, opts.today, 'explicit')],
+        false,
+      );
+    }
+
     const outcome = await this.runAutoMode({
       userId,
       programId: opts.programId,
       weekIndex: opts.weekIndex,
       timezone: opts.timezone,
-      scenario: intent.scenario,
+      scenario,
       trigger: 'chat',
       conversationId,
       weeklyTargetsEditRequest:
-        intent.scenario === 'weekly_targets_edit'
+        scenario === 'weekly_targets_edit'
           ? {
               sessionCount: intent.sessionCount ?? undefined,
               totalVolume: intent.totalVolume ?? undefined,
               keyGoals: intent.keyGoals ?? undefined,
-              reason: intent.reason,
+              reason,
             }
           : null,
       sessionEditRequest:
-        intent.scenario === 'session_edit' && intent.plannedSessionId
+        scenario === 'session_edit' && intent.plannedSessionId
           ? {
               plannedSessionId: intent.plannedSessionId,
               requestedChangeDescription: intent.requestedChangeDescription ?? message,
             }
           : null,
       sessionTimeEditRequest:
-        intent.scenario === 'session_time_edit' && intent.plannedSessionId
+        scenario === 'session_time_edit' && intent.plannedSessionId
           ? {
               plannedSessionId: intent.plannedSessionId,
               requestedDate: intent.requestedDate ?? null,
@@ -237,9 +301,28 @@ export class AutoModeOrchestratorService {
     return { reply: outcome.reply, assistantMessageId: outcome.assistantMessageId };
   }
 
-  private async classifyIntent(userId: string, message: string): Promise<AutoModeIntent | null> {
+  /**
+   * Classifies one athlete message into an `AutoModeIntent`, with conversation
+   * history (so a pending clarifying question carries forward) and read-tools
+   * (so WHY / local-vs-general / target week can be grounded from data rather
+   * than guessed or asked when avoidable).
+   */
+  private async classifyIntent(
+    userId: string,
+    conversationId: string,
+    message: string,
+  ): Promise<AutoModeIntent | null> {
     const ctx: AgentToolContext = { userId, runId: randomUUID() };
+    const seedMessage = `Athlete message:\n"""\n${message}\n"""\n\nCall emit_intent exactly once.`;
+    const history = await this.conversationContext.buildHistory({
+      userId,
+      conversationId,
+      systemPrompt: AUTO_MODE_INTENT_PROMPT,
+      seed: '',
+      nextUserMessage: message,
+    });
     const tools: AnyAgentTool[] = [
+      ...this.readTools.all(),
       defineTool<AutoModeIntent, AutoModeIntent>({
         name: 'emit_intent',
         description: 'Emit the classified auto-mode intent. Terminal: ends the run.',
@@ -251,11 +334,11 @@ export class AutoModeOrchestratorService {
     const result = await this.loop.run<AutoModeIntent>({
       agentName: 'auto-mode-intent',
       systemPrompt: AUTO_MODE_INTENT_PROMPT,
-      seedMessage: `Athlete message:\n"""\n${message}\n"""\n\nCall emit_intent exactly once.`,
+      history,
+      seedMessage,
       tools,
       ctx,
       temperature: 0.1,
-      maxIterations: 2,
       coerceTerminalTool: true,
     });
     return result.terminalResult;

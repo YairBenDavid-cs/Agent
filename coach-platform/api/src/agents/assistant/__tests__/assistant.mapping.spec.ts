@@ -1,5 +1,5 @@
 import { CapturedSignal } from '../assistant.contracts';
-import { signalToPendingCandidate } from '../assistant.mapping';
+import { signalToPendingCandidate, signalToPreferenceItem } from '../assistant.mapping';
 
 const CAPTURED_AT = '2026-06-29T09:00:00.000Z';
 
@@ -12,6 +12,7 @@ function signal(overrides: Partial<CapturedSignal> = {}): CapturedSignal {
     scope: 'exercise',
     discipline: 'strength',
     affectsCurrentWeek: true,
+    rationale: 'Burpees aggravated a knee flare-up last week.',
     ...overrides,
   };
 }
@@ -29,6 +30,7 @@ describe('signalToPendingCandidate', () => {
       scope: 'exercise',
       discipline: 'strength',
       affectsCurrentWeek: true,
+      rationale: 'Burpees aggravated a knee flare-up last week.',
       capturedAt: CAPTURED_AT,
     });
   });
@@ -52,5 +54,12 @@ describe('signalToPendingCandidate', () => {
 
     const noTarget = signalToPendingCandidate(signal(), 'black', CAPTURED_AT);
     expect(noTarget.target).toBeNull();
+  });
+});
+
+describe('signalToPreferenceItem', () => {
+  it('carries the grounded rationale into the preference item', () => {
+    const item = signalToPreferenceItem(signal(), '2026-06-29', 'explicit');
+    expect(item.rationale).toBe('Burpees aggravated a knee flare-up last week.');
   });
 });

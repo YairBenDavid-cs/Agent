@@ -97,7 +97,7 @@ export class PreferenceDistillationService {
         c.value,
       )} polarity=${c.polarity} scope=${c.scope} discipline=${
         c.discipline ?? 'any'
-      } durability=${c.durability}${target}${raw}`;
+      } durability=${c.durability}${target}${raw} rationale="${c.rationale}"`;
     });
     return [
       '== STAGED PREFERENCE CANDIDATES (capture order) ==',
@@ -137,5 +137,6 @@ function candidateToSignal(c: PendingCandidate): CapturedSignal {
         }
       : null,
     rawText: c.rawText,
+    rationale: c.rationale,
   };
 }

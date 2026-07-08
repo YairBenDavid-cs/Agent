@@ -53,6 +53,8 @@ export class PreferenceItemDto {
 
   @IsOptional() @IsString() rawText?: string;
 
+  @IsOptional() @IsString() rationale?: string | null;
+
   @IsOptional() @IsBoolean() appliedToProjection?: boolean;
 
   @IsOptional()

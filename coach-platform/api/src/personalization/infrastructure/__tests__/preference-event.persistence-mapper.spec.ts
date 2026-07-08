@@ -13,9 +13,9 @@ const ALL_SOURCES: Record<PreferenceEventSource, true> = {
   session_flush: true,
 };
 
-describe('preference-event source taxonomy (v4)', () => {
-  it('pins the taxonomy version at 4 (chat source introduced)', () => {
-    expect(CURRENT_TAXONOMY_VERSION).toBe(4);
+describe('preference-event source taxonomy (v5)', () => {
+  it('pins the taxonomy version at 5 (overreaching safety tag introduced)', () => {
+    expect(CURRENT_TAXONOMY_VERSION).toBe(5);
   });
 
   it('lists every live source the domain accepts', () => {

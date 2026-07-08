@@ -53,6 +53,7 @@ export class PreferenceIngestionService {
         target: item.target ?? null,
         tag: item.tag,
         rawText: item.rawText,
+        rationale: item.rationale ?? null,
         appliedToProjection: item.appliedToProjection,
       };
 

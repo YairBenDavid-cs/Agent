@@ -16,6 +16,7 @@ function candidate(): PendingCandidate {
     discipline: 'running',
     affectsCurrentWeek: true,
     target: null,
+    rationale: 'Lower pace felt sustainable for the last two long runs.',
     capturedAt: '2026-06-28T10:00:00.000Z',
   };
 }

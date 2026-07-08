@@ -124,6 +124,7 @@ export function useProgram(): ProgramState {
   const week = program?.weeks.find((w) => w.weekIndex === weekIndex) ?? null;
   const weekStart = week?.startDate;
   const weekEnd = week?.endDate;
+  const loadedWeekRangeRef = useRef<string | null>(null);
 
   // ── Planned trains for the selected week ──
   useEffect(() => {
@@ -132,7 +133,15 @@ export function useProgram(): ProgramState {
       return;
     }
     let active = true;
-    setSessionsLoading(true);
+    // Only show the loading placeholder when the selected week actually
+    // changes. Background polling reloads (reloadKey) re-fetch the same
+    // range silently, so the card grid doesn't collapse and reset scroll
+    // position every POLL_MS while a build/generation is in flight.
+    const rangeKey = `${weekStart}_${weekEnd}`;
+    if (loadedWeekRangeRef.current !== rangeKey) {
+      loadedWeekRangeRef.current = rangeKey;
+      setSessionsLoading(true);
+    }
     fetchCalendarRange(weekStart, weekEnd)
       .then((res) => {
         if (active) setSessions(res);

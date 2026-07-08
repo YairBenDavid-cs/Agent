@@ -55,4 +55,55 @@ export class TriggerContextResolver {
       weekWindow: { from: week.startDate, to: week.endDate },
     };
   }
+
+  /**
+   * Chat variant of `resolve`: pins `weekIndex`/`weekWindow` to whichever
+   * skeleton week's date range actually contains today, falling back to
+   * `currentWeekIndex` only when no week matches (before the program starts,
+   * or past its last week). `currentWeekIndex` is a build pointer — a
+   * scheduled build can lock and advance it onto next week before that week's
+   * `startDate` actually arrives, which would otherwise make "what's my
+   * session this week?" answer from a week that hasn't started yet.
+   */
+  async resolveForChat(userId: string): Promise<ResolvedRunContext | null> {
+    const [program, user] = await Promise.all([
+      this.queryBus.execute<GetActiveProgramQuery, ActiveProgramResponse>(
+        new GetActiveProgramQuery(userId),
+      ),
+      this.queryBus.execute<GetUserQuery, UserResponse>(
+        new GetUserQuery(userId),
+      ),
+    ]);
+
+    const p = program.program;
+    if (!p) {
+      return null;
+    }
+    const timezone = user.timezone ?? 'UTC';
+    const today = localDateInTimezone(timezone);
+    const week =
+      p.weeks.find((w) => w.startDate <= today && today <= w.endDate) ??
+      p.weeks.find((w) => w.weekIndex === p.currentWeekIndex);
+    if (!week) {
+      return null;
+    }
+
+    return {
+      programId: p.id,
+      discipline: p.discipline,
+      timezone,
+      weekIndex: week.weekIndex,
+      weekWindow: { from: week.startDate, to: week.endDate },
+    };
+  }
+}
+
+/** Today's local date (YYYY-MM-DD) in the given IANA timezone. */
+function localDateInTimezone(timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 }

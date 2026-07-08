@@ -145,6 +145,7 @@ export class AssistantService {
           programId: opts.programId,
           weekIndex: opts.weekIndex,
           timezone: opts.timezone,
+          today: opts.today,
         },
       );
       return this.buildOutcome(conversationId, {

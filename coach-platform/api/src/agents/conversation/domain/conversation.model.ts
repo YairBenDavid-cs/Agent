@@ -83,6 +83,8 @@ export interface PendingCandidate {
     runType: string | null;
   } | null;
   rawText?: string;
+  /** Why this signal was captured — grounded via the interview protocol. */
+  rationale: string;
   /** ISO timestamp — preserves the iteration order distillation reads. */
   capturedAt: string;
 }

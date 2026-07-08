@@ -156,7 +156,7 @@ export class AssistantController {
     @Param('id') id: string,
     @Body() dto: SendMessageDto,
   ): Promise<AssistantTurnOutcome> {
-    const ctx = await this.triggerContext.resolve(user.userId);
+    const ctx = await this.triggerContext.resolveForChat(user.userId);
     if (!ctx) {
       throw ApiError.badRequest(
         'No active program — generate a program before chatting with the coach.',

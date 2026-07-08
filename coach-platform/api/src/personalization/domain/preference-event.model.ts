@@ -68,6 +68,7 @@ export type PreferenceTagType =
   | 'too_easy'
   | 'no_motivation'
   | 'injury_or_illness'
+  | 'overreaching' // safety: systemic exhaustion / overtraining, not a local injury
   | 'time_constraint'
   | 'weather'
   | 'travel'
@@ -127,6 +128,8 @@ export interface PreferenceEvent {
   target: PreferenceTarget | null;
   tag: PreferenceTag;
   rawText: string; // verbatim user phrasing (NOT indexed in Tier 1)
+  /** Why this event was captured — grounded from the conversation, never guessed. */
+  rationale: string | null;
   /** false for one_off / narrative-only ('other') events. */
   appliedToProjection: boolean;
   /**
@@ -145,5 +148,8 @@ export interface PreferenceEvent {
  *  - v4: introduced unified `chat` source (dual-mode redesign); `assistant` and
  *        `revision` removed from the live taxonomy and mapped to `chat` on
  *        read/backfill.
+ *  - v5: added `overreaching` (systemic exhaustion / overtraining) as a
+ *        distinct safety tag, routed to SAFETY_REPLAN like injury_or_illness.
+ *        Eval-harness-found gap (see evals/harness/out/BUG-REPORT.md, Bug 1).
  */
-export const CURRENT_TAXONOMY_VERSION = 4;
+export const CURRENT_TAXONOMY_VERSION = 5;

@@ -8,7 +8,7 @@ import { BasketballIcon } from '@/shared/ui/icons/BasketballIcon';
 import { SettingsMenu } from '@/shared/ui/SettingsMenu/SettingsMenu';
 import type { AssistantConversation } from '@/pages/AssistantPage/domain/assistant/types/assistant';
 import { ConversationRow } from '../components/ConversationRow/ConversationRow';
-import { ScheduleMenu } from '../components/ScheduleMenu/ScheduleMenu';
+import { RoutinesMenu } from '../components/RoutinesMenu/RoutinesMenu';
 import styles from './AssistantSidebar.module.css';
 
 interface AssistantSidebarProps {
@@ -78,7 +78,7 @@ export function AssistantSidebar({
         >
           <NewChatIcon />
         </button>
-        <ScheduleMenu garminVisible={garminVisible} onToast={onToast} />
+        <RoutinesMenu garminVisible={garminVisible} onToast={onToast} />
         {garminVisible && (
           <button
             type="button"

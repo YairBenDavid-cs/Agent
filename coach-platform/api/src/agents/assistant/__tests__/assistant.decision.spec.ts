@@ -13,6 +13,7 @@ function signal(overrides: Partial<CapturedSignal> = {}): CapturedSignal {
     scope: 'exercise',
     discipline: 'strength',
     affectsCurrentWeek: true,
+    rationale: 'Burpees aggravated a knee flare-up last week.',
     ...overrides,
   };
 }
@@ -82,6 +83,21 @@ describe('assistant.decision', () => {
       turn({
         captured: [
           signal({ tagType: 'injury_or_illness', affectsCurrentWeek: false }),
+        ],
+      }),
+      TODAY,
+    );
+    expect(a.pipeline).toBe(Pipeline.SAFETY_REPLAN);
+  });
+
+  // Regression for eval-harness Bug 1 (evals/harness/out/BUG-REPORT.md):
+  // "I might be overtrained, back everything off" was classified white/gray
+  // with no pipeline fired instead of hitting the safety gate.
+  it('overreaching (systemic exhaustion) fires SAFETY_REPLAN like injury_or_illness', () => {
+    const a = decideActions(
+      turn({
+        captured: [
+          signal({ tagType: 'overreaching', affectsCurrentWeek: false }),
         ],
       }),
       TODAY,

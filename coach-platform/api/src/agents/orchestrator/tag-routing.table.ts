@@ -17,6 +17,7 @@ export const TAG_PIPELINE_TABLE: Record<PreferenceTagType, Pipeline> = {
   // ── safety ────────────────────────────────────────────────────────────────
   injury_or_illness: Pipeline.SAFETY_REPLAN,
   injury: Pipeline.SAFETY_REPLAN,
+  overreaching: Pipeline.SAFETY_REPLAN,
 
   // ── program-level ───────────────────────────────────────────────────────
   primary_goal: Pipeline.PROGRAM_GENERATION,

@@ -16,6 +16,7 @@ function candidate(overrides: Partial<PendingCandidate> = {}): PendingCandidate 
     affectsCurrentWeek: true,
     target: null,
     rawText: 'lower the pace',
+    rationale: 'Pace felt sustainable on the last two long runs.',
     capturedAt: '2026-06-28T10:00:00.000Z',
     ...overrides,
   };
@@ -73,6 +74,7 @@ describe('PreferenceDistillationService', () => {
           affectsCurrentWeek: true,
           target: null,
           rawText: 'net: lower pace 15s',
+          rationale: 'Pace felt sustainable on the last two long runs.',
         },
       ],
     });
@@ -104,6 +106,7 @@ describe('PreferenceDistillationService', () => {
           discipline: 'strength',
           affectsCurrentWeek: false,
           target: null,
+          rationale: 'Athlete mentioned enjoying kettlebell work in strength sessions.',
         },
       ],
     });
@@ -162,6 +165,7 @@ describe('PreferenceDistillationService', () => {
           discipline: null,
           affectsCurrentWeek: true,
           target: null,
+          rationale: 'Sessions were running long relative to the block schedule.',
         },
       ],
     });

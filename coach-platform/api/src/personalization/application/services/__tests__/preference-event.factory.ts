@@ -17,7 +17,7 @@ export function makeEvent(
     tag?: Partial<PreferenceTag>;
   } = {},
 ): PreferenceEvent {
-  const { tag: tagOverride, ...rest } = overrides;
+  const { tag: tagOverride, rationale, ...rest } = overrides;
   const tag: PreferenceTag = {
     type: 'disliked_exercise',
     value: null,
@@ -42,6 +42,7 @@ export function makeEvent(
     consumedAt: null,
     taxonomyVersion: CURRENT_TAXONOMY_VERSION,
     ...rest,
+    rationale: rationale ?? null,
   };
 }
 

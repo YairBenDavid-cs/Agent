@@ -52,7 +52,7 @@ export interface WeekEditPipelineContext {
 }
 
 /** Tags that bypass the firing boundary and always re-plan immediately. */
-const SAFETY_TAGS = new Set(['injury_or_illness', 'injury']);
+const SAFETY_TAGS = new Set(['injury_or_illness', 'injury', 'overreaching']);
 
 /**
  * Higher = more comprehensive. When a turn captures several signals that each
