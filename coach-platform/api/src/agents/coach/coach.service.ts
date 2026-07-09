@@ -688,9 +688,12 @@ export class CoachService {
     }
 
     const week = program?.weeks.find((w) => w.weekIndex === opts.weekIndex);
-    if (week?.weekState === 'locked') {
+    // A fully built ('locked') week is closed to whole-week regeneration but
+    // stays open to reactive per-session edits while it is still CURRENT.
+    // Only a week whose endDate has passed is a historical record.
+    if (week && hasWeekEnded(week, opts.timezone)) {
       throw new Error(
-        `Week ${opts.weekIndex} is locked; this is a historical record and cannot be edited.`,
+        `Week ${opts.weekIndex} ended on ${week.endDate}; it is a historical record and cannot be edited.`,
       );
     }
     const targets: WeeklyTargetsCheck | null = week?.weeklyTargets ?? null;
@@ -1115,6 +1118,27 @@ export class CoachService {
       outcome,
       calendarSync: null,
     };
+  }
+}
+
+/**
+ * True when the week's endDate lies strictly before today in the athlete's
+ * timezone — i.e. the week is over and has become a historical record. Falls
+ * back to UTC when the timezone string is invalid.
+ */
+function hasWeekEnded(week: ProgramWeek, timezone: string): boolean {
+  return week.endDate < todayIsoInTz(timezone);
+}
+
+/** Today's local date (YYYY-MM-DD) in the given IANA timezone (UTC fallback). */
+function todayIsoInTz(timezone: string): string {
+  try {
+    // en-CA formats as YYYY-MM-DD.
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(
+      new Date(),
+    );
+  } catch {
+    return new Date().toISOString().slice(0, 10);
   }
 }
 

@@ -1,6 +1,10 @@
 import { Pipeline } from '../../orchestrator/pipeline.types';
 import { AssistantTurn, CapturedSignal, WeekEdit } from '../assistant.contracts';
-import { decideActions, selectPipeline } from '../assistant.decision';
+import {
+  decideActions,
+  describeIncompleteWeekEdit,
+  selectPipeline,
+} from '../assistant.decision';
 
 const TODAY = '2026-06-28';
 
@@ -228,6 +232,37 @@ describe('assistant.decision', () => {
       expect(a.writes).toEqual([]);
     });
 
+    it('white-mislabeled turn with a confirmed complete edit still fires (lane never discards a confirmed weekEdit)', () => {
+      const a = decideActions(
+        turn({ lane: 'white', weekEdit: weekEdit() }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.SESSION_CONTENT_REPLAN);
+      expect(a.weekEditContext?.weekIndex).toBe(3);
+      expect(a.awaitingConfirmation).toBe(false);
+      expect(a.writes).toEqual([]);
+    });
+
+    it('white turn with an UNCONFIRMED weekEdit stays a plain white no-op', () => {
+      const a = decideActions(
+        turn({ lane: 'white', weekEdit: weekEdit({ confirmed: false }) }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.awaitingConfirmation).toBe(false);
+      expect(a.writes).toEqual([]);
+    });
+
+    it('white-mislabeled confirmed edit with a malformed payload still fails closed', () => {
+      const a = decideActions(
+        turn({ lane: 'white', weekEdit: weekEdit({ plannedSessionId: null }) }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.awaitingConfirmation).toBe(false);
+      expect(a.writes).toEqual([]);
+    });
+
     it('confirmed session_content_edit with a breach carries revisedTargets through', () => {
       const newTargets = { sessionCount: 5, totalVolume: 45, keyGoals: ['base'] };
       const a = decideActions(
@@ -294,6 +329,33 @@ describe('assistant.decision', () => {
       );
       expect(a.pipeline).toBeNull();
       expect(a.weekEditContext).toBeNull();
+    });
+
+    it('malformed confirmed edit suppresses the captured-signal fallback pipeline too', () => {
+      // Regression: a confirmed edit missing plannedSessionId used to fall
+      // back to the co-captured signal's CONTENT_REPLAN, silently rebuilding
+      // the whole week instead of the one session the athlete asked about.
+      const a = decideActions(
+        turn({
+          captured: [signal()], // would normally fire CONTENT_REPLAN
+          weekEdit: weekEdit({ plannedSessionId: null }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBeNull();
+      expect(a.weekEditContext).toBeNull();
+      expect(a.writes).toHaveLength(1); // preference still saved
+    });
+
+    it('malformed confirmed edit does NOT suppress a safety signal on the same turn', () => {
+      const a = decideActions(
+        turn({
+          captured: [signal({ tagType: 'injury_or_illness' })],
+          weekEdit: weekEdit({ plannedSessionId: null }),
+        }),
+        TODAY,
+      );
+      expect(a.pipeline).toBe(Pipeline.SAFETY_REPLAN);
     });
 
     it('malformed confirmed target_revision (missing newTargets) fails closed: fires nothing', () => {
@@ -397,6 +459,82 @@ describe('assistant.decision', () => {
       );
       expect(a.pipeline).toBeNull();
       expect(a.weekEditContext).toBeNull();
+    });
+  });
+
+  describe('describeIncompleteWeekEdit (terminal-tool validator-bounce)', () => {
+    it('returns null for absent, unconfirmed, or complete edits', () => {
+      expect(describeIncompleteWeekEdit(null)).toBeNull();
+      expect(
+        describeIncompleteWeekEdit(
+          weekEdit({ confirmed: false, plannedSessionId: null }),
+        ),
+      ).toBeNull();
+      expect(describeIncompleteWeekEdit(weekEdit())).toBeNull();
+    });
+
+    it('flags a confirmed session_content_edit missing every session id, with a lookup hint', () => {
+      const msg = describeIncompleteWeekEdit(
+        weekEdit({ plannedSessionId: null }),
+      );
+      expect(msg).toMatch(/plannedSessionId is null/);
+      expect(msg).toMatch(/query_planned_sessions for week 3/);
+      expect(msg).toMatch(/Do not drop the weekEdit/);
+    });
+
+    it('accepts a session_content_edit that carries ids via plannedSessionIds only', () => {
+      expect(
+        describeIncompleteWeekEdit(
+          weekEdit({ plannedSessionId: null, plannedSessionIds: ['sess-2'] }),
+        ),
+      ).toBeNull();
+    });
+
+    it('flags a session_reschedule missing the id, and one missing both date and time', () => {
+      expect(
+        describeIncompleteWeekEdit(
+          weekEdit({ kind: 'session_reschedule', plannedSessionId: null }),
+        ),
+      ).toMatch(/plannedSessionId is null/);
+      expect(
+        describeIncompleteWeekEdit(weekEdit({ kind: 'session_reschedule' })),
+      ).toMatch(/both newDate and newStartTime are null/);
+      expect(
+        describeIncompleteWeekEdit(
+          weekEdit({ kind: 'session_reschedule', newDate: '2026-07-12' }),
+        ),
+      ).toBeNull();
+    });
+
+    it('flags a target_revision missing newTargets', () => {
+      expect(
+        describeIncompleteWeekEdit(
+          weekEdit({ kind: 'target_revision', plannedSessionId: null }),
+        ),
+      ).toMatch(/newTargets is null/);
+      expect(
+        describeIncompleteWeekEdit(
+          weekEdit({
+            kind: 'target_revision',
+            plannedSessionId: null,
+            newTargets: { sessionCount: 3, totalVolume: 20, keyGoals: [] },
+          }),
+        ),
+      ).toBeNull();
+    });
+
+    it('stays in lockstep with resolveWeekEditPipeline: whatever it flags, decideActions fires nothing for', () => {
+      const malformed = [
+        weekEdit({ plannedSessionId: null }),
+        weekEdit({ kind: 'session_reschedule', plannedSessionId: null }),
+        weekEdit({ kind: 'session_reschedule' }),
+        weekEdit({ kind: 'target_revision', plannedSessionId: null }),
+      ];
+      for (const edit of malformed) {
+        expect(describeIncompleteWeekEdit(edit)).not.toBeNull();
+        const a = decideActions(turn({ weekEdit: edit }), TODAY);
+        expect(a.pipeline).toBeNull();
+      }
     });
   });
 

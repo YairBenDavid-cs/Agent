@@ -50,6 +50,7 @@ function session(
   };
 }
 
+// Fixture: one pending user-initiated batch.
 const batch: PendingCardBatch = {
   id: 'batch-1',
   userId: 'u1',

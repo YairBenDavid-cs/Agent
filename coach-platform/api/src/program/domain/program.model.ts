@@ -44,8 +44,13 @@ export type WeekStatus = 'upcoming' | 'current' | 'done';
  * - `targets_locked`— Step A is committed: the weekly quota (session count /
  *                     volume / key goals) is frozen, and per-session drafting
  *                     (Step B) must fit inside it. Targets are immutable once set.
- * - `locked`        — every session is committed; the week is closed to direct
- *                     mutation (changes flow through a reactive edit instead).
+ * - `locked`        — every session is committed; the week is closed to
+ *                     whole-week regeneration. While the week is still CURRENT
+ *                     (its endDate has not passed), reactive single-session
+ *                     edits (SESSION_CONTENT_REPLAN), reschedules, and the
+ *                     target revision a confirmed edit cascades into remain
+ *                     available. Once the week's endDate passes it is a
+ *                     historical record and immutable everywhere.
  */
 export type WeekState = 'open' | 'targets_locked' | 'locked';
 

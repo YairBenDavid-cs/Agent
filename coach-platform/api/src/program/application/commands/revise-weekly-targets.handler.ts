@@ -16,9 +16,11 @@ import {
  * Ownership + existence are checked by a tenant-scoped read, mirroring
  * `LockWeeklyTargetsHandler`.
  *
- * One additional invariant (fail-closed, clear message not a crash): a
- * `locked` week is closed to ANY direct mutation, including a target
- * revision — the athlete's completed week is a historical record.
+ * One additional invariant (fail-closed, clear message not a crash): a week
+ * whose endDate has PASSED is a historical record, closed to any revision. A
+ * merely `locked` week (fully built, every session committed) that is still
+ * current stays revisable — a confirmed session edit cascades its target
+ * revision through here.
  *
  * A `direct_target_change` (Flow B) is allowed even once some sessions in the
  * week are already `committed` — that's the normal shape of the CURRENT week
@@ -72,10 +74,12 @@ export class ReviseWeeklyTargetsHandler
       );
     }
 
-    if (state === 'locked') {
+    // A 'locked' (fully built) week stays revisable while it is still current;
+    // only a week that has already ENDED is a closed historical record.
+    if (week.endDate < new Date().toISOString().slice(0, 10)) {
       throw ApiError.badRequest(
-        `Week ${weekIndex} is fully locked (every session committed); it is a ` +
-          'historical record and its targets can no longer be revised.',
+        `Week ${weekIndex} ended on ${week.endDate}; it is a historical ` +
+          'record and its targets can no longer be revised.',
         { programId, weekIndex, weekState: state },
       );
     }

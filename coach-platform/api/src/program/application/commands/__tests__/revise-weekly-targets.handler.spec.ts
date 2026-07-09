@@ -83,10 +83,24 @@ describe('ReviseWeeklyTargetsHandler', () => {
     expect(res).toEqual({ revised: true, weekIndex: 2 });
   });
 
-  it('rejects a fully locked week (historical record, closed to mutation)', async () => {
+  it('allows revising a fully locked week that is still CURRENT (reactive-edit path)', async () => {
     const { handler, repository } = setup({ week: week('locked') });
 
-    await expect(handler.execute(cmd)).rejects.toThrow(/fully locked/);
+    const res = await handler.execute(cmd);
+
+    expect(repository.reviseWeeklyTargets).toHaveBeenCalled();
+    expect(res).toEqual({ revised: true, weekIndex: 2 });
+  });
+
+  it('rejects a week whose endDate has passed (historical record, closed to mutation)', async () => {
+    const ended = {
+      ...week('locked'),
+      startDate: '2026-06-29',
+      endDate: '2026-07-05', // before fake-timer today (2026-07-07)
+    };
+    const { handler, repository } = setup({ week: ended });
+
+    await expect(handler.execute(cmd)).rejects.toThrow(/ended on 2026-07-05/);
     expect(repository.reviseWeeklyTargets).not.toHaveBeenCalled();
   });
 

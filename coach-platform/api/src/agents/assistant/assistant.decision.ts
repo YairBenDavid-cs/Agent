@@ -105,7 +105,14 @@ export function decideActions(
     return base(turn, [], false, null, false, blocked);
   }
 
-  if (turn.lane === 'white') {
+  // A white-labeled turn with NO week edit is pure conversation: nothing to
+  // write, nothing to fire. But a confirmed weekEdit on a white turn is a lane
+  // misclassification, not a no-op — the user explicitly asked to change the
+  // plan and the model built the edit payload. Honor the edit (fall through to
+  // the black-lane handling below, which writes nothing extra since captured
+  // is empty on a genuine white turn) rather than silently discarding it and
+  // letting the caller emit a false "missing details" failure.
+  if (turn.lane === 'white' && !turn.weekEdit?.confirmed) {
     return base(turn, [], false, null, false);
   }
 
@@ -154,10 +161,76 @@ export function decideActions(
   );
   const signalPipeline = selectPipeline(turn.captured);
   const resolved = resolveWeekEditPipeline(turn.weekEdit);
+
+  // A confirmed week edit that FAILED to resolve (missing plannedSessionId /
+  // newTargets / move payload) must fail closed entirely: never fall back to a
+  // broader captured-signal pipeline. Firing CONTENT_REPLAN off a malformed
+  // single-session edit would regenerate the whole week the user asked to
+  // touch one session of. The caller corrects the done-tense reply. A safety
+  // signal on the same turn is the one exception — it always fires.
+  if (turn.weekEdit?.confirmed && resolved === null) {
+    const safetyOnly =
+      signalPipeline === Pipeline.SAFETY_REPLAN ? signalPipeline : null;
+    return base(turn, writes, false, safetyOnly, false);
+  }
+
   const pipeline = strongerPipeline(signalPipeline, resolved?.pipeline ?? null);
   const weekEditContext =
     pipeline !== null && pipeline === resolved?.pipeline ? resolved.context : null;
   return base(turn, writes, false, pipeline, false, false, weekEditContext);
+}
+
+/**
+ * Explain, in model-facing terms, why a CONFIRMED week edit cannot fire —
+ * i.e. exactly which required field its kind is missing and how to fix it.
+ * Returns null when the edit is absent, unconfirmed, or complete.
+ *
+ * Thrown from the `assistant_turn` handler so the agentic loop's
+ * validator-bounce feeds it back and the model corrects itself IN the same
+ * turn (look up the id, re-call the tool) instead of the turn dying in the
+ * fail-closed "missing details" reply downstream. Keep the checks in lockstep
+ * with `resolveWeekEditPipeline` below.
+ */
+export function describeIncompleteWeekEdit(edit: WeekEdit | null): string | null {
+  if (!edit || !edit.confirmed) {
+    return null;
+  }
+
+  const lookupHint =
+    `Call query_planned_sessions for week ${edit.weekIndex} to find the ` +
+    'exact session (match on date and title), then call assistant_turn ' +
+    'again with the SAME weekEdit plus the missing field filled in. Do not ' +
+    'drop the weekEdit.';
+
+  if (edit.kind === 'session_reschedule') {
+    if (!edit.plannedSessionId) {
+      return `weekEdit is a confirmed session_reschedule but plannedSessionId is null. ${lookupHint}`;
+    }
+    if (!edit.newDate && !edit.newStartTime) {
+      return (
+        'weekEdit is a confirmed session_reschedule but both newDate and ' +
+        'newStartTime are null — set at least one, then call assistant_turn again.'
+      );
+    }
+    return null;
+  }
+
+  if (edit.kind === 'session_content_edit') {
+    if (!edit.plannedSessionId && edit.plannedSessionIds.length === 0) {
+      return `weekEdit is a confirmed session_content_edit but plannedSessionId is null and plannedSessionIds is empty. ${lookupHint}`;
+    }
+    return null;
+  }
+
+  // target_revision
+  if (!edit.newTargets) {
+    return (
+      'weekEdit is a confirmed target_revision but newTargets is null — fill ' +
+      'newTargets with the FULL replacement weekly budget (sessionCount, ' +
+      'totalVolume, keyGoals), then call assistant_turn again.'
+    );
+  }
+  return null;
 }
 
 /**

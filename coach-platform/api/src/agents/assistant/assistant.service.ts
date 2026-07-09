@@ -13,7 +13,8 @@ import { AnyAgentTool, defineTool } from '../shared/llm/agent-tool';
 import { AgenticLoopRuntime } from '../shared/llm/agentic-loop.runtime';
 import { ReadToolRegistry } from '../shared/read-tools/read-tool-registry.service';
 import { SeedContextBuilder } from '../shared/seed/seed-context.builder';
-import { PipelineRunResult } from '../orchestrator/pipeline.types';
+import { Pipeline, PipelineRunResult } from '../orchestrator/pipeline.types';
+import { ProgramWeek } from '../../program/domain/program.model';
 import { PipelineQueue } from '../shared/queue/pipeline-queue.service';
 import {
   AssistantLane,
@@ -21,7 +22,11 @@ import {
   assistantTurnSchema,
   WeekEdit,
 } from './assistant.contracts';
-import { decideActions, WeekBreachFacts } from './assistant.decision';
+import {
+  decideActions,
+  describeIncompleteWeekEdit,
+  WeekBreachFacts,
+} from './assistant.decision';
 import { GetActiveProgramQuery } from '../../program/application/queries/get-active-program.query';
 import { ActiveProgramResponse } from '../../program/application/dto/program.response';
 import { GetWeekQuery } from '../../planned-sessions/application/queries/get-week.query';
@@ -40,6 +45,19 @@ import { ApprovalService } from '../approval/approval.service';
 /** Appended to an ASK-mode reply when the user asked for a change we won't make. */
 const ASK_MODE_BLOCKED_HINT =
   "\n\n_(You're in Ask mode, so I haven't changed your plan. Switch to Plan mode and I'll make this change.)_";
+
+/**
+ * Pipelines that regenerate the week wholesale via `coach.generateWeek`. On a
+ * fully committed (`weekState: 'locked'`) week that run can NEVER succeed —
+ * the B9 guardrail rejects every `upsert_week_sessions` call, so the loop dies
+ * as "no terminal result". Refuse deterministically instead of enqueuing.
+ */
+const WHOLE_WEEK_REGEN_PIPELINES = new Set<Pipeline>([
+  Pipeline.CONTENT_REPLAN,
+  Pipeline.FULL_SESSION_DAY,
+  Pipeline.SAFETY_REPLAN,
+  Pipeline.TARGET_REVISION_REPLAN,
+]);
 
 export interface AssistantTurnOptions {
   /** Active program — keys any pending card batch a fired re-plan produces. */
@@ -299,6 +317,27 @@ export class AssistantService {
       }
     }
 
+    // Locked-week precondition: a whole-week regeneration aimed at a fully
+    // committed week is guaranteed to die inside the Coach loop (the B9
+    // guardrail rejects every write). Refuse here with a clear message — and
+    // point at the per-session edit paths, which DO work on a locked current
+    // week — instead of burning an LLM run on a cryptic abort.
+    if (firingPipeline && WHOLE_WEEK_REGEN_PIPELINES.has(firingPipeline)) {
+      const targetWeekIndex =
+        actions.weekEditContext?.weekIndex ?? seed.currentWeekIndex ?? null;
+      const targetWeek = (seed.skeletonWeeks as ProgramWeek[]).find(
+        (w) => w.weekIndex === targetWeekIndex,
+      );
+      if (targetWeek?.weekState === 'locked') {
+        firingPipeline = null;
+        reply =
+          `Week ${(targetWeekIndex ?? 0) + 1} is fully committed, so I can't ` +
+          "rebuild it wholesale — nothing on your plan was changed. I can " +
+          'still edit or move individual sessions this week: tell me which ' +
+          "session and what you'd like different, and I'll apply it directly.";
+      }
+    }
+
     // Done-tense honesty: the prompt has the model phrase a confirmed edit's
     // reply in past tense ("Done — moved it"), but a malformed edit resolves to
     // NO pipeline (fail closed). Never let a done-tense reply stand when
@@ -314,6 +353,22 @@ export class AssistantService {
         "I couldn't apply that change — the request was missing details I need " +
         '(like which session it targets). Nothing on your plan was changed. ' +
         'Could you point me at the exact session or goal?';
+    } else if (
+      // Done-tense honesty, part 2: a non-white turn that only captured
+      // preference signals fires nothing and changes NOTHING on the plan, yet
+      // the model sometimes phrases it as "Done — I've updated that session".
+      // Make the no-change explicit so the chat never claims a plan edit that
+      // did not happen.
+      turn.lane !== 'white' &&
+      turn.captured.length > 0 &&
+      !actions.awaitingConfirmation &&
+      !actions.intentBlocked &&
+      firingPipeline === null &&
+      actions.pipeline === null
+    ) {
+      reply =
+        `${reply}\n\n_(Saved as a coaching preference — nothing on your ` +
+        'existing plan was changed.)_';
     }
 
     let pipelineRun: PipelineRunResult | null = null;
@@ -592,7 +647,18 @@ export class AssistantService {
         'Declare the classified turn result (lane + reply + captured signals + optional clarifying question). Terminal: ends the turn.',
       schema: assistantTurnSchema,
       terminal: true,
-      handler: (args) => Promise.resolve(args),
+      handler: (args) => {
+        // Validator-bounce: a confirmed week edit missing a field its kind
+        // needs (usually plannedSessionId) would only die fail-closed
+        // downstream. Reject it HERE with a precise fix-it instruction so the
+        // loop feeds it back and the model resolves the id and retries within
+        // the same turn.
+        const incomplete = describeIncompleteWeekEdit(args.weekEdit);
+        if (incomplete) {
+          throw new Error(incomplete);
+        }
+        return Promise.resolve(args);
+      },
     });
   }
 }
